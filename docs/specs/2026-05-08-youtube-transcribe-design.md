@@ -99,6 +99,8 @@ youtube-transcribe/
 │       │   ├── gemini.py                 # google-genai SDK
 │       │   ├── groq.py                   # OpenAI-compat
 │       │   ├── openai_api.py             # OpenAI Whisper API
+│       │   ├── deepgram.py                # Deepgram Nova-3
+│       │   ├── assemblyai.py              # AssemblyAI
 │       │   └── custom.py                 # Generic OpenAI-compat
 │       ├── utils/
 │       │   ├── __init__.py
@@ -241,7 +243,33 @@ MODEL_MAP = {
 **API-ключ:** `OPENAI_API_KEY`.
 **Модели:** `whisper-1`.
 
-### 5.6 `custom` — OpenAI-совместимый API
+### 5.6 `deepgram` — Deepgram Nova-3
+
+**Когда:** альтернатива Whisper API. Нативно очень точные таймкоды на уровне слов, быстрая обработка.
+**Скорость:** 15–60 сек на час аудио.
+**Зависимости:** `deepgram-sdk` Python-пакет.
+**API-ключ:** `DEEPGRAM_API_KEY`. Получить: https://console.deepgram.com/ (бесплатный $200 стартовый кредит на новый аккаунт).
+**Модели:** `nova-3` (дефолт, точная), `nova-2` (стабильная), `enhanced` (быстрее).
+
+**Особенности:**
+- Возвращает слова с таймкодами на уровне слов нативно — для `.srt` отличное качество таймингов.
+- Параметр `diarize=True` доступен в API, но в v1 не используем (out of scope).
+- Конвертируем ответ Deepgram (`alternatives[0].words`) в наш `Segment[]` через группировку по фразам.
+
+### 5.7 `assemblyai` — AssemblyAI
+
+**Когда:** альтернатива со встроенной диаризацией (для будущего v2) и хорошим качеством на длинных интервью.
+**Скорость:** 30–90 сек на час (асинхронная очередь — отправляешь и ждёшь результат, SDK поллит сам).
+**Зависимости:** `assemblyai` Python-пакет.
+**API-ключ:** `ASSEMBLYAI_API_KEY`. Получить: https://www.assemblyai.com/dashboard/signup (бесплатный free tier).
+**Модели:** `best` (дефолт, точная), `nano` (быстрее, чуть менее точная).
+
+**Особенности:**
+- Загружает аудио в их CDN, ставит в очередь, ждёт готовности — всё прозрачно через SDK.
+- Возвращает `utterances` (фразы с таймингами) — кладём их прямо в наш `Segment[]`.
+- Поддержка диаризации (`speaker_labels=True`) есть, но в v1 не включаем.
+
+### 5.8 `custom` — OpenAI-совместимый API
 
 **Когда:** для гиков. Поддержка Deepgram-OpenAI-bridge, локальная LiteLLM, vLLM, etc.
 **Конфигурация:**
@@ -252,7 +280,7 @@ MODEL_MAP = {
 
 **Использует** OpenAI SDK с переопределённым `base_url`. Пользователь сам отвечает за совместимость.
 
-### 5.7 Smart-режим (не отдельный бэкенд, а композиция)
+### 5.9 Smart-режим (не отдельный бэкенд, а композиция)
 
 Когда `default_backend = "smart"`:
 1. Если URL — это YouTube → пробуем `subtitles`.
@@ -307,7 +335,15 @@ MODEL_MAP = {
   6) openai
      Облачный. Платный (~$0.006/мин). Нужен ключ.
 
-  7) custom
+  7) deepgram
+     Облачный. $200 стартовый кредит. Точная модель Nova-3. Нужен ключ.
+     Получить: https://console.deepgram.com/
+
+  8) assemblyai
+     Облачный. Free tier. Хорош для длинных интервью. Нужен ключ.
+     Получить: https://www.assemblyai.com/dashboard/signup
+
+  9) custom
      OpenAI-совместимый API. Для продвинутых.
 
 > 1
@@ -363,12 +399,14 @@ youtube-transcribe config wizard               # перезапустить ма
 youtube-transcribe <URL_или_путь_к_файлу> [опции]
 
 Опции выбора движка:
-  --backend {smart,subtitles,whisper-local,gemini,groq,openai,custom}
+  --backend {smart,subtitles,whisper-local,gemini,groq,openai,deepgram,assemblyai,custom}
                                          Какой движок использовать (default: из config)
   --whisper-model {turbo,large,medium,small,distil}
                                          Модель для whisper-local (default: turbo)
   --gemini-model NAME                    Модель Gemini (default: gemini-2.5-flash)
   --groq-model NAME                      Модель Groq (default: whisper-large-v3-turbo)
+  --deepgram-model NAME                  Модель Deepgram (default: nova-3)
+  --assemblyai-model NAME                Модель AssemblyAI (default: best)
 
 Опции вывода:
   --output-dir DIR                       Куда сохранить (default: ./transcripts)
@@ -530,6 +568,12 @@ model = "whisper-large-v3-turbo"
 [openai]
 model = "whisper-1"
 
+[deepgram]
+model = "nova-3"
+
+[assemblyai]
+model = "best"
+
 [custom]
 base_url = ""
 model = ""
@@ -553,6 +597,8 @@ fast_path_enabled = true               # пробовать субтитры в 
 GEMINI_API_KEY=...
 GROQ_API_KEY=...
 OPENAI_API_KEY=...
+DEEPGRAM_API_KEY=...
+ASSEMBLYAI_API_KEY=...
 CUSTOM_API_KEY=...
 ```
 
@@ -673,7 +719,7 @@ CUSTOM_API_KEY=...
 ## 18. Финальный чек-лист (повторение для удобства)
 
 - ✅ Дефолтный бэкенд: `whisper-local` (оффлайн, приватно).
-- ✅ 6 бэкендов: subtitles, whisper-local, gemini, groq, openai, custom + smart-композиция.
+- ✅ 8 бэкендов: subtitles, whisper-local, gemini, groq, openai, deepgram, assemblyai, custom + smart-композиция.
 - ✅ First-run wizard с автодетектом железа.
 - ✅ Переключение движков в чате (per-call / session / persistent).
 - ✅ Slash-команда `/transcribe`.
