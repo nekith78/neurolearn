@@ -48,7 +48,15 @@ class CLIInputError(Exception):
 
 class UnresolvableInput(Exception):
     """yt-dlp couldn't resolve one of the inline URLs (private/removed/blocked).
-    Caller decides whether to abort or collect into errors.log."""
+    Kept for backward-compat reference; no longer raised by resolve()."""
+
+
+@dataclass
+class ResolveFailure:
+    """A per-URL probe failure — spec extension §5 collect-and-continue."""
+    url: str
+    error: str      # str(exception) or human description
+    source: Source  # "inline" or "file"
 
 
 def parse_from_file(path: Path) -> list[str]:
@@ -105,16 +113,14 @@ def resolve(
     inputs: list[str],
     from_file: Path | None,
     filters: ResolverFilters,
-) -> list[ResolvedTarget]:
+) -> tuple[list[ResolvedTarget], list[ResolveFailure]]:
     """Expand user input into a flat list of ResolvedTarget. No media download.
 
-    KNOWN DEVIATION from spec extension §5: this function raises
-    UnresolvableInput on the FIRST inline URL that fails probing, instead of
-    collecting failures and continuing. The collect-and-continue behaviour
-    will be implemented in Task 20B (batch CLI), where each batch item gets
-    individually wrapped, failures land in errors.log, and the rest proceed.
-    Single-mode (Task 20) only ever passes one input, so the deviation has
-    no user-visible effect there.
+    Returns: (targets, failures).
+    - `targets`: successfully resolved videos (after dedup + per-source limit).
+    - `failures`: probe failures per spec extension §5 — caller handles them
+      (single-mode aborts; batch-mode logs them as BatchFailure(stage="resolve")
+      and continues with successful targets).
     """
     raw: list[tuple[str, Source]] = []
     for u in inputs:
@@ -126,13 +132,15 @@ def resolve(
         raise CLIInputError("No inputs given. Pass URL(s) or --from-file PATH.")
 
     targets: list[ResolvedTarget] = []
+    failures: list[ResolveFailure] = []
     seen_video_ids: set[str] = set()
 
     for url, src in raw:
         try:
             kind, info = probe_input(url)
         except Exception as e:
-            raise UnresolvableInput(f"{url}: {e}") from e
+            failures.append(ResolveFailure(url=url, error=str(e), source=src))
+            continue
 
         if kind == "local":
             t = _local_to_target(info["path"])
@@ -163,4 +171,4 @@ def resolve(
     # Reserved fields `since/until/min_duration/max_duration/include_shorts`
     # are placeholders for v0.3 — see spec extension §5 / §9.
 
-    return targets
+    return targets, failures

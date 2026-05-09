@@ -42,6 +42,7 @@ from skills.youtube_transcribe.utils.output_writer import (
 )
 from skills.youtube_transcribe.utils.resolver import (
     ResolvedTarget,
+    ResolveFailure,
     ResolverFilters,
     resolve,
 )
@@ -120,7 +121,11 @@ def transcribe_cmd(audio_or_url: str, **opts) -> None:
     if opts.get("no_fast_path"):
         cfg.fast_path_enabled = False
 
-    targets = resolve([audio_or_url], None, ResolverFilters())
+    targets, failures = resolve([audio_or_url], None, ResolverFilters())
+    if failures:
+        f = failures[0]
+        console.print(f"[red]Не удалось разобрать URL:[/red] {f.url}\n  {f.error}")
+        sys.exit(2)
     if len(targets) != 1:
         # Bare URL/file should always resolve to exactly one target.
         # If user passed a channel here, they should use `batch` instead.
@@ -301,15 +306,7 @@ def batch_cmd(
     fail_fast: bool,
     **opts,
 ) -> None:
-    """Batch-транскрибация: пачка URL, канал/плейлист, или --from-file.
-
-    KNOWN DEVIATION: `resolve()` raises UnresolvableInput on the *first*
-    probe failure instead of collect-and-continue (spec §5). For batch we
-    wrap each resolve call in a try/except and record the failure, but only
-    the first unresolvable URL per `resolve()` call will be caught; subsequent
-    ones will still abort. True per-URL collect-and-continue requires refactoring
-    resolve() internals — deferred to v0.3.
-    """
+    """Batch-транскрибация: пачка URL, канал/плейлист, или --from-file."""
     if not CONFIG_PATH.exists():
         run_wizard()
 
@@ -318,8 +315,20 @@ def batch_cmd(
     if opts.get("no_fast_path"):
         cfg.fast_path_enabled = False
 
-    targets = resolve(list(inputs), from_file, ResolverFilters(limit=limit))
-    if not targets:
+    targets, resolve_failures = resolve(list(inputs), from_file, ResolverFilters(limit=limit))
+
+    # Convert resolve failures into BatchFailure entries (stage="resolve")
+    initial_failures: list[BatchFailure] = []
+    for rf in resolve_failures:
+        initial_failures.append(BatchFailure(
+            index=len(initial_failures) + 1,
+            url=rf.url,
+            stage="resolve",
+            error_text=rf.error,
+            hint=_diagnose_failure_hint("resolve", rf.error),
+        ))
+
+    if not targets and not initial_failures:
         console.print("[yellow]Нет ни одного видео по этому входу.[/yellow]")
         sys.exit(0)
 
@@ -334,10 +343,11 @@ def batch_cmd(
 
     backend_name = opts.get("backend") or cfg.default_backend
     statuses: list[BatchVideoStatus] = []
-    failures: list[BatchFailure] = []
+    failures: list[BatchFailure] = list(initial_failures)
+    target_index_offset = len(initial_failures)
 
     started = datetime.now()
-    for i, target in enumerate(targets, start=1):
+    for i, target in enumerate(targets, start=1 + target_index_offset):
         try:
             result = run_pipeline(
                 target, cfg,
@@ -396,7 +406,7 @@ def batch_cmd(
         created_at=started,
         source_type=_infer_source_type(targets, from_file),
         source_url=(
-            targets[0].url if all(t.source == "channel" for t in targets) else None
+            targets[0].url if targets and all(t.source == "channel" for t in targets) else None
         ),
         backend=backend_name,
         backend_options={

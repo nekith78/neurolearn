@@ -66,7 +66,7 @@ def test_batch_continue_on_error_collects_failures(tmp_path):
     with patch("skills.youtube_transcribe.transcribe.run_wizard"), \
          patch("skills.youtube_transcribe.transcribe.CONFIG_PATH") as cp, \
          patch("skills.youtube_transcribe.transcribe.load_config", return_value=cfg), \
-         patch("skills.youtube_transcribe.transcribe.resolve", return_value=targets), \
+         patch("skills.youtube_transcribe.transcribe.resolve", return_value=(targets, [])), \
          patch("skills.youtube_transcribe.transcribe.run_pipeline",
                side_effect=pipeline_side_effect) as rp, \
          patches[0], patches[1], \
@@ -106,7 +106,7 @@ def test_batch_fail_fast_aborts_on_first_error(tmp_path):
     with patch("skills.youtube_transcribe.transcribe.run_wizard"), \
          patch("skills.youtube_transcribe.transcribe.CONFIG_PATH") as cp, \
          patch("skills.youtube_transcribe.transcribe.load_config", return_value=cfg), \
-         patch("skills.youtube_transcribe.transcribe.resolve", return_value=targets), \
+         patch("skills.youtube_transcribe.transcribe.resolve", return_value=(targets, [])), \
          patch("skills.youtube_transcribe.transcribe.run_pipeline",
                side_effect=pipeline_side_effect) as rp, \
          patches[0], patches[1], patches[2], patches[3], patches[4]:
@@ -134,7 +134,7 @@ def test_batch_from_file_only(tmp_path):
          patch("skills.youtube_transcribe.transcribe.CONFIG_PATH") as cp, \
          patch("skills.youtube_transcribe.transcribe.load_config", return_value=cfg), \
          patch("skills.youtube_transcribe.transcribe.resolve",
-               return_value=[_target(0)]) as r, \
+               return_value=([_target(0)], [])) as r, \
          patch("skills.youtube_transcribe.transcribe.run_pipeline",
                return_value=_ok_result(0)), \
          patches[0], patches[1], patches[2], patches[3], patches[4]:

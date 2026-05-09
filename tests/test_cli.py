@@ -42,7 +42,7 @@ def test_cli_transcribe_subcommand_local_file(tmp_path):
          patch("skills.youtube_transcribe.transcribe.load_config",
                return_value=_fake_cfg(tmp_path)), \
          patch("skills.youtube_transcribe.transcribe.resolve",
-               return_value=[_target_local(audio)]), \
+               return_value=([_target_local(audio)], [])), \
          patch("skills.youtube_transcribe.transcribe.run_pipeline",
                return_value=_result()), \
          patch("skills.youtube_transcribe.transcribe.write_txt_with_timestamps"), \
@@ -63,7 +63,7 @@ def test_cli_bare_url_routes_to_transcribe(tmp_path):
          patch("skills.youtube_transcribe.transcribe.load_config",
                return_value=_fake_cfg(tmp_path)), \
          patch("skills.youtube_transcribe.transcribe.resolve",
-               return_value=[_target_local(tmp_path / "x.mp3")]) as r, \
+               return_value=([_target_local(tmp_path / "x.mp3")], [])) as r, \
          patch("skills.youtube_transcribe.transcribe.run_pipeline",
                return_value=_result()), \
          patch("skills.youtube_transcribe.transcribe.write_txt_with_timestamps"), \
@@ -87,7 +87,7 @@ def test_cli_transcribe_propagates_backend_not_configured(tmp_path):
          patch("skills.youtube_transcribe.transcribe.load_config",
                return_value=_fake_cfg(tmp_path)), \
          patch("skills.youtube_transcribe.transcribe.resolve",
-               return_value=[_target_local(audio)]), \
+               return_value=([_target_local(audio)], [])), \
          patch("skills.youtube_transcribe.transcribe.run_pipeline",
                side_effect=BackendNotConfigured("GEMINI_API_KEY missing")):
         cp.exists.return_value = True

@@ -6,6 +6,7 @@ import pytest
 from skills.youtube_transcribe.utils.downloader import ChannelEntry
 from skills.youtube_transcribe.utils.resolver import (
     ResolvedTarget,
+    ResolveFailure,
     ResolverFilters,
     resolve,
     parse_from_file,
@@ -33,7 +34,8 @@ def _channel_entries(*pairs: tuple[str, str]) -> list[ChannelEntry]:
 def test_resolve_inline_single_url(tmp_path):
     with patch("skills.youtube_transcribe.utils.resolver.probe_input",
                return_value=_video_info("aaa")):
-        targets = resolve(["https://youtu.be/aaa"], None, ResolverFilters())
+        targets, failures = resolve(["https://youtu.be/aaa"], None, ResolverFilters())
+    assert failures == []
     assert len(targets) == 1
     assert targets[0].url == "https://youtu.be/aaa"
     assert targets[0].source == "inline"
@@ -47,8 +49,9 @@ def test_resolve_channel_applies_limit():
                                            [(v, t) for v, t in pairs])), \
          patch("skills.youtube_transcribe.utils.resolver.expand_channel_or_playlist",
                return_value=_channel_entries(*pairs[:10])):
-        targets = resolve(["https://youtube.com/@anth"], None,
-                          ResolverFilters(limit=10))
+        targets, failures = resolve(["https://youtube.com/@anth"], None,
+                                    ResolverFilters(limit=10))
+    assert failures == []
     assert len(targets) == 10
     assert all(t.source == "channel" for t in targets)
     assert targets[0].video_id == "v0"
@@ -61,10 +64,11 @@ def test_resolve_dedup_inline_and_channel_keeps_first():
                                                               [("v0", "v0"), ("v1", "v1")])]), \
          patch("skills.youtube_transcribe.utils.resolver.expand_channel_or_playlist",
                return_value=_channel_entries(("v0", "v0"), ("v1", "v1"))):
-        targets = resolve(
+        targets, failures = resolve(
             ["https://youtu.be/v0", "https://youtube.com/@anth"],
             None, ResolverFilters(limit=10),
         )
+    assert failures == []
     ids = [t.video_id for t in targets]
     assert ids == ["v0", "v1"]
     assert targets[0].source == "inline"
@@ -77,11 +81,33 @@ def test_resolve_no_inputs_raises():
 
 
 def test_resolve_unresolvable_url_collected_as_failure():
+    """Per spec §5: yt-dlp probe failure is collected, doesn't abort the resolve."""
     with patch("skills.youtube_transcribe.utils.resolver.probe_input",
                side_effect=Exception("HTTP 403")):
-        with pytest.raises(UnresolvableInput) as exc:
-            resolve(["https://youtu.be/blocked"], None, ResolverFilters())
-    assert "blocked" in str(exc.value)
+        targets, failures = resolve(["https://youtu.be/blocked"], None, ResolverFilters())
+    assert targets == []
+    assert len(failures) == 1
+    assert failures[0].url == "https://youtu.be/blocked"
+    assert "403" in failures[0].error
+
+
+def test_resolve_partial_failure_keeps_good_inputs():
+    """Bad URL doesn't abort the rest — collect-and-continue."""
+    def fake_probe(url):
+        if "blocked" in url:
+            raise Exception("HTTP 403")
+        return ("video", {"id": "good", "title": "Hello", "duration": 60,
+                          "upload_date": "20260420", "channel": "@x"})
+    with patch("skills.youtube_transcribe.utils.resolver.probe_input",
+               side_effect=fake_probe):
+        targets, failures = resolve(
+            ["https://youtu.be/blocked", "https://youtu.be/good"],
+            None, ResolverFilters(),
+        )
+    assert len(targets) == 1
+    assert targets[0].video_id == "good"
+    assert len(failures) == 1
+    assert "blocked" in failures[0].url
 
 
 def test_parse_from_file_skips_comments_and_blanks(tmp_path):
@@ -110,7 +136,8 @@ def test_resolve_from_file_only(tmp_path):
     f.write_text("https://youtu.be/AAA\nhttps://youtu.be/BBB\n", encoding="utf-8")
     with patch("skills.youtube_transcribe.utils.resolver.probe_input",
                side_effect=[_video_info("AAA"), _video_info("BBB")]):
-        targets = resolve([], f, ResolverFilters())
+        targets, failures = resolve([], f, ResolverFilters())
+    assert failures == []
     assert len(targets) == 2
     assert {t.video_id for t in targets} == {"AAA", "BBB"}
     assert all(t.source == "file" for t in targets)
@@ -121,7 +148,8 @@ def test_resolve_local_path(tmp_path):
     audio.write_bytes(b"f")
     with patch("skills.youtube_transcribe.utils.resolver.probe_input",
                return_value=("local", {"path": str(audio)})):
-        targets = resolve([str(audio)], None, ResolverFilters())
+        targets, failures = resolve([str(audio)], None, ResolverFilters())
+    assert failures == []
     assert len(targets) == 1
     assert targets[0].source == "single"
     assert targets[0].url == str(audio)
