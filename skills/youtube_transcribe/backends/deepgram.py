@@ -29,15 +29,15 @@ _MAX_WORDS_PER_SEGMENT = 15
 
 def _build_client(api_key: str):
     from deepgram import DeepgramClient
-    return DeepgramClient(api_key)
+    return DeepgramClient(api_key=api_key)
 
 
 def _group_words_into_segments(words: list) -> list[Segment]:
     """Group word-level Deepgram output into sentence-level Segments.
 
-    Each item in *words* is expected to expose .word, .start, .end
-    (Pydantic model fields from deepgram SDK 7.x, or any MagicMock equivalent
-    used in tests).
+    Each item in *words* is expected to expose .word, .punctuated_word (optional),
+    .start, .end (Pydantic model fields from deepgram SDK 7.x, or any MagicMock
+    equivalent used in tests).
     """
     segments: list[Segment] = []
     if not words:
@@ -56,7 +56,8 @@ def _group_words_into_segments(words: list) -> list[Segment]:
             ))
 
     for i, w in enumerate(words):
-        w_text: str = (w.word or "").strip()
+        _pw = getattr(w, "punctuated_word", None)
+        w_text: str = ((_pw if isinstance(_pw, str) else None) or w.word or "").strip()
         w_start: float = float(w.start or 0.0)
         w_end: float = float(w.end or w_start)
 

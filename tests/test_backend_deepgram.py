@@ -5,6 +5,8 @@ SDK version: deepgram-sdk>=7.x
 API path: client.listen.v1.media.transcribe_file(request=bytes_data, ...)
 Response: Pydantic model (accessed via .results.channels[0].alternatives[0].words)
 """
+import sys
+from types import SimpleNamespace
 from unittest.mock import patch, MagicMock
 from pathlib import Path
 
@@ -309,3 +311,39 @@ def test_backend_default_model():
 def test_backend_custom_model():
     b = DeepgramBackend(model="nova-2")
     assert b.model == "nova-2"
+
+
+# ---------------------------------------------------------------------------
+# Fix 1 — DeepgramClient must receive api_key as kwarg
+# ---------------------------------------------------------------------------
+
+def test_build_client_uses_kwarg_api_key():
+    """Real SDK 7.x rejects positional api_key — verify our wrapper passes as kwarg."""
+    from skills.youtube_transcribe.backends import deepgram as dg_module
+
+    fake_dg_client = MagicMock()
+    fake_module = MagicMock()
+    fake_module.DeepgramClient = MagicMock(return_value=fake_dg_client)
+    with patch.dict(sys.modules, {"deepgram": fake_module}):
+        dg_module._build_client("test-key")
+        # Must be called with kwarg form
+        fake_module.DeepgramClient.assert_called_once_with(api_key="test-key")
+
+
+# ---------------------------------------------------------------------------
+# Fix 2 — sentence-end heuristic must use punctuated_word, not word
+# ---------------------------------------------------------------------------
+
+def test_word_grouping_uses_punctuated_word_when_present():
+    """Sentence-end heuristic must read .punctuated_word, not .word."""
+    # Two words: "hello" then "world." — second has punctuation in punctuated_word only
+    fake_words = [
+        SimpleNamespace(word="hello", punctuated_word="Hello", start=0.0, end=0.5),
+        SimpleNamespace(word="world", punctuated_word="world.", start=0.5, end=1.0),
+        SimpleNamespace(word="next", punctuated_word="Next", start=1.5, end=1.8),
+    ]
+    segs = _group_words_into_segments(fake_words)
+    # Expect a segment break after "world." because of sentence-end punctuation
+    assert len(segs) == 2, f"expected 2 segments after 'world.', got {len(segs)}"
+    assert "world." in segs[0].text
+    assert "Next" in segs[1].text
