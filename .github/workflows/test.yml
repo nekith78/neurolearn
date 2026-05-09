@@ -1,0 +1,38 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  unit:
+    name: unit (py${{ matrix.python }} on ${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-14, windows-latest]
+        python: ["3.10", "3.12"]
+        # macos-14 is arm64 (Apple Silicon) on GitHub-hosted runners — exercises the mlx-whisper marker path
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Set up Python ${{ matrix.python }}
+        run: uv python install ${{ matrix.python }} && uv python pin ${{ matrix.python }}
+
+      - name: Sync dependencies
+        run: uv sync --extra dev
+
+      - name: Run unit tests (e2e smoke skipped without RUN_E2E_SMOKE)
+        run: uv run pytest -q --tb=short
+
+      # E2E smoke is intentionally NOT run in CI by default — it hits real YouTube
+      # and pulls 600MB models on the mlx path. Trigger manually via workflow_dispatch
+      # or a separate scheduled job once we have a stable test fixture.

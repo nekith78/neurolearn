@@ -17,10 +17,10 @@ dependencies = [
     "yt-dlp>=2024.10.0",
     "youtube-transcript-api>=0.6.2",
     # Cloud SDKs (small, install all by default)
-    "google-genai>=0.3.0",
+    "google-genai>=1.0.0",                 # 0.x had unstable API; we target the stable Client/files/models pattern
     "groq>=0.11.0",
     "openai>=1.50.0",
-    "deepgram-sdk>=3.7.0",
+    "deepgram-sdk>=7.0.0",                 # 7.x rewrote the API (client.listen.v1.media.transcribe_file); 3.x/4.x not supported by our backend
     "assemblyai>=0.34.0",
     # Local Whisper — Windows/Linux/Intel-Mac path
     # NOT installed on macOS arm64: faster-whisper 1.2+ requires onnxruntime
