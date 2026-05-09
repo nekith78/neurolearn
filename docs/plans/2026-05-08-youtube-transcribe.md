@@ -2,13 +2,15 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Реализовать переиспользуемый skill `youtube-transcribe`: транскрибация YouTube/локальных медиа через 8 взаимозаменяемых бэкендов с дефолтом на локальный Whisper, first-run wizard, slash-команда, три способа установки, готовность к публикации в GitHub и валидации на Mac.
+**Goal:** Реализовать переиспользуемый skill `youtube-transcribe`: транскрибация YouTube/локальных медиа через 8 взаимозаменяемых бэкендов с дефолтом на локальный Whisper, first-run wizard, slash-команда, три способа установки, **batch-режим (несколько URL / канал / плейлист → combined.md для последующей обработки в Claude-чате)**, готовность к публикации в GitHub и валидации на Mac.
 
-**Architecture:** Python-проект с абстракцией `Transcriber` (Protocol). Каждый бэкенд — один файл, реализующий интерфейс. CLI на Click с sub-командами. Конфиг — `~/.youtube-transcribe/config.toml` + `.env`. Тесты — pytest, моки на subprocess/SDK. Дистрибуция: Claude Code plugin, личный skill, uv tool — один репо обслуживает все три.
+**Architecture:** Python-проект с абстракцией `Transcriber` (Protocol). Каждый бэкенд — один файл, реализующий интерфейс. CLI на Click с sub-командами `transcribe` (single) и `batch`, общий `run_pipeline()` core (single = batch из 1). Конфиг — `~/.youtube-transcribe/config.toml` + `.env`. Тесты — pytest, моки на subprocess/SDK. Дистрибуция: Claude Code plugin, личный skill, uv tool — один репо обслуживает все три.
 
 **Tech Stack:** Python 3.10+, uv, Click, Rich, faster-whisper, mlx-whisper, yt-dlp, youtube-transcript-api, google-genai, groq, openai, deepgram-sdk, assemblyai, pytest, tomli, python-dotenv.
 
-**Spec:** `docs/specs/2026-05-08-youtube-transcribe-design.md`
+**Spec:**
+- Базовая (v0.1, single): `docs/specs/2026-05-08-youtube-transcribe-design.md`
+- Расширение (batch): `docs/specs/2026-05-09-youtube-transcribe-v01-batch-extension-design.md`
 
 ---
 
@@ -19,7 +21,8 @@ youtube-transcribe/
 ├── .claude-plugin/plugin.json            ← Task 3
 ├── skills/youtube-transcribe/
 │   ├── SKILL.md                          ← Task 22
-│   ├── transcribe.py                     ← Task 20-21
+│   ├── transcribe.py                     ← Task 20 (single + cli root) / Task 20B (batch)
+│   ├── pipeline.py                       ← Task 20 (run_pipeline core, shared by single & batch)
 │   ├── wizard.py                         ← Task 19
 │   ├── config.py                         ← Task 6
 │   ├── backends/
@@ -34,8 +37,9 @@ youtube-transcribe/
 │   │   └── custom.py                     ← Task 17
 │   └── utils/
 │       ├── platform_detect.py            ← Task 4
-│       ├── output_writer.py              ← Task 5
-│       └── downloader.py                 ← Task 7
+│       ├── output_writer.py              ← Task 5 (per-video) + Task 5 batch writers
+│       ├── downloader.py                 ← Task 7 (audio dl + probe_input + expand_channel_or_playlist)
+│       └── resolver.py                   ← Task 7B (NEW — input → list[ResolvedTarget])
 ├── commands/transcribe.md                ← Task 23
 ├── pyproject.toml                        ← Task 1
 ├── README.md                             ← Task 24
@@ -48,12 +52,16 @@ youtube-transcribe/
 
 Phases:
 - **Phase 1 (Tasks 1–3):** Repo bootstrap.
-- **Phase 2 (Tasks 4–8):** Foundations — utils + backend interface.
+- **Phase 2 (Tasks 4–8):** Foundations — utils + backend interface. Включает Task 7B (Resolver).
 - **Phase 3 (Tasks 9–17):** Backends — все 8.
-- **Phase 4 (Tasks 18–21):** Сборка — composition, CLI, wizard.
-- **Phase 5 (Tasks 22–25):** Claude Code интеграция и документация.
-- **Phase 6 (Tasks 26–27):** Smoke-тест и handoff на Mac.
+- **Phase 4 (Tasks 18–21):** Сборка — composition, CLI, wizard. Task 20 = single + run_pipeline core; Task 20B = batch sub-command.
+- **Phase 5 (Tasks 22–25):** Claude Code интеграция и документация (включая batch-триггеры).
+- **Phase 6 (Tasks 26–27):** Smoke-тест (single + batch) и handoff на Mac.
 - **Phase 7 (Tasks 28–30):** Mac validation. Выполняется на Mac после `git pull`.
+
+> **Note on numbering:** Tasks `7B` и `20B` вставлены после расширения плана через брейнсторм 2026-05-09.
+> Они существуют как самостоятельные таски, но без сквозной перенумерации Tasks 8–30 — чтобы коммиты
+> «Task N» по-прежнему совпадали с базовым планом. Таски 7B и 20B исполняются строго после 7 и 20 соответственно.
 
 ---
 
@@ -681,11 +689,338 @@ def sanitize_filename(name: str) -> str:
 Run: `uv run pytest tests/test_output_writer.py -v`
 Expected: 6 PASS.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 5: Commit per-video writers**
 
 ```bash
 git add skills/youtube_transcribe/utils/output_writer.py tests/test_output_writer.py
 git commit -m "feat(utils): output writer for .txt (with/without timestamps) and .srt"
+```
+
+#### Step 6 onward — batch writers (combined.md, manifest.json, errors.log)
+
+> Расширение из брейнсторма 2026-05-09: добавляются writers для batch-режима. Используется в Task 20B.
+
+- [ ] **Step 6: Failing-test для batch writers**
+
+Дописать в `tests/test_output_writer.py`:
+
+```python
+import json
+from datetime import date, datetime
+from skills.youtube_transcribe.utils.output_writer import (
+    BatchMeta,
+    BatchFailure,
+    BatchVideoStatus,
+    write_combined_md,
+    write_manifest_json,
+    write_errors_log,
+)
+
+
+def _make_meta() -> BatchMeta:
+    return BatchMeta(
+        batch_name="anthropicai-test",
+        created_at=datetime(2026, 5, 9, 15, 30, 12),
+        source_type="channel",
+        source_url="https://youtube.com/@anthropicai",
+        backend="whisper-local",
+        backend_options={"whisper_model": "turbo"},
+        language="auto",
+    )
+
+
+def _make_video_status(idx: int, ok: bool = True) -> BatchVideoStatus:
+    return BatchVideoStatus(
+        index=idx,
+        url=f"https://youtu.be/aaa{idx}",
+        video_id=f"aaa{idx}",
+        title=f"Video {idx}",
+        upload_date=date(2026, 4, 20),
+        duration_sec=134,
+        channel="@anthropicai",
+        language_detected="en",
+        text="Hello world. This is a test transcript.",
+        files={"txt": f"videos/0{idx}_video-{idx}_aaa{idx}.txt",
+               "srt": f"videos/0{idx}_video-{idx}_aaa{idx}.srt"},
+        status="ok" if ok else "failed",
+        error=None if ok else "stub",
+    )
+
+
+def test_write_combined_md_includes_yaml_frontmatter(tmp_path):
+    meta = _make_meta()
+    videos = [_make_video_status(1), _make_video_status(2)]
+    path = write_combined_md(videos, meta, tmp_path)
+    text = path.read_text(encoding="utf-8")
+    assert text.startswith("---\n")
+    assert "batch_name: anthropicai-test" in text
+    assert "total: 2" in text
+    assert "ok: 2" in text
+    assert "## 1. Video 1" in text
+    assert "## 2. Video 2" in text
+    assert "Hello world." in text
+
+
+def test_write_combined_md_renders_dashes_for_missing_metadata(tmp_path):
+    meta = _make_meta()
+    bad = _make_video_status(1)
+    bad.upload_date = None
+    bad.duration_sec = None
+    path = write_combined_md([bad], meta, tmp_path)
+    text = path.read_text(encoding="utf-8")
+    # Both date and duration rendered as em-dash placeholder
+    assert "| Date | — |" in text or "| Дата | — |" in text
+    assert "—" in text
+
+
+def test_write_manifest_json_schema(tmp_path):
+    meta = _make_meta()
+    videos = [_make_video_status(1)]
+    failures = [BatchFailure(
+        index=2,
+        url="https://youtu.be/bad",
+        stage="download",
+        error_text="HTTP 403",
+        hint="try --cookies-from-browser chrome",
+    )]
+    path = write_manifest_json(videos, failures, meta, tmp_path)
+    data = json.loads(path.read_text(encoding="utf-8"))
+    assert data["batch_name"] == "anthropicai-test"
+    assert data["stats"]["total"] == 2  # 1 ok + 1 failed
+    assert data["stats"]["ok"] == 1
+    assert data["stats"]["failed"] == 1
+    assert data["videos"][0]["status"] == "ok"
+    failed_entry = next(v for v in data["videos"] if v["status"] == "failed")
+    assert failed_entry["error"] == "HTTP 403"
+
+
+def test_write_errors_log_returns_none_when_no_failures(tmp_path):
+    assert write_errors_log([], tmp_path) is None
+    assert not (tmp_path / "errors.log").exists()
+
+
+def test_write_errors_log_format(tmp_path):
+    failures = [BatchFailure(
+        index=7,
+        url="https://youtu.be/CCC",
+        stage="download",
+        error_text="HTTP 403 — 'Sign in to confirm you're not a bot'",
+        hint="try --cookies-from-browser chrome",
+    )]
+    path = write_errors_log(failures, tmp_path)
+    assert path is not None
+    text = path.read_text(encoding="utf-8")
+    assert "FAILED #7 https://youtu.be/CCC" in text
+    assert "Stage: download" in text
+    assert "Reason: HTTP 403" in text
+    assert "Hint: try --cookies-from-browser chrome" in text
+```
+
+- [ ] **Step 7: Run, verify FAIL**
+
+Run: `uv run pytest tests/test_output_writer.py -v`
+Expected: 5 new fails (ImportError on `BatchMeta` etc.).
+
+- [ ] **Step 8: Implement batch writers — extend `output_writer.py`**
+
+Дописать в `skills/youtube_transcribe/utils/output_writer.py` (в конец файла):
+
+```python
+import json as _json
+from dataclasses import dataclass, field, asdict
+from datetime import date, datetime
+from typing import Literal
+
+
+SourceType = Literal["channel", "playlist", "file", "inline", "mixed"]
+Stage = Literal["resolve", "download", "backend", "write"]
+
+
+@dataclass
+class BatchMeta:
+    """Метадата batch-прогона. Передаётся в writers, попадает в YAML/JSON."""
+    batch_name: str
+    created_at: datetime
+    source_type: SourceType
+    source_url: str | None
+    backend: str
+    backend_options: dict
+    language: str
+
+
+@dataclass
+class BatchVideoStatus:
+    """Один итоговый ряд таблицы по результату прогона одного видео."""
+    index: int
+    url: str
+    video_id: str | None
+    title: str | None
+    upload_date: date | None
+    duration_sec: int | None
+    channel: str | None
+    language_detected: str | None
+    text: str                              # flat-text транскрипта (без таймкодов)
+    files: dict                            # {"txt": "...", "srt": "..."} relative paths
+    status: Literal["ok", "failed"]
+    error: str | None = None
+
+
+@dataclass
+class BatchFailure:
+    """Один отказ в batch — для errors.log и manifest.json."""
+    index: int
+    url: str
+    stage: Stage
+    error_text: str
+    hint: str | None = None
+
+
+def _fmt_duration(sec: int | None) -> str:
+    if sec is None:
+        return "—"
+    mm, ss = divmod(sec, 60)
+    hh, mm = divmod(mm, 60)
+    return f"{hh}:{mm:02d}:{ss:02d}" if hh else f"{mm}:{ss:02d}"
+
+
+def _fmt_date(d: date | None) -> str:
+    return d.isoformat() if d else "—"
+
+
+def _yaml_frontmatter(meta: BatchMeta, ok: int, failed: int, total: int) -> str:
+    return (
+        "---\n"
+        f"batch_name: {meta.batch_name}\n"
+        f"created_at: {meta.created_at.isoformat()}\n"
+        f"source: {meta.source_type}\n"
+        f"source_url: {meta.source_url or 'null'}\n"
+        f"total: {total}\n"
+        f"ok: {ok}\n"
+        f"failed: {failed}\n"
+        f"backend: {meta.backend}\n"
+        + "".join(f"{k}: {v}\n" for k, v in meta.backend_options.items())
+        + f"language: {meta.language}\n"
+        "---\n"
+    )
+
+
+def write_combined_md(
+    videos: list[BatchVideoStatus],
+    meta: BatchMeta,
+    output_dir: Path,
+) -> Path:
+    """Render combined.md with YAML front-matter + per-video sections (flat text, no timestamps)."""
+    output_dir.mkdir(parents=True, exist_ok=True)
+    ok = sum(1 for v in videos if v.status == "ok")
+    failed = sum(1 for v in videos if v.status == "failed")
+    total = ok + failed
+
+    parts: list[str] = []
+    parts.append(_yaml_frontmatter(meta, ok=ok, failed=failed, total=total))
+    parts.append(f"\n# Batch transcript — {meta.batch_name} — {meta.created_at.date().isoformat()}\n")
+    parts.append(f"\n{total} видео, бэкенд: {meta.backend}. {ok} успешно, {failed} с ошибкой.\n")
+
+    for v in videos:
+        if v.status != "ok":
+            continue
+        parts.append("\n---\n\n")
+        parts.append(f"## {v.index}. {v.title or '(без названия)'}\n\n")
+        parts.append("| Поле | Значение |\n|---|---|\n")
+        parts.append(f"| URL | {v.url} |\n")
+        parts.append(f"| Video ID | {v.video_id or '—'} |\n")
+        parts.append(f"| Date | {_fmt_date(v.upload_date)} |\n")
+        parts.append(f"| Duration | {_fmt_duration(v.duration_sec)} |\n")
+        parts.append(f"| Channel | {v.channel or '—'} |\n")
+        parts.append(f"| Language detected | {v.language_detected or '—'} |\n\n")
+        parts.append(v.text.strip() + "\n")
+
+    path = output_dir / "combined.md"
+    path.write_text("".join(parts), encoding="utf-8")
+    return path
+
+
+def write_manifest_json(
+    videos: list[BatchVideoStatus],
+    failures: list[BatchFailure],
+    meta: BatchMeta,
+    output_dir: Path,
+) -> Path:
+    """Render machine-readable manifest.json mirroring combined.md structure."""
+    output_dir.mkdir(parents=True, exist_ok=True)
+    ok = sum(1 for v in videos if v.status == "ok")
+    failed = len(failures) + sum(1 for v in videos if v.status == "failed")
+    total = ok + failed
+
+    out: list[dict] = []
+    for v in videos:
+        out.append({
+            "index": v.index,
+            "url": v.url,
+            "video_id": v.video_id,
+            "title": v.title,
+            "upload_date": v.upload_date.isoformat() if v.upload_date else None,
+            "duration_sec": v.duration_sec,
+            "channel": v.channel,
+            "language_detected": v.language_detected,
+            "files": v.files,
+            "status": v.status,
+            "error": v.error,
+        })
+    for f in failures:
+        out.append({
+            "index": f.index,
+            "url": f.url,
+            "status": "failed",
+            "stage": f.stage,
+            "error": f.error_text,
+            "hint": f.hint,
+        })
+    out.sort(key=lambda x: x["index"])
+
+    payload = {
+        "batch_name": meta.batch_name,
+        "created_at": meta.created_at.isoformat(),
+        "source": {"type": meta.source_type, "url": meta.source_url},
+        "config": {"backend": meta.backend, **meta.backend_options, "language": meta.language},
+        "stats": {"total": total, "ok": ok, "failed": failed},
+        "videos": out,
+    }
+    path = output_dir / "manifest.json"
+    path.write_text(_json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+    return path
+
+
+def write_errors_log(
+    failures: list[BatchFailure],
+    output_dir: Path,
+) -> Path | None:
+    """Write errors.log only if there were failures; otherwise return None."""
+    if not failures:
+        return None
+    output_dir.mkdir(parents=True, exist_ok=True)
+    lines: list[str] = []
+    for f in failures:
+        lines.append(f"[{datetime.now().isoformat(timespec='seconds')}] FAILED #{f.index} {f.url}")
+        lines.append(f"  Stage: {f.stage}")
+        lines.append(f"  Reason: {f.error_text}")
+        if f.hint:
+            lines.append(f"  Hint: {f.hint}")
+        lines.append("")
+    path = output_dir / "errors.log"
+    path.write_text("\n".join(lines), encoding="utf-8")
+    return path
+```
+
+- [ ] **Step 9: Run, verify all PASS**
+
+Run: `uv run pytest tests/test_output_writer.py -v`
+Expected: все 11 тестов PASS (6 базовых + 5 новых batch).
+
+- [ ] **Step 10: Commit batch writers**
+
+```bash
+git add skills/youtube_transcribe/utils/output_writer.py tests/test_output_writer.py
+git commit -m "feat(utils): batch writers — combined.md, manifest.json, errors.log"
 ```
 
 ---
@@ -1257,11 +1592,525 @@ def download_audio(
 
 Run: `uv run pytest tests/test_downloader.py -v`
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 5: Commit base downloader**
 
 ```bash
 git add skills/youtube_transcribe/utils/downloader.py tests/test_downloader.py
 git commit -m "feat(utils): yt-dlp wrapper with cookies, auto-update, friendly errors"
+```
+
+#### Step 6 onward — probe_input + expand_channel_or_playlist (для Resolver)
+
+> Расширение из брейнсторма 2026-05-09. Используется в Task 7B (Resolver). Обе функции — обёртки над `yt-dlp extract_info(extract_flat=True)`, **без скачивания медиа** — только метадата.
+
+- [ ] **Step 6: Failing-test для probe_input + expand_channel_or_playlist**
+
+Дописать в `tests/test_downloader.py`:
+
+```python
+from skills.youtube_transcribe.utils.downloader import (
+    probe_input,
+    expand_channel_or_playlist,
+    ChannelEntry,
+)
+
+
+def test_probe_input_video(tmp_path):
+    fake_info = {"_type": "video", "id": "abc123", "title": "Hello",
+                 "duration": 134, "upload_date": "20260420", "channel": "@anth"}
+    with patch("skills.youtube_transcribe.utils.downloader._extract_flat",
+               return_value=fake_info):
+        kind, payload = probe_input("https://youtu.be/abc123")
+    assert kind == "video"
+    assert payload["id"] == "abc123"
+
+
+def test_probe_input_playlist():
+    fake_info = {
+        "_type": "playlist", "id": "PL1", "title": "@channel",
+        "entries": [
+            {"id": "v1", "title": "First", "duration": 60, "upload_date": "20260101"},
+            {"id": "v2", "title": "Second", "duration": 120, "upload_date": "20260201"},
+        ],
+    }
+    with patch("skills.youtube_transcribe.utils.downloader._extract_flat",
+               return_value=fake_info):
+        kind, payload = probe_input("https://youtube.com/@channel")
+    assert kind == "playlist"
+    assert len(payload["entries"]) == 2
+
+
+def test_probe_input_local_file(tmp_path):
+    f = tmp_path / "audio.mp3"
+    f.write_bytes(b"x")
+    kind, payload = probe_input(str(f))
+    assert kind == "local"
+    assert payload["path"] == str(f)
+
+
+def test_expand_channel_or_playlist_applies_limit():
+    fake_info = {
+        "_type": "playlist", "id": "PL1", "title": "@channel",
+        "entries": [
+            {"id": f"v{i}", "title": f"Video {i}", "duration": 60,
+             "upload_date": "20260101"} for i in range(50)
+        ],
+    }
+    with patch("skills.youtube_transcribe.utils.downloader._extract_flat",
+               return_value=fake_info):
+        entries = expand_channel_or_playlist("https://youtube.com/@channel", limit=10)
+    assert len(entries) == 10
+    assert all(isinstance(e, ChannelEntry) for e in entries)
+    assert entries[0].video_id == "v0"
+    assert entries[9].video_id == "v9"
+
+
+def test_expand_channel_or_playlist_handles_missing_metadata():
+    fake_info = {
+        "_type": "playlist", "id": "PL1", "title": "@channel",
+        "entries": [
+            {"id": "v1", "title": "Live stream"},  # no duration, no upload_date
+        ],
+    }
+    with patch("skills.youtube_transcribe.utils.downloader._extract_flat",
+               return_value=fake_info):
+        entries = expand_channel_or_playlist("https://youtube.com/@channel", limit=10)
+    assert len(entries) == 1
+    assert entries[0].video_id == "v1"
+    assert entries[0].duration_sec is None
+    assert entries[0].upload_date is None
+```
+
+- [ ] **Step 7: Run, verify FAIL**
+
+Run: `uv run pytest tests/test_downloader.py -v`
+Expected: 5 ImportError-fails (`probe_input`, `expand_channel_or_playlist`, `ChannelEntry` не определены).
+
+- [ ] **Step 8: Implement probe_input + expand_channel_or_playlist**
+
+Дописать в `skills/youtube_transcribe/utils/downloader.py`:
+
+```python
+from dataclasses import dataclass
+from datetime import date as _date
+from typing import Literal
+
+
+@dataclass(frozen=True)
+class ChannelEntry:
+    """Один entry из канала/плейлиста (только метадата, без скачивания)."""
+    video_id: str
+    url: str
+    title: str | None
+    duration_sec: int | None
+    upload_date: _date | None
+    channel: str | None
+
+
+def _yt_url_from_id(video_id: str) -> str:
+    return f"https://www.youtube.com/watch?v={video_id}"
+
+
+def _parse_yt_date(s: str | None) -> _date | None:
+    """yt-dlp возвращает 'YYYYMMDD' либо None."""
+    if not s or len(s) != 8:
+        return None
+    try:
+        return _date(int(s[0:4]), int(s[4:6]), int(s[6:8]))
+    except ValueError:
+        return None
+
+
+def _extract_flat(url: str) -> dict:
+    """Тонкая обёртка над yt-dlp YoutubeDL.extract_info(extract_flat=True).
+    Изолирована, чтобы тесты могли мокать её точечно через patch."""
+    from yt_dlp import YoutubeDL  # импорт локальный — yt-dlp тяжёлый
+    opts = {
+        "quiet": True,
+        "no_warnings": True,
+        "extract_flat": True,
+        "skip_download": True,
+        "geo_bypass": True,
+    }
+    with YoutubeDL(opts) as ydl:
+        return ydl.extract_info(url, download=False)
+
+
+def probe_input(url_or_path: str) -> tuple[Literal["video", "playlist", "local"], dict]:
+    """Определить тип входа: одиночное видео / канал-или-плейлист / локальный файл.
+    Для локальных файлов возвращает {"path": <str>}.
+    Для URL — yt-dlp metadata dict с ключом '_type' = 'video' | 'playlist'."""
+    if not is_url(url_or_path):
+        from pathlib import Path as _Path
+        p = _Path(url_or_path).expanduser().resolve()
+        if not p.exists():
+            raise DownloadError(f"Файл не найден: {p}")
+        return "local", {"path": str(p)}
+
+    info = _extract_flat(url_or_path)
+    kind = info.get("_type", "video")
+    if kind not in ("video", "playlist"):
+        # 'url'-тип означает unresolved redirect; для нашей цели приравниваем к 'video'
+        kind = "video"
+    return kind, info  # type: ignore[return-value]
+
+
+def expand_channel_or_playlist(url: str, limit: int) -> list[ChannelEntry]:
+    """Развернуть канал/плейлист в первые N entries. Только метадата, без скачивания."""
+    info = _extract_flat(url)
+    entries = info.get("entries") or []
+    out: list[ChannelEntry] = []
+    for e in entries[:limit]:
+        if not e or not e.get("id"):
+            continue
+        vid = e["id"]
+        out.append(ChannelEntry(
+            video_id=vid,
+            url=e.get("url") or _yt_url_from_id(vid),
+            title=e.get("title"),
+            duration_sec=int(e["duration"]) if e.get("duration") else None,
+            upload_date=_parse_yt_date(e.get("upload_date")),
+            channel=info.get("title") or info.get("uploader"),
+        ))
+    return out
+```
+
+- [ ] **Step 9: Run, verify all PASS**
+
+Run: `uv run pytest tests/test_downloader.py -v`
+Expected: все 13 тестов PASS (8 базовых + 5 новых).
+
+- [ ] **Step 10: Commit**
+
+```bash
+git add skills/youtube_transcribe/utils/downloader.py tests/test_downloader.py
+git commit -m "feat(downloader): probe_input + expand_channel_or_playlist via extract_flat"
+```
+
+---
+
+### Task 7B: utils/resolver.py — input → list[ResolvedTarget]
+
+> Новая Task из брейнсторма 2026-05-09. Конвертирует пользовательский ввод (URL / канал / плейлист / `--from-file` / локальный путь) в плоский список `ResolvedTarget` с метадатой. Не скачивает медиа. Источник: спека-расширение §5.
+
+**Files:**
+- Create: `skills/youtube_transcribe/utils/resolver.py`
+- Create: `tests/test_resolver.py`
+
+- [ ] **Step 1: Failing-test**
+
+`tests/test_resolver.py`:
+
+```python
+from datetime import date
+from pathlib import Path
+from unittest.mock import patch
+import pytest
+
+from skills.youtube_transcribe.utils.downloader import ChannelEntry
+from skills.youtube_transcribe.utils.resolver import (
+    ResolvedTarget,
+    ResolverFilters,
+    resolve,
+    parse_from_file,
+    UnresolvableInput,
+    CLIInputError,
+)
+
+
+def _video_info(vid: str, title: str = "Hello"):
+    return ("video", {"id": vid, "title": title, "duration": 60,
+                      "upload_date": "20260420", "channel": "@x"})
+
+
+def _playlist_info(channel: str, entries: list[tuple[str, str]]):
+    return ("playlist", {"id": "PL", "title": channel,
+                         "entries": [{"id": v, "title": t} for v, t in entries]})
+
+
+def _channel_entries(*pairs: tuple[str, str]) -> list[ChannelEntry]:
+    return [ChannelEntry(video_id=v, url=f"https://youtu.be/{v}", title=t,
+                         duration_sec=60, upload_date=date(2026, 4, 20),
+                         channel="@x") for v, t in pairs]
+
+
+def test_resolve_inline_single_url(tmp_path):
+    with patch("skills.youtube_transcribe.utils.resolver.probe_input",
+               return_value=_video_info("aaa")):
+        targets = resolve(["https://youtu.be/aaa"], None, ResolverFilters())
+    assert len(targets) == 1
+    assert targets[0].url == "https://youtu.be/aaa"
+    assert targets[0].source == "inline"
+    assert targets[0].video_id == "aaa"
+
+
+def test_resolve_channel_applies_limit():
+    pairs = [(f"v{i}", f"Video {i}") for i in range(50)]
+    with patch("skills.youtube_transcribe.utils.resolver.probe_input",
+               return_value=_playlist_info("@anth",
+                                           [(v, t) for v, t in pairs])), \
+         patch("skills.youtube_transcribe.utils.resolver.expand_channel_or_playlist",
+               return_value=_channel_entries(*pairs[:10])):
+        targets = resolve(["https://youtube.com/@anth"], None,
+                          ResolverFilters(limit=10))
+    assert len(targets) == 10
+    assert all(t.source == "channel" for t in targets)
+    assert targets[0].video_id == "v0"
+
+
+def test_resolve_dedup_inline_and_channel_keeps_first():
+    """Inline видео + то же видео из канала → попадает только inline."""
+    with patch("skills.youtube_transcribe.utils.resolver.probe_input",
+               side_effect=[_video_info("v0"), _playlist_info("@anth",
+                                                              [("v0", "v0"), ("v1", "v1")])]), \
+         patch("skills.youtube_transcribe.utils.resolver.expand_channel_or_playlist",
+               return_value=_channel_entries(("v0", "v0"), ("v1", "v1"))):
+        targets = resolve(
+            ["https://youtu.be/v0", "https://youtube.com/@anth"],
+            None, ResolverFilters(limit=10),
+        )
+    ids = [t.video_id for t in targets]
+    assert ids == ["v0", "v1"]
+    assert targets[0].source == "inline"
+    assert targets[1].source == "channel"
+
+
+def test_resolve_no_inputs_raises():
+    with pytest.raises(CLIInputError):
+        resolve([], None, ResolverFilters())
+
+
+def test_resolve_unresolvable_url_collected_as_failure():
+    with patch("skills.youtube_transcribe.utils.resolver.probe_input",
+               side_effect=Exception("HTTP 403")):
+        with pytest.raises(UnresolvableInput) as exc:
+            resolve(["https://youtu.be/blocked"], None, ResolverFilters())
+    assert "blocked" in str(exc.value)
+
+
+def test_parse_from_file_skips_comments_and_blanks(tmp_path):
+    f = tmp_path / "urls.txt"
+    f.write_text(
+        "# comment\n"
+        "\n"
+        "https://youtu.be/AAA\n"
+        "  https://youtu.be/BBB   # trailing comment\n"
+        "https://youtu.be/CCC\n",
+        encoding="utf-8",
+    )
+    urls = parse_from_file(f)
+    assert urls == ["https://youtu.be/AAA",
+                    "https://youtu.be/BBB",
+                    "https://youtu.be/CCC"]
+
+
+def test_parse_from_file_missing_raises(tmp_path):
+    with pytest.raises(CLIInputError):
+        parse_from_file(tmp_path / "nope.txt")
+
+
+def test_resolve_from_file_only(tmp_path):
+    f = tmp_path / "urls.txt"
+    f.write_text("https://youtu.be/AAA\nhttps://youtu.be/BBB\n", encoding="utf-8")
+    with patch("skills.youtube_transcribe.utils.resolver.probe_input",
+               side_effect=[_video_info("AAA"), _video_info("BBB")]):
+        targets = resolve([], f, ResolverFilters())
+    assert len(targets) == 2
+    assert {t.video_id for t in targets} == {"AAA", "BBB"}
+    assert all(t.source == "file" for t in targets)
+
+
+def test_resolve_local_path(tmp_path):
+    audio = tmp_path / "x.mp3"
+    audio.write_bytes(b"f")
+    with patch("skills.youtube_transcribe.utils.resolver.probe_input",
+               return_value=("local", {"path": str(audio)})):
+        targets = resolve([str(audio)], None, ResolverFilters())
+    assert len(targets) == 1
+    assert targets[0].source == "single"
+    assert targets[0].url == str(audio)
+    assert targets[0].video_id is None
+```
+
+- [ ] **Step 2: Run, verify FAIL**
+
+Run: `uv run pytest tests/test_resolver.py -v`
+Expected: ImportError на отсутствующем модуле.
+
+- [ ] **Step 3: Implement resolver.py**
+
+`skills/youtube_transcribe/utils/resolver.py`:
+
+```python
+"""Convert any user input (URL / channel / playlist / file / local path)
+into a flat list of ResolvedTarget. Does NOT download media."""
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from datetime import date
+from pathlib import Path
+from typing import Literal
+
+from skills.youtube_transcribe.utils.downloader import (
+    ChannelEntry,
+    expand_channel_or_playlist,
+    extract_youtube_video_id,
+    is_url,
+    is_youtube_url,
+    probe_input,
+)
+
+
+Source = Literal["inline", "file", "channel", "playlist", "single"]
+
+
+@dataclass
+class ResolvedTarget:
+    url: str
+    title: str | None
+    upload_date: date | None
+    duration_sec: int | None
+    channel: str | None
+    source: Source
+    video_id: str | None       # для дедупликации; None для не-YouTube источников
+
+
+@dataclass
+class ResolverFilters:
+    limit: int = 10
+    # задел под v0.3 (поля присутствуют, в v0.1 не используются):
+    since: date | None = None
+    until: date | None = None
+    min_duration_sec: int | None = None
+    max_duration_sec: int | None = None
+    include_shorts: bool = True
+
+
+class CLIInputError(Exception):
+    """Hard input error: empty input, missing --from-file, etc. → CLI exit 2."""
+
+
+class UnresolvableInput(Exception):
+    """yt-dlp couldn't resolve one of the inline URLs (private/removed/blocked).
+    Caller decides whether to abort or collect into errors.log."""
+
+
+def parse_from_file(path: Path) -> list[str]:
+    """Parse `--from-file` urls.txt: 1 URL per line, # = comment, blanks ignored.
+    Trailing inline comments after URL also stripped."""
+    if not path.exists():
+        raise CLIInputError(f"File not found: {path}")
+    urls: list[str] = []
+    for raw in path.read_text(encoding="utf-8").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        # strip trailing inline comments: split on " #"
+        if " #" in line:
+            line = line.split(" #", 1)[0].rstrip()
+        if line:
+            urls.append(line)
+    return urls
+
+
+def _channel_entry_to_target(e: ChannelEntry, source: Source) -> ResolvedTarget:
+    return ResolvedTarget(
+        url=e.url,
+        title=e.title,
+        upload_date=e.upload_date,
+        duration_sec=e.duration_sec,
+        channel=e.channel,
+        source=source,
+        video_id=e.video_id,
+    )
+
+
+def _video_info_to_target(info: dict, url: str, source: Source) -> ResolvedTarget:
+    from skills.youtube_transcribe.utils.downloader import _parse_yt_date
+    return ResolvedTarget(
+        url=url,
+        title=info.get("title"),
+        upload_date=_parse_yt_date(info.get("upload_date")),
+        duration_sec=int(info["duration"]) if info.get("duration") else None,
+        channel=info.get("channel") or info.get("uploader"),
+        source=source,
+        video_id=info.get("id") or (extract_youtube_video_id(url) if is_youtube_url(url) else None),
+    )
+
+
+def _local_to_target(path_str: str) -> ResolvedTarget:
+    return ResolvedTarget(
+        url=path_str, title=None, upload_date=None, duration_sec=None,
+        channel=None, source="single", video_id=None,
+    )
+
+
+def resolve(
+    inputs: list[str],
+    from_file: Path | None,
+    filters: ResolverFilters,
+) -> list[ResolvedTarget]:
+    """Expand inputs into a flat list of ResolvedTarget. No media download."""
+    raw: list[tuple[str, Source]] = []
+    for u in inputs:
+        raw.append((u, "inline"))
+    if from_file is not None:
+        for u in parse_from_file(from_file):
+            raw.append((u, "file"))
+    if not raw:
+        raise CLIInputError("No inputs given. Pass URL(s) or --from-file PATH.")
+
+    targets: list[ResolvedTarget] = []
+    seen_video_ids: set[str] = set()
+
+    for url, src in raw:
+        try:
+            kind, info = probe_input(url)
+        except Exception as e:
+            raise UnresolvableInput(f"{url}: {e}") from e
+
+        if kind == "local":
+            t = _local_to_target(info["path"])
+            targets.append(t)
+            continue
+
+        if kind == "video":
+            t = _video_info_to_target(info, url, source=src)
+            if t.video_id and t.video_id in seen_video_ids:
+                continue   # dedup: keep first occurrence
+            if t.video_id:
+                seen_video_ids.add(t.video_id)
+            targets.append(t)
+            continue
+
+        # kind == "playlist" → expand and apply limit per source
+        entries = expand_channel_or_playlist(url, limit=filters.limit)
+        playlist_source: Source = "channel"  # we don't strictly distinguish
+        for e in entries:
+            t = _channel_entry_to_target(e, source=playlist_source)
+            if t.video_id and t.video_id in seen_video_ids:
+                continue
+            if t.video_id:
+                seen_video_ids.add(t.video_id)
+            targets.append(t)
+
+    # In v0.1 the only filter applied is `limit` (handled per-source in expand_*).
+    # Reserved fields `since/until/min_duration/max_duration/include_shorts`
+    # are placeholders for v0.3 — see spec extension §5 / §9.
+
+    return targets
+```
+
+- [ ] **Step 4: Run, verify all PASS**
+
+Run: `uv run pytest tests/test_resolver.py -v`
+Expected: 9 PASS.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add skills/youtube_transcribe/utils/resolver.py tests/test_resolver.py
+git commit -m "feat(resolver): input → list[ResolvedTarget] with dedup and forward-compat filters"
 ```
 
 ---
@@ -2971,55 +3820,332 @@ git commit -m "feat: first-run wizard with hardware detection and key prompts"
 
 ---
 
-### Task 20: transcribe.py — main CLI entry point (transcribe sub-command)
+### Task 20: transcribe.py + pipeline.py — single CLI и общий run_pipeline core
+
+> Расширено брейнштормом 2026-05-09. Архитектура: общий `run_pipeline(target, cfg) -> TranscriptionResult` живёт в новом `pipeline.py`. CLI `cli` сразу группа с двумя sub-командами `transcribe` (single, эта таска) и `batch` (Task 20B). Single-форма без sub-команды (`youtube-transcribe <URL>`) роутится через подкласс `click.Group.resolve_command`.
 
 **Files:**
+- Create: `skills/youtube_transcribe/pipeline.py`
 - Create: `skills/youtube_transcribe/transcribe.py`
+- Create: `tests/test_pipeline.py`
 - Create: `tests/test_cli.py`
 
-- [ ] **Step 1: Failing-test (CLI invocation via Click testing)**
+- [ ] **Step 1: Failing-test for pipeline.run_pipeline**
+
+`tests/test_pipeline.py`:
+
+```python
+from datetime import date
+from pathlib import Path
+from unittest.mock import patch, MagicMock
+import pytest
+
+from skills.youtube_transcribe.utils.resolver import ResolvedTarget
+from skills.youtube_transcribe.pipeline import run_pipeline
+
+
+def _make_target(url: str = "https://youtu.be/aaa", source: str = "inline",
+                 video_id: str | None = "aaa") -> ResolvedTarget:
+    return ResolvedTarget(
+        url=url, title="hi", upload_date=date(2026, 4, 20),
+        duration_sec=60, channel="@x", source=source, video_id=video_id,
+    )
+
+
+def test_run_pipeline_local_file_invokes_backend(tmp_path):
+    audio = tmp_path / "x.mp3"
+    audio.write_bytes(b"f")
+    fake_backend = MagicMock()
+    fake_backend.transcribe.return_value = MagicMock(
+        text="hi", segments=[], language_detected="en",
+        backend_name="whisper-local", duration_seconds=1.0,
+    )
+    target = _make_target(url=str(audio), source="single", video_id=None)
+    cfg = MagicMock(default_backend="whisper-local", language="en",
+                    yt_dlp_auto_update=False, cookies_browser="",
+                    fast_path_enabled=True, keep_audio=False)
+
+    with patch("skills.youtube_transcribe.pipeline.build_backend",
+               return_value=fake_backend):
+        result = run_pipeline(target, cfg, backend_override=None)
+
+    assert result.backend_name == "whisper-local"
+    fake_backend.transcribe.assert_called_once()
+
+
+def test_run_pipeline_url_with_subtitles_skips_download(tmp_path):
+    fake_backend = MagicMock()
+    fake_backend.transcribe.return_value = MagicMock(
+        text="t", segments=[], language_detected="en",
+        backend_name="subtitles", duration_seconds=10.0,
+    )
+    target = _make_target()
+    cfg = MagicMock(default_backend="subtitles", language="en",
+                    yt_dlp_auto_update=False, cookies_browser="",
+                    fast_path_enabled=True, keep_audio=False)
+
+    with patch("skills.youtube_transcribe.pipeline.build_backend",
+               return_value=fake_backend), \
+         patch("skills.youtube_transcribe.pipeline.download_audio") as dl:
+        result = run_pipeline(target, cfg, backend_override="subtitles")
+
+    dl.assert_not_called()
+    assert result.backend_name == "subtitles"
+
+
+def test_run_pipeline_url_with_whisper_local_downloads_to_temp(tmp_path):
+    fake_backend = MagicMock()
+    fake_backend.transcribe.return_value = MagicMock(
+        text="t", segments=[], language_detected="en",
+        backend_name="whisper-local", duration_seconds=10.0,
+    )
+    target = _make_target()
+    cfg = MagicMock(default_backend="whisper-local", language="en",
+                    yt_dlp_auto_update=False, cookies_browser="",
+                    fast_path_enabled=True, keep_audio=False)
+
+    fake_audio = tmp_path / "audio.mp3"
+    fake_audio.write_bytes(b"x")
+    with patch("skills.youtube_transcribe.pipeline.build_backend",
+               return_value=fake_backend), \
+         patch("skills.youtube_transcribe.pipeline.download_audio",
+               return_value=fake_audio):
+        result = run_pipeline(target, cfg, backend_override="whisper-local")
+
+    assert result.backend_name == "whisper-local"
+    fake_backend.transcribe.assert_called_once()
+
+
+def test_run_pipeline_propagates_backend_not_configured():
+    from skills.youtube_transcribe.backends.base import BackendNotConfigured
+    target = _make_target()
+    cfg = MagicMock(default_backend="gemini", language="en",
+                    yt_dlp_auto_update=False, cookies_browser="",
+                    fast_path_enabled=True, keep_audio=False)
+    with patch("skills.youtube_transcribe.pipeline.build_backend",
+               side_effect=BackendNotConfigured("GEMINI_API_KEY missing")):
+        with pytest.raises(BackendNotConfigured):
+            run_pipeline(target, cfg, backend_override=None)
+```
+
+- [ ] **Step 2: Run, verify FAIL**
+
+Run: `uv run pytest tests/test_pipeline.py -v`
+Expected: ImportError (модуль `pipeline` не существует).
+
+- [ ] **Step 3: Implement pipeline.py**
+
+`skills/youtube_transcribe/pipeline.py`:
+
+```python
+"""Core transcription pipeline. Used by both single (Task 20)
+and batch (Task 20B) sub-commands. One target → one TranscriptionResult."""
+from __future__ import annotations
+
+import shutil
+import tempfile
+from pathlib import Path
+from typing import Iterator
+from contextlib import contextmanager
+
+from skills.youtube_transcribe.backends.base import (
+    BackendError,
+    BackendNotConfigured,
+    TranscriptionResult,
+)
+from skills.youtube_transcribe.backends.factory import build_backend, run_smart
+from skills.youtube_transcribe.config import Config
+from skills.youtube_transcribe.utils.downloader import (
+    download_audio,
+    is_url,
+    maybe_auto_update_ytdlp,
+)
+from skills.youtube_transcribe.utils.resolver import ResolvedTarget
+
+
+@contextmanager
+def _audio_workdir(keep_audio: bool, persist_to: Path | None = None) -> Iterator[Path]:
+    """System temp dir for downloaded audio. If keep_audio and persist_to set,
+    files are copied there before cleanup."""
+    tmp = Path(tempfile.mkdtemp(prefix="yt-transcribe-"))
+    try:
+        yield tmp
+    finally:
+        if keep_audio and persist_to is not None:
+            persist_to.mkdir(parents=True, exist_ok=True)
+            for f in tmp.glob("*"):
+                if f.is_file():
+                    shutil.copy2(f, persist_to / f.name)
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def run_pipeline(
+    target: ResolvedTarget,
+    cfg: Config,
+    *,
+    backend_override: str | None = None,
+    keep_audio_to: Path | None = None,
+) -> TranscriptionResult:
+    """One target → one TranscriptionResult.
+
+    Behaviour matches the table in spec §5 / §11:
+    - subtitles / smart: pass URL straight to backend, no download
+    - other backends + URL: yt-dlp -x mp3 into system temp, transcribe, cleanup
+    - local file: pass path straight to backend
+    """
+    backend_name = backend_override or cfg.default_backend
+
+    # Local file → no download, no temp
+    if not is_url(target.url):
+        path = Path(target.url).expanduser().resolve()
+        if not path.exists():
+            raise BackendError(f"Файл не найден: {path}")
+        return _transcribe_one(backend_name, path, cfg, language=cfg.language)
+
+    # URL paths
+    if backend_name in ("subtitles", "smart"):
+        # Backend / smart-composer accept URL directly.
+        return _transcribe_one(backend_name, target.url, cfg, language=cfg.language)
+
+    # All other backends need local audio. Download → transcribe → cleanup.
+    maybe_auto_update_ytdlp(cfg.yt_dlp_auto_update)
+    with _audio_workdir(keep_audio=cfg.keep_audio, persist_to=keep_audio_to) as tmp:
+        audio_path = download_audio(
+            target.url, tmp,
+            cookies_browser=cfg.cookies_browser,
+        )
+        return _transcribe_one(backend_name, audio_path, cfg, language=cfg.language)
+
+
+def _transcribe_one(
+    backend_name: str, audio_or_url, cfg: Config, *, language: str
+) -> TranscriptionResult:
+    if backend_name == "smart":
+        return run_smart(audio_or_url, cfg, language=language)
+    backend = build_backend(backend_name, cfg)
+    return backend.transcribe(audio_or_url, language=language)
+```
+
+- [ ] **Step 4: Run, verify all PASS**
+
+Run: `uv run pytest tests/test_pipeline.py -v`
+Expected: 4 PASS.
+
+- [ ] **Step 5: Commit pipeline core**
+
+```bash
+git add skills/youtube_transcribe/pipeline.py tests/test_pipeline.py
+git commit -m "feat(pipeline): run_pipeline core (one target → TranscriptionResult)"
+```
+
+#### Step 6 onward — CLI: group + transcribe sub-command + bare-URL routing
+
+- [ ] **Step 6: Failing-test for CLI**
+
+`tests/test_cli.py`:
 
 ```python
 from click.testing import CliRunner
-from unittest.mock import patch, MagicMock
+from datetime import date
 from pathlib import Path
+from unittest.mock import patch, MagicMock
+import pytest
 
 from skills.youtube_transcribe.transcribe import cli
+from skills.youtube_transcribe.utils.resolver import ResolvedTarget
+
+
+def _result(text: str = "hi", backend: str = "whisper-local"):
+    return MagicMock(text=text, segments=[], language_detected="en",
+                     backend_name=backend, duration_seconds=1.0)
+
+
+def _target_local(path: Path) -> ResolvedTarget:
+    return ResolvedTarget(url=str(path), title=None, upload_date=None,
+                          duration_sec=None, channel=None,
+                          source="single", video_id=None)
 
 
 def test_cli_help():
     runner = CliRunner()
     result = runner.invoke(cli, ["--help"])
     assert result.exit_code == 0
-    assert "transcribe" in result.output.lower()
+    out = result.output.lower()
+    assert "transcribe" in out
+    assert "batch" in out  # batch sub-command exposed (Task 20B)
 
 
-def test_transcribe_local_file_invokes_backend(tmp_path: Path):
+def test_cli_transcribe_subcommand_local_file(tmp_path):
     audio = tmp_path / "x.mp3"
     audio.write_bytes(b"f")
-    fake_backend = MagicMock()
-    fake_result = MagicMock(text="hi", segments=[], language_detected="en", backend_name="whisper-local", duration_seconds=1.0)
-    fake_backend.transcribe.return_value = fake_result
-
     runner = CliRunner()
     with patch("skills.youtube_transcribe.transcribe.run_wizard"), \
          patch("skills.youtube_transcribe.transcribe.CONFIG_PATH") as cp, \
-         patch("skills.youtube_transcribe.transcribe.build_backend", return_value=fake_backend), \
-         patch("skills.youtube_transcribe.transcribe.is_url", return_value=False), \
+         patch("skills.youtube_transcribe.transcribe.resolve",
+               return_value=[_target_local(audio)]), \
+         patch("skills.youtube_transcribe.transcribe.run_pipeline",
+               return_value=_result()), \
          patch("skills.youtube_transcribe.transcribe.write_txt_with_timestamps"), \
          patch("skills.youtube_transcribe.transcribe.write_srt"):
-        cp.exists.return_value = True  # skip wizard
-        result = runner.invoke(cli, ["transcribe", str(audio), "--backend", "whisper-local", "--output-dir", str(tmp_path)])
-
+        cp.exists.return_value = True
+        result = runner.invoke(cli, ["transcribe", str(audio),
+                                     "--backend", "whisper-local",
+                                     "--output-dir", str(tmp_path)])
     assert result.exit_code == 0, result.output
-    fake_backend.transcribe.assert_called_once()
+
+
+def test_cli_bare_url_routes_to_transcribe(tmp_path):
+    """`youtube-transcribe https://youtu.be/X` (no sub-command)
+    must be equivalent to `youtube-transcribe transcribe https://youtu.be/X`."""
+    runner = CliRunner()
+    with patch("skills.youtube_transcribe.transcribe.run_wizard"), \
+         patch("skills.youtube_transcribe.transcribe.CONFIG_PATH") as cp, \
+         patch("skills.youtube_transcribe.transcribe.resolve",
+               return_value=[_target_local(tmp_path / "x.mp3")]) as r, \
+         patch("skills.youtube_transcribe.transcribe.run_pipeline",
+               return_value=_result()), \
+         patch("skills.youtube_transcribe.transcribe.write_txt_with_timestamps"), \
+         patch("skills.youtube_transcribe.transcribe.write_srt"):
+        cp.exists.return_value = True
+        # bare URL — no "transcribe" sub-command
+        result = runner.invoke(cli, ["https://youtu.be/jNQXAC9IVRw",
+                                     "--backend", "subtitles",
+                                     "--output-dir", str(tmp_path)])
+    assert result.exit_code == 0, result.output
+    r.assert_called_once()
+
+
+def test_cli_transcribe_propagates_backend_not_configured(tmp_path):
+    audio = tmp_path / "x.mp3"
+    audio.write_bytes(b"f")
+    from skills.youtube_transcribe.backends.base import BackendNotConfigured
+    runner = CliRunner()
+    with patch("skills.youtube_transcribe.transcribe.run_wizard"), \
+         patch("skills.youtube_transcribe.transcribe.CONFIG_PATH") as cp, \
+         patch("skills.youtube_transcribe.transcribe.resolve",
+               return_value=[_target_local(audio)]), \
+         patch("skills.youtube_transcribe.transcribe.run_pipeline",
+               side_effect=BackendNotConfigured("GEMINI_API_KEY missing")):
+        cp.exists.return_value = True
+        result = runner.invoke(cli, ["transcribe", str(audio),
+                                     "--backend", "gemini",
+                                     "--output-dir", str(tmp_path)])
+    assert result.exit_code == 3
+    assert "не настроен" in result.output.lower() or "not configured" in result.output.lower()
 ```
 
-- [ ] **Step 2: FAIL**
+- [ ] **Step 7: Run, verify FAIL**
 
-- [ ] **Step 3: Implement transcribe.py (transcribe sub-command, plus skeleton for config sub-commands in Task 21)**
+Run: `uv run pytest tests/test_cli.py -v`
+Expected: ImportError на `cli`.
+
+- [ ] **Step 8: Implement transcribe.py (cli root + transcribe sub-command + bare-URL routing)**
+
+`skills/youtube_transcribe/transcribe.py`:
 
 ```python
+"""CLI root + `transcribe` sub-command. Bare-URL form routes to `transcribe`.
+The `batch` sub-command is added in Task 20B (registered into the same `cli` group)."""
 from __future__ import annotations
 
 import sys
@@ -3029,24 +4155,27 @@ import click
 from rich.console import Console
 
 from skills.youtube_transcribe.backends.base import BackendError, BackendNotConfigured
-from skills.youtube_transcribe.backends.factory import build_backend, run_smart
 from skills.youtube_transcribe.config import (
     CONFIG_PATH,
     Config,
     load_config,
-    save_config,
 )
+from skills.youtube_transcribe.pipeline import run_pipeline
 from skills.youtube_transcribe.utils.downloader import (
-    download_audio,
+    extract_youtube_video_id,
     is_url,
     is_youtube_url,
-    maybe_auto_update_ytdlp,
 )
 from skills.youtube_transcribe.utils.output_writer import (
+    sanitize_filename,
     write_srt,
     write_txt_plain,
     write_txt_with_timestamps,
-    sanitize_filename,
+)
+from skills.youtube_transcribe.utils.resolver import (
+    ResolvedTarget,
+    ResolverFilters,
+    resolve,
 )
 from skills.youtube_transcribe.wizard import run_wizard
 
@@ -3058,11 +4187,35 @@ BACKEND_CHOICES = [
 ]
 
 
-@click.group(invoke_without_command=False)
+class _BareURLGroup(click.Group):
+    """If the first positional looks like a URL or existing file path,
+    inject the implicit `transcribe` sub-command in front of it.
+
+    Required to keep base spec §8 UX (`youtube-transcribe <URL>`)
+    while exposing `batch` as a separate sub-command."""
+
+    def resolve_command(self, ctx, args):
+        if args and args[0] not in self.commands:
+            first = args[0]
+            looks_like_input = (
+                is_url(first)
+                or first.startswith("/") or first.startswith("./") or first.startswith("../")
+                or (len(first) > 1 and first[1:3] == ":\\")    # Windows drive
+                or Path(first).exists()
+            )
+            if looks_like_input:
+                args = ["transcribe", *args]
+        return super().resolve_command(ctx, args)
+
+
+@click.group(cls=_BareURLGroup)
 @click.version_option()
-@click.pass_context
-def cli(ctx: click.Context) -> None:
-    """youtube-transcribe — transcribe YouTube and local media via 8 backends."""
+def cli() -> None:
+    """youtube-transcribe — transcribe YouTube and local media via 8 backends.
+
+    Use `transcribe <URL_or_path>` for one input.
+    Use `batch <inputs...>` for multiple URLs / a channel / a playlist.
+    """
     pass
 
 
@@ -3090,53 +4243,30 @@ def cli(ctx: click.Context) -> None:
 @click.option("--vad/--no-vad", default=None)
 @click.option("--verbose", is_flag=True)
 def transcribe_cmd(audio_or_url: str, **opts) -> None:
-    """Transcribe a YouTube URL or local audio/video file."""
+    """Transcribe a YouTube URL, supported video URL, or local audio/video file."""
     if not CONFIG_PATH.exists():
         run_wizard()
 
     cfg = load_config(CONFIG_PATH)
     cfg = _override_config(cfg, opts)
+    if opts.get("no_fast_path"):
+        cfg.fast_path_enabled = False
+
+    targets = resolve([audio_or_url], None, ResolverFilters())
+    if len(targets) != 1:
+        # Bare URL/file should always resolve to exactly one target.
+        # If user passed a channel here, they should use `batch` instead.
+        console.print("[red]Этот URL развернулся в несколько видео.[/red] "
+                      "Для каналов/плейлистов используй: youtube-transcribe batch <URL> --limit N")
+        sys.exit(2)
+    target = targets[0]
 
     backend_name = opts.get("backend") or cfg.default_backend
     output_dir = Path(opts.get("output_dir") or cfg.output_dir).expanduser()
     output_dir.mkdir(parents=True, exist_ok=True)
-    keep_audio = cfg.keep_audio if opts.get("keep_audio") is None else opts["keep_audio"]
-    if opts.get("no_fast_path"):
-        cfg.fast_path_enabled = False
-
-    # If URL, prefer routing through smart (which knows about subtitles fast path)
-    # or download first if backend doesn't support URL
-    audio_path: Path
-    cleanup_path: Path | None = None
-
-    if is_url(audio_or_url):
-        if backend_name == "subtitles":
-            audio_path = audio_or_url  # type: ignore[assignment]
-        elif backend_name == "smart":
-            audio_path = audio_or_url  # type: ignore[assignment]
-        else:
-            maybe_auto_update_ytdlp(cfg.yt_dlp_auto_update)
-            tmp_dir = output_dir / ".yt-cache"
-            audio_path = download_audio(
-                audio_or_url, tmp_dir,
-                cookies_browser=cfg.cookies_browser,
-            )
-            if not keep_audio:
-                cleanup_path = audio_path
-    else:
-        audio_path = Path(audio_or_url).expanduser().resolve()
-        if not audio_path.exists():
-            console.print(f"[red]Файл не найден:[/red] {audio_path}")
-            sys.exit(2)
-
-    language = opts.get("language") or cfg.language
 
     try:
-        if backend_name == "smart":
-            result = run_smart(audio_path, cfg, language=language)
-        else:
-            backend = build_backend(backend_name, cfg)
-            result = backend.transcribe(audio_path, language=language)
+        result = run_pipeline(target, cfg, backend_override=opts.get("backend"))
     except BackendNotConfigured as e:
         console.print(f"[red]Бэкенд не настроен:[/red] {e}")
         sys.exit(3)
@@ -3144,8 +4274,7 @@ def transcribe_cmd(audio_or_url: str, **opts) -> None:
         console.print(f"[red]Ошибка транскрипции:[/red] {e}")
         sys.exit(4)
 
-    # Write outputs
-    base_name = sanitize_filename(_derive_basename(audio_or_url))
+    base_name = sanitize_filename(_derive_basename(target))
     txt_path = output_dir / f"{base_name}.txt"
     srt_path = output_dir / f"{base_name}.srt"
 
@@ -3166,19 +4295,14 @@ def transcribe_cmd(audio_or_url: str, **opts) -> None:
     if write_srt_flag:
         console.print(f"  [bold]{srt_path}[/bold]")
 
-    if cleanup_path and cleanup_path.exists():
-        try:
-            cleanup_path.unlink()
-        except OSError:
-            pass
 
-
-def _derive_basename(audio_or_url: str) -> str:
-    if is_url(audio_or_url):
-        from skills.youtube_transcribe.utils.downloader import extract_youtube_video_id
-        vid = extract_youtube_video_id(audio_or_url)
+def _derive_basename(target: ResolvedTarget) -> str:
+    if is_youtube_url(target.url):
+        vid = extract_youtube_video_id(target.url)
         return f"yt_{vid}" if vid else "url_transcript"
-    return Path(audio_or_url).stem
+    if is_url(target.url):
+        return "url_transcript"
+    return Path(target.url).stem
 
 
 def _override_config(cfg: Config, opts: dict) -> Config:
@@ -3193,20 +4317,421 @@ def _override_config(cfg: Config, opts: dict) -> Config:
     if opts.get("beam_size"): cfg.beam_size = opts["beam_size"]
     if opts.get("vad") is not None: cfg.vad = opts["vad"]
     if opts.get("cookies_browser") is not None: cfg.cookies_browser = opts["cookies_browser"]
+    if opts.get("keep_audio") is not None: cfg.keep_audio = opts["keep_audio"]
     return cfg
+
+
+# Task 20B will register `batch` and Task 21 will register `config` sub-group.
+# Keeping that explicit in __all__ to make the module-level extension contract obvious.
+__all__ = ["cli", "transcribe_cmd"]
 
 
 if __name__ == "__main__":
     cli()
 ```
 
-- [ ] **Step 4: PASS**
+- [ ] **Step 9: Run, verify all PASS**
 
-- [ ] **Step 5: Commit**
+Run: `uv run pytest tests/test_cli.py -v tests/test_pipeline.py -v`
+Expected: 4 + 4 = 8 PASS.
+
+- [ ] **Step 10: Commit single CLI**
 
 ```bash
 git add skills/youtube_transcribe/transcribe.py tests/test_cli.py
-git commit -m "feat(cli): main transcribe sub-command with URL/file routing and overrides"
+git commit -m "feat(cli): transcribe sub-command on top of run_pipeline + bare-URL routing"
+```
+
+---
+
+### Task 20B: batch sub-command — Resolver + run_pipeline loop + combined.md
+
+> Новая Task из брейнсторма 2026-05-09. Добавляет `youtube-transcribe batch <inputs...>` поверх Resolver (Task 7B) и `run_pipeline` (Task 20). Источник: спека-расширение §3, §4, §6, §7.
+
+**Files:**
+- Modify: `skills/youtube_transcribe/transcribe.py` (добавить `cmd_batch`)
+- Create: `tests/test_cli_batch.py`
+
+- [ ] **Step 1: Failing-test для batch sub-command**
+
+`tests/test_cli_batch.py`:
+
+```python
+from datetime import date, datetime
+from pathlib import Path
+from unittest.mock import patch, MagicMock
+
+import pytest
+from click.testing import CliRunner
+
+from skills.youtube_transcribe.transcribe import cli
+from skills.youtube_transcribe.utils.resolver import ResolvedTarget
+
+
+def _target(idx: int) -> ResolvedTarget:
+    return ResolvedTarget(
+        url=f"https://youtu.be/aaa{idx}", title=f"Video {idx}",
+        upload_date=date(2026, 4, 20), duration_sec=60,
+        channel="@anth", source="channel", video_id=f"aaa{idx}",
+    )
+
+
+def _ok_result(idx: int):
+    return MagicMock(text=f"text {idx}", segments=[],
+                     language_detected="en", backend_name="subtitles",
+                     duration_seconds=10.0)
+
+
+def _patch_writers():
+    return [
+        patch("skills.youtube_transcribe.transcribe.write_txt_with_timestamps"),
+        patch("skills.youtube_transcribe.transcribe.write_srt"),
+        patch("skills.youtube_transcribe.transcribe.write_combined_md"),
+        patch("skills.youtube_transcribe.transcribe.write_manifest_json"),
+        patch("skills.youtube_transcribe.transcribe.write_errors_log"),
+    ]
+
+
+def test_batch_help():
+    runner = CliRunner()
+    result = runner.invoke(cli, ["batch", "--help"])
+    assert result.exit_code == 0
+    assert "--limit" in result.output
+    assert "--from-file" in result.output
+    assert "--fail-fast" in result.output
+
+
+def test_batch_continue_on_error_collects_failures(tmp_path):
+    targets = [_target(0), _target(1), _target(2)]
+    cfg = MagicMock(default_backend="subtitles", language="auto",
+                    output_dir=str(tmp_path), keep_audio=False,
+                    timestamps=True, srt=True)
+    runner = CliRunner()
+    patches = _patch_writers()
+
+    def pipeline_side_effect(target, *_a, **_k):
+        if target.video_id == "aaa1":
+            from skills.youtube_transcribe.backends.base import BackendError
+            raise BackendError("HTTP 403")
+        return _ok_result(int(target.video_id[-1]))
+
+    with patch("skills.youtube_transcribe.transcribe.run_wizard"), \
+         patch("skills.youtube_transcribe.transcribe.CONFIG_PATH") as cp, \
+         patch("skills.youtube_transcribe.transcribe.load_config", return_value=cfg), \
+         patch("skills.youtube_transcribe.transcribe.resolve", return_value=targets), \
+         patch("skills.youtube_transcribe.transcribe.run_pipeline",
+               side_effect=pipeline_side_effect) as rp, \
+         patches[0], patches[1], \
+         patches[2] as wcm, patches[3] as wmj, patches[4] as wel:
+        cp.exists.return_value = True
+        wcm.return_value = tmp_path / "combined.md"
+        wmj.return_value = tmp_path / "manifest.json"
+        wel.return_value = tmp_path / "errors.log"
+        result = runner.invoke(cli, [
+            "batch",
+            "https://youtu.be/aaa0", "https://youtu.be/aaa1", "https://youtu.be/aaa2",
+            "--backend", "subtitles",
+            "--output-dir", str(tmp_path),
+        ])
+
+    assert result.exit_code == 0, result.output
+    assert rp.call_count == 3                  # все 3 пробовали
+    wcm.assert_called_once()
+    wmj.assert_called_once()
+    wel.assert_called_once()                   # был 1 fail → errors.log создан
+
+
+def test_batch_fail_fast_aborts_on_first_error(tmp_path):
+    targets = [_target(0), _target(1), _target(2)]
+    cfg = MagicMock(default_backend="subtitles", language="auto",
+                    output_dir=str(tmp_path), keep_audio=False,
+                    timestamps=True, srt=True)
+    runner = CliRunner()
+    patches = _patch_writers()
+
+    def pipeline_side_effect(target, *_a, **_k):
+        if target.video_id == "aaa0":
+            from skills.youtube_transcribe.backends.base import BackendError
+            raise BackendError("nope")
+        return _ok_result(0)
+
+    with patch("skills.youtube_transcribe.transcribe.run_wizard"), \
+         patch("skills.youtube_transcribe.transcribe.CONFIG_PATH") as cp, \
+         patch("skills.youtube_transcribe.transcribe.load_config", return_value=cfg), \
+         patch("skills.youtube_transcribe.transcribe.resolve", return_value=targets), \
+         patch("skills.youtube_transcribe.transcribe.run_pipeline",
+               side_effect=pipeline_side_effect) as rp, \
+         patches[0], patches[1], patches[2], patches[3], patches[4]:
+        cp.exists.return_value = True
+        result = runner.invoke(cli, [
+            "batch", "https://youtu.be/aaa0", "https://youtu.be/aaa1",
+            "--fail-fast",
+            "--output-dir", str(tmp_path),
+        ])
+
+    assert result.exit_code == 4
+    assert rp.call_count == 1                  # на первой ошибке остановились
+
+
+def test_batch_from_file_only(tmp_path):
+    f = tmp_path / "urls.txt"
+    f.write_text("https://youtu.be/aaa0\n", encoding="utf-8")
+    cfg = MagicMock(default_backend="subtitles", language="auto",
+                    output_dir=str(tmp_path), keep_audio=False,
+                    timestamps=True, srt=True)
+    runner = CliRunner()
+    patches = _patch_writers()
+
+    with patch("skills.youtube_transcribe.transcribe.run_wizard"), \
+         patch("skills.youtube_transcribe.transcribe.CONFIG_PATH") as cp, \
+         patch("skills.youtube_transcribe.transcribe.load_config", return_value=cfg), \
+         patch("skills.youtube_transcribe.transcribe.resolve",
+               return_value=[_target(0)]) as r, \
+         patch("skills.youtube_transcribe.transcribe.run_pipeline",
+               return_value=_ok_result(0)), \
+         patches[0], patches[1], patches[2], patches[3], patches[4]:
+        cp.exists.return_value = True
+        result = runner.invoke(cli, [
+            "batch", "--from-file", str(f),
+            "--output-dir", str(tmp_path),
+        ])
+
+    assert result.exit_code == 0, result.output
+    # Resolver вызван с inputs=[] и from_file=Path(f)
+    args, kwargs = r.call_args
+    assert args[0] == [] or kwargs.get("inputs") == []
+```
+
+- [ ] **Step 2: Run, verify FAIL**
+
+Run: `uv run pytest tests/test_cli_batch.py -v`
+Expected: ImportError / Click сообщает «No such command 'batch'».
+
+- [ ] **Step 3: Implement `cmd_batch` — дописать в `transcribe.py`**
+
+В импортах `transcribe.py` добавить:
+
+```python
+from datetime import datetime
+import re
+
+from skills.youtube_transcribe.utils.output_writer import (
+    BatchFailure,
+    BatchMeta,
+    BatchVideoStatus,
+    write_combined_md,
+    write_errors_log,
+    write_manifest_json,
+)
+```
+
+В конец `transcribe.py` (перед `__all__`) добавить:
+
+```python
+def _slugify(s: str, max_len: int = 60) -> str:
+    s = re.sub(r"[^\w\-]+", "-", s, flags=re.UNICODE).strip("-")
+    return (s[:max_len] or "batch").rstrip("-")
+
+
+def _auto_batch_name(targets, from_file: Path | None) -> str:
+    ts = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    if from_file is not None and not any(t.source != "file" for t in targets):
+        return f"batch_{ts}_{_slugify(from_file.stem)}"
+    sources = {t.source for t in targets}
+    channels = {t.channel for t in targets if t.channel}
+    if sources == {"channel"} and len(channels) == 1:
+        return f"batch_{ts}_{_slugify(next(iter(channels)))}"
+    return f"batch_{ts}_mixed_{len(targets)}"
+
+
+def _build_video_status(idx: int, target: ResolvedTarget, result, files: dict) -> BatchVideoStatus:
+    return BatchVideoStatus(
+        index=idx, url=target.url, video_id=target.video_id, title=target.title,
+        upload_date=target.upload_date, duration_sec=target.duration_sec,
+        channel=target.channel, language_detected=getattr(result, "language_detected", None),
+        text="\n".join(s.text for s in result.segments) if result.segments else getattr(result, "text", ""),
+        files=files, status="ok", error=None,
+    )
+
+
+def _diagnose_failure_hint(stage: str, error_text: str) -> str | None:
+    s = error_text.lower()
+    if stage == "download" and ("403" in s or "bot" in s or "sign in" in s):
+        return "try --cookies-from-browser chrome"
+    if stage == "backend" and "api_key" in s.replace(" ", ""):
+        return "youtube-transcribe config set-key <backend>"
+    return None
+
+
+@cli.command(name="batch")
+@click.argument("inputs", nargs=-1)
+@click.option("--from-file", "from_file", type=click.Path(path_type=Path),
+              default=None, help="Файл со списком URL (1 на строку, # — комментарий).")
+@click.option("--limit", type=int, default=10, show_default=True,
+              help="Сколько видео взять из канала/плейлиста.")
+@click.option("--batch-name", default=None,
+              help="Имя batch-папки (default: batch_<ts>_<auto-slug>).")
+@click.option("--no-combined", is_flag=True, help="Не создавать combined.md.")
+@click.option("--fail-fast", is_flag=True,
+              help="Остановиться на первой ошибке (default: continue-on-error).")
+@click.option("--backend", type=click.Choice(BACKEND_CHOICES), default=None)
+@click.option("--whisper-model", type=click.Choice(["turbo", "large", "medium", "small", "distil"]),
+              default=None)
+@click.option("--gemini-model", default=None)
+@click.option("--groq-model", default=None)
+@click.option("--deepgram-model", default=None)
+@click.option("--assemblyai-model", default=None)
+@click.option("--language", default=None)
+@click.option("--output-dir", default=None)
+@click.option("--timestamps/--no-timestamps", default=None)
+@click.option("--srt/--no-srt", default=None)
+@click.option("--keep-audio/--delete-audio", default=None)
+@click.option("--cookies-from-browser", "cookies_browser", default=None,
+              type=click.Choice(["", "chrome", "firefox", "edge", "safari"]))
+@click.option("--no-fast-path", is_flag=True)
+@click.option("--device", default=None)
+@click.option("--compute-type", default=None)
+@click.option("--beam-size", type=int, default=None)
+@click.option("--vad/--no-vad", default=None)
+@click.option("--verbose", is_flag=True)
+def cmd_batch(inputs: tuple[str, ...], from_file: Path | None, limit: int,
+              batch_name: str | None, no_combined: bool, fail_fast: bool,
+              **opts) -> None:
+    """Batch-транскрибация: пачка URL, канал/плейлист, или --from-file."""
+    if not CONFIG_PATH.exists():
+        run_wizard()
+
+    cfg = load_config(CONFIG_PATH)
+    cfg = _override_config(cfg, opts)
+    if opts.get("no_fast_path"):
+        cfg.fast_path_enabled = False
+
+    targets = resolve(list(inputs), from_file, ResolverFilters(limit=limit))
+    if not targets:
+        console.print("[yellow]Нет ни одного видео по этому входу.[/yellow]")
+        sys.exit(0)
+
+    output_root = Path(opts.get("output_dir") or cfg.output_dir).expanduser()
+    name = batch_name or _auto_batch_name(targets, from_file)
+    batch_dir = output_root / name
+    videos_dir = batch_dir / "videos"
+    videos_dir.mkdir(parents=True, exist_ok=True)
+
+    timestamps = cfg.timestamps if opts.get("timestamps") is None else opts["timestamps"]
+    write_srt_flag = cfg.srt if opts.get("srt") is None else opts["srt"]
+
+    backend_name = opts.get("backend") or cfg.default_backend
+    statuses: list[BatchVideoStatus] = []
+    failures: list[BatchFailure] = []
+
+    started = datetime.now()
+    for i, target in enumerate(targets, start=1):
+        try:
+            result = run_pipeline(
+                target, cfg, backend_override=opts.get("backend"),
+                keep_audio_to=(batch_dir / "audio") if cfg.keep_audio else None,
+            )
+        except BackendNotConfigured as e:
+            failures.append(BatchFailure(
+                index=i, url=target.url, stage="backend",
+                error_text=str(e),
+                hint=_diagnose_failure_hint("backend", str(e)),
+            ))
+            if fail_fast:
+                console.print(f"[red]Бэкенд не настроен:[/red] {e}")
+                sys.exit(3)
+            continue
+        except BackendError as e:
+            stage = "download" if "yt-dlp" in str(e).lower() or "403" in str(e) else "backend"
+            failures.append(BatchFailure(
+                index=i, url=target.url, stage=stage,
+                error_text=str(e),
+                hint=_diagnose_failure_hint(stage, str(e)),
+            ))
+            if fail_fast:
+                console.print(f"[red]Ошибка транскрипции:[/red] {e}")
+                sys.exit(4)
+            continue
+
+        # success → write per-video files
+        prefix = f"{i:02d}"
+        slug = _slugify(target.title or f"video-{i}")
+        vid = target.video_id or "local"
+        base = f"{prefix}_{slug}_{vid}"
+        txt_path = videos_dir / f"{base}.txt"
+        srt_path = videos_dir / f"{base}.srt"
+        if timestamps:
+            write_txt_with_timestamps(result.segments, txt_path)
+        else:
+            write_txt_plain(result.segments, txt_path)
+        if write_srt_flag:
+            write_srt(result.segments, srt_path)
+        statuses.append(_build_video_status(
+            i, target, result,
+            files={"txt": str(txt_path.relative_to(batch_dir)),
+                   "srt": str(srt_path.relative_to(batch_dir)) if write_srt_flag else None},
+        ))
+
+    meta = BatchMeta(
+        batch_name=name, created_at=started,
+        source_type=_infer_source_type(targets, from_file),
+        source_url=targets[0].url if all(t.source == "channel" for t in targets) else None,
+        backend=backend_name,
+        backend_options={k: v for k, v in {
+            "whisper_model": opts.get("whisper_model"),
+            "gemini_model": opts.get("gemini_model"),
+            "groq_model": opts.get("groq_model"),
+            "deepgram_model": opts.get("deepgram_model"),
+            "assemblyai_model": opts.get("assemblyai_model"),
+        }.items() if v},
+        language=cfg.language,
+    )
+
+    if not no_combined:
+        write_combined_md(statuses, meta, batch_dir)
+    write_manifest_json(statuses, failures, meta, batch_dir)
+    write_errors_log(failures, batch_dir)
+
+    elapsed = (datetime.now() - started).total_seconds()
+    console.print(
+        f"\n[green]✓[/green] {len(statuses)} ok   "
+        f"[red]✗[/red] {len(failures)} failed   "
+        f"Total: {len(statuses) + len(failures)}   Elapsed: {elapsed:.0f}s"
+    )
+    console.print(f"\n  [bold]{batch_dir}/[/bold]")
+    if not no_combined:
+        console.print(f"  ├── combined.md")
+    console.print(f"  ├── manifest.json")
+    console.print(f"  └── videos/  ({len(statuses)} transcripts)")
+    if failures:
+        console.print(f"  └── errors.log  ({len(failures)} failures)")
+    console.print(
+        '\n  [dim]Next:[/dim] ask Claude → '
+        '"прочти combined.md и сделай заметку по теме"\n'
+    )
+
+
+def _infer_source_type(targets, from_file: Path | None) -> str:
+    if from_file is not None and all(t.source == "file" for t in targets):
+        return "file"
+    sources = {t.source for t in targets}
+    if sources == {"channel"} or sources == {"playlist"}:
+        return next(iter(sources))
+    if sources == {"inline"}:
+        return "inline"
+    return "mixed"
+```
+
+- [ ] **Step 4: Run, verify all PASS**
+
+Run: `uv run pytest tests/test_cli_batch.py -v`
+Expected: 4 PASS.
+
+- [ ] **Step 5: Commit batch sub-command**
+
+```bash
+git add skills/youtube_transcribe/transcribe.py tests/test_cli_batch.py
+git commit -m "feat(cli): batch sub-command — Resolver + run_pipeline loop + combined.md"
 ```
 
 ---
@@ -3375,11 +4900,14 @@ description: |
   Use this skill when the user pastes a video URL with intent to read/analyze content,
   asks to "transcribe", "расшифровать", "сделать текст из видео", "розшифрувати",
   "get a transcript", "subtitles", "what's in this video", "о чём это видео",
-  or provides a local media file. Also use for explicit backend switching ("через gemini",
-  "локально whisper large", "use groq"). DO NOT use for: general questions about
-  transcription technology, requesting video recommendations, recording/creating videos,
-  or operating on already-existing transcripts. Works in Russian, English, Ukrainian,
-  Kazakh, German, Spanish, French — semantic match, not regex.
+  or provides a local media file. Also fires for BATCH cases: a list of multiple URLs
+  in one message, a YouTube channel/playlist URL ("весь канал", "последние N видео",
+  "вот плейлист", "transcribe this whole channel"), or `--from-file` lists.
+  Use for explicit backend switching ("через gemini", "локально whisper large", "use groq").
+  DO NOT use for: general questions about transcription technology, requesting video
+  recommendations, recording/creating videos, or operating on already-existing transcripts.
+  Works in Russian, English, Ukrainian, Kazakh, German, Spanish, French — semantic match,
+  not regex.
 ---
 
 # youtube-transcribe Skill
@@ -3388,6 +4916,7 @@ description: |
 
 **Use this skill when** any of these are true in the user's message:
 
+### Single (one input)
 - A YouTube URL (`youtube.com/watch?v=...`, `youtu.be/...`, `youtube.com/shorts/...`) appears, with or without surrounding words.
 - Any video URL (TikTok, Vimeo, Twitter/X video, Twitch VOD, etc.) appears with intent to extract content.
 - A local file path ending in `.mp3 / .mp4 / .wav / .m4a / .mkv / .webm / .opus / .flac` appears with intent to extract speech.
@@ -3397,6 +4926,15 @@ description: |
 - Request to summarize/analyze a video by URL (transcribe first, then Claude analyzes).
 - Request for timestamps, quotes, or time-coded references in a video.
 - Backend switching: "через gemini", "локально whisper", "use groq", "switch to subtitles".
+
+### Batch (multiple inputs)
+- The message contains **2 or more YouTube/video URLs**.
+- A YouTube channel URL (`youtube.com/@name`, `youtube.com/c/...`, `youtube.com/channel/UC...`).
+- A YouTube playlist URL (`youtube.com/playlist?list=...`).
+- Phrases: "прогони пачку видео", "расшифруй все эти ссылки", "вот несколько ссылок", "несколько видео разом".
+- Phrases: "весь канал", "последние N видео с канала", "all videos from this channel", "все видео с @channel".
+- Phrases: "возьми этот плейлист", "всё из этого плейлиста", "the whole playlist".
+- A path to a `.txt` file containing URLs ("вот файл со ссылками").
 
 **Do NOT use this skill when:**
 
@@ -3414,15 +4952,30 @@ The description above is multilingual on purpose. Triggering happens by semantic
 
 Run the CLI from the user's shell. The CLI is installed globally (Claude Code plugin path or `uv tool install`).
 
+### Single
+
 ```
 youtube-transcribe transcribe <URL_or_path> [flags]
 ```
+
+A bare `youtube-transcribe <URL>` (no sub-command) is also accepted for back-compat — it routes to `transcribe`.
+
+### Batch
+
+```
+youtube-transcribe batch <URL1> <URL2> ... [--limit N] [flags]
+youtube-transcribe batch <channel-or-playlist-URL> --limit 10 [flags]
+youtube-transcribe batch --from-file urls.txt [flags]
+```
+
+**Recommendation for big channels:** add `--backend subtitles` for the whole batch. A 50-video channel through `whisper-local` takes hours; through subtitles it's a couple of minutes. Quality is "what YouTube auto-recognized" — but enough for a summary/note. If subtitles fail on a video, individual fallback is up to the user (not the skill in v0.1).
 
 ### Default behavior
 
 - No flags → uses configured default backend (usually `whisper-local`).
 - First-run automatically launches `wizard` (interactive setup).
-- Output goes to `./transcripts/<name>.txt` and `<name>.srt`.
+- Single output: `./transcripts/<name>.txt` and `<name>.srt`.
+- Batch output: `./transcripts/batch_<timestamp>_<auto-slug>/` with `videos/`, `combined.md`, `manifest.json`, optional `errors.log`.
 
 ### Backend switching (3 levels)
 
@@ -3459,7 +5012,18 @@ This writes to `~/.youtube-transcribe/config.toml` and affects all future sessio
 
 ## After running
 
+### After single
+
 Always read the generated `.txt` file and offer the user a short summary or answer their original question (was the URL with "о чём это видео"? answer that). Do NOT echo the entire transcript back unless asked.
+
+### After batch
+
+Read the generated `combined.md` from the batch directory printed in stdout. Offer the user one of:
+- **Заметка по теме** — extract key insights, group by topic, deduplicate repeated points across videos.
+- **Сводка** — short paragraph per video + cross-video themes.
+- **План изучения** — ordered reading list with what each video adds.
+
+Mention the batch directory path so the user can re-open it later. If `errors.log` exists, briefly summarize which videos failed and why.
 
 If the run fails, the CLI prints a friendly hint (yt-dlp blocked → cookies, key missing → set-key, etc.). Relay the hint to the user clearly.
 
@@ -3490,18 +5054,29 @@ mkdir -p commands
 
 ```markdown
 ---
-description: Transcribe a YouTube URL or local media file. Usage — /transcribe <URL_or_path> [--backend X] [--whisper-model Y] [--language ru]
-argument-hint: <URL_or_path> [flags]
+description: |
+  Transcribe a YouTube URL, local media file, or run BATCH on a channel/playlist/list.
+  Usage — /transcribe <URL_or_path> [flags]   (single)
+        — /transcribe batch <inputs...> [--limit N] [flags]   (batch — multiple URLs / channel / playlist / --from-file)
+argument-hint: <URL_or_path> | batch <inputs...> [flags]
 ---
 
-Run `youtube-transcribe transcribe $ARGUMENTS` and report results back to the user.
+Run `youtube-transcribe $ARGUMENTS` and report results back to the user.
 
-If `$ARGUMENTS` is empty, prompt the user for a URL or file path.
+- If `$ARGUMENTS` starts with `batch ` (or contains a channel/playlist URL or 2+ URLs), the CLI routes to the batch sub-command. Otherwise — to single (`transcribe`).
+- A bare URL/path without sub-command word is auto-routed to `transcribe`.
 
-After the command finishes:
-1. Read the generated `.txt` file from `./transcripts/`.
-2. Give the user a brief one-paragraph summary of what's in the transcript.
-3. Offer follow-up actions: full text, search inside, translate, generate subtitles, summarize per timestamp.
+If `$ARGUMENTS` is empty, prompt the user for a URL, file path, channel URL, or list.
+
+### After single (`./transcripts/<name>.txt|.srt`)
+1. Read the generated `.txt`.
+2. Give a one-paragraph summary.
+3. Offer: full text, search inside, translate, generate subtitles, summarize per timestamp.
+
+### After batch (`./transcripts/batch_<timestamp>_<slug>/`)
+1. Read `combined.md` from the printed batch directory.
+2. Offer: заметка по теме / сводка / план изучения / cross-video themes.
+3. If `errors.log` exists in that directory, briefly summarize which videos failed and why.
 
 If the command exits non-zero, the stdout/stderr will contain a friendly hint — relay it to the user (e.g., "API key missing", "yt-dlp blocked, try `--cookies-from-browser chrome`").
 ```
@@ -3593,6 +5168,42 @@ youtube-transcribe transcribe video.mp4 --backend gemini
 
 ---
 
+## Batch / каналы
+
+Прогнать пачку URL, целый канал или плейлист — одной командой. Skill кладёт результат в одну папку (`combined.md` + `manifest.json` + `videos/`), которую дальше Claude в чате читает целиком и делает заметку/сводку.
+
+```bash
+# Несколько отдельных URL → один batch
+youtube-transcribe batch https://youtu.be/AAA https://youtu.be/BBB
+
+# Целый канал (топ-10 свежих видео), быстрый режим через субтитры YouTube
+youtube-transcribe batch https://youtube.com/@anthropicai --limit 10 --backend subtitles
+
+# Из файла со списком (1 URL на строку, # — комментарий)
+youtube-transcribe batch --from-file ~/learn/claude-videos.txt --backend gemini
+
+# Плейлист, все 5 видео локальным Whisper
+youtube-transcribe batch https://youtube.com/playlist?list=PLxxx --limit 5 \
+    --backend whisper-local --whisper-model turbo
+```
+
+**Дефолты:** `--limit 10`, последовательно (не параллельно), `continue-on-error` (упало 1 видео — продолжаем оставшиеся 9). Прервать на первой ошибке — флаг `--fail-fast`.
+
+**Структура выхода:**
+```
+./transcripts/batch_2026-05-09_15-30-12_anthropicai/
+├── combined.md       ← один файл со всеми текстами + мета — для Claude-чата
+├── manifest.json     ← машиночитаемый дубль
+├── videos/           ← per-video .txt + .srt
+└── errors.log        ← если были ошибки
+```
+
+> **Совет для больших каналов:** добавь `--backend subtitles`. 50 видео × subtitles ≈ 1 минута, против ≈2 часов на whisper-local. Качество — то, что YouTube распознал автоматически, но для заметки/сводки этого обычно достаточно.
+
+> **Что НЕ делает batch в v0.1:** не делает summary внутри skill — отдаёт `combined.md`, дальше Claude в чате читает и делает заметку. Не поддерживает поиск по тегам/теме (v0.3) и Instagram (v0.4) — см. roadmap.
+
+---
+
 ## Hardware guide
 
 [Insert table from spec section 14.]
@@ -3647,10 +5258,20 @@ Read the provider's ToS. We never log/print full API keys; they're masked in `co
 
 ## Roadmap
 
-- v2: Diarization (who-said-what) via `pyannote-audio`
-- v2: Chunking for >2h videos
-- v2: Built-in summarization via local or cloud LLM
-- v2: PyPI publication
+**v0.3 — расширение batch:**
+- `batch --search "claude programming"` — поиск по тегам/теме (YouTube Data API или yt-dlp `ytsearchN:`)
+- `--workers N` — параллельный прогон (для облачных бэкендов)
+- `--skip-existing` — кэш по `video_id`, чтобы повторный batch не перетранскрибировал уже сделанное
+- Фильтры канала: `--since`, `--until`, `--min-duration`, `--max-duration`, `--no-shorts`
+
+**v0.4:**
+- `batch --instagram @user` — Reels из аккаунта Instagram (yt-dlp + cookies)
+
+**Дальше:**
+- Диаризация (who-said-what) через `pyannote-audio`
+- Чанкинг для видео >2ч
+- Опциональное LLM-саммари внутри skill (`--summarize`) — для тех, кто использует CLI без Claude-чата
+- PyPI publication
 ```
 
 - [ ] **Step 2: Commit**
@@ -3779,6 +5400,35 @@ uv run youtube-transcribe transcribe https://www.youtube.com/watch?v=jNQXAC9IVRw
 
 Expected: completes in <5 sec, produces same kind of output.
 
+- [ ] **Step 4B: Smoke for batch — пара URL через subtitles**
+
+```powershell
+uv run youtube-transcribe batch `
+    https://www.youtube.com/watch?v=jNQXAC9IVRw `
+    https://www.youtube.com/watch?v=jNQXAC9IVRw `
+    --backend subtitles `
+    --language en `
+    --output-dir ./test-output
+```
+
+(Тот же URL дважды — проверка что dedup работает: ожидается **1** видео в выходе, а не 2.)
+
+Expected:
+- В stdout: `✓ 1 ok   ✗ 0 failed   Total: 1`.
+- Создаётся папка `./test-output/batch_<timestamp>_mixed_*/` (имя slug — потому что входы — inline-URL, не канал).
+- В ней: `combined.md` (с YAML front-matter), `manifest.json`, `videos/01_*.txt`, `videos/01_*.srt`. Без `errors.log` (ошибок не было).
+
+- [ ] **Step 4C: Verify combined.md schema**
+
+```powershell
+$combined = Get-Content (Get-ChildItem ./test-output/batch_* | Select-Object -First 1).FullName/combined.md -Raw
+$combined.StartsWith("---") | Should -Be $true     # YAML front-matter
+"$combined" -match "total: 1" | Should -Be $true
+"$combined" -match "## 1\." | Should -Be $true
+```
+
+(Эквивалент на bash для Mac: `grep -E '^total: 1' ./test-output/batch_*/combined.md`).
+
 - [ ] **Step 5: Run the unit suite end-to-end**
 
 ```powershell
@@ -3818,6 +5468,42 @@ def test_e2e_short_youtube(tmp_path: Path):
     assert r.returncode == 0, r.stderr
     assert any(out.glob("*.txt"))
     assert any(out.glob("*.srt"))
+
+
+@pytest.mark.skipif(
+    os.environ.get("RUN_E2E_SMOKE") != "1",
+    reason="Set RUN_E2E_SMOKE=1 to run end-to-end smoke against YouTube",
+)
+def test_e2e_batch_two_urls_via_subtitles(tmp_path: Path):
+    if not shutil.which("yt-dlp"):
+        pytest.skip("yt-dlp not on PATH")
+    out = tmp_path / "out"
+    r = subprocess.run(
+        [
+            "uv", "run", "youtube-transcribe", "batch",
+            # same short public-domain video twice — dedup should keep one
+            "https://www.youtube.com/watch?v=jNQXAC9IVRw",
+            "https://www.youtube.com/watch?v=jNQXAC9IVRw",
+            "--backend", "subtitles",
+            "--language", "en",
+            "--output-dir", str(out),
+        ],
+        capture_output=True, text=True, timeout=180,
+    )
+    assert r.returncode == 0, r.stderr
+    batch_dirs = list(out.glob("batch_*"))
+    assert len(batch_dirs) == 1
+    bd = batch_dirs[0]
+    assert (bd / "combined.md").exists()
+    assert (bd / "manifest.json").exists()
+    assert (bd / "videos").is_dir()
+    # dedup → exactly 1 video in videos/
+    txt_files = list((bd / "videos").glob("*.txt"))
+    assert len(txt_files) == 1
+    # combined.md has YAML front-matter
+    head = (bd / "combined.md").read_text(encoding="utf-8")[:200]
+    assert head.startswith("---\n")
+    assert "total: 1" in head
 ```
 
 - [ ] **Step 7: Commit**
@@ -4015,16 +5701,41 @@ uv run youtube-transcribe transcribe https://www.youtube.com/watch?v=jNQXAC9IVRw
 
 Expected: exit code 4, error mentions "distil" + "mlx" not supported.
 
-- [ ] **Step 5: Note Mac specifics in README**
+- [ ] **Step 5: Mac batch — small playlist on mlx-whisper**
 
-Update the hardware table or "Mac note" with the actual M-series model used (e.g., "Tested on M2 Pro, macOS 14.5 — turbo runs in ~20 sec for 60 sec video").
+Pick a public 2–3-video YouTube playlist or channel (e.g. an official channel's "Latest Uploads"). Then run:
 
 ```bash
-# Example edit to README.md
-git commit -am "docs: confirm Mac validation on <your-model> macOS <version>"
+uv run youtube-transcribe batch <PLAYLIST_OR_CHANNEL_URL> \
+    --limit 2 \
+    --backend whisper-local \
+    --whisper-model turbo \
+    --language en \
+    --output-dir ./test-batch
 ```
 
-- [ ] **Step 6: Push the doc update**
+Expected:
+- 2 videos transcribed sequentially through mlx-whisper.
+- `./test-batch/batch_<timestamp>_<channel-or-mixed>_*/` created with `combined.md`, `manifest.json`, `videos/01_*.txt`, `videos/02_*.txt`.
+- **The mlx model loads ONCE** (not per-video). Verify in stdout that the `Loading mlx model: mlx-community/whisper-large-v3-turbo` line appears only at the very start of the run, not before each individual video. If it loads per-video, this is a perf bug — file as a v0.2 task to optimize, but the run is still correct.
+- No `errors.log` if both videos succeeded.
+- For 2 short (≤2 min) videos, total wall-clock under 1 minute on M2 Pro / M3.
+
+Verify combined.md schema:
+```bash
+head -20 ./test-batch/batch_*/combined.md
+# expects YAML --- block, total: 2, ok: 2, then per-video sections
+```
+
+- [ ] **Step 6: Note Mac specifics in README**
+
+Update the hardware table or "Mac note" with the actual M-series model used (e.g., "Tested on M2 Pro, macOS 14.5 — turbo runs in ~20 sec for 60 sec video"). Also confirm batch on Mac: "batch of 2 short videos via mlx-whisper completes in <1 min".
+
+```bash
+git commit -am "docs: confirm Mac validation on <your-model> macOS <version> (single + batch)"
+```
+
+- [ ] **Step 7: Push the doc update**
 
 ```bash
 git push origin main
@@ -4060,18 +5771,18 @@ Repo is ready. Anyone can install via:
 
 ## Self-review (writer's checklist — fix inline)
 
-**Spec coverage:** Each spec section maps to one or more tasks:
+**Spec coverage (базовая v0.1, `2026-05-08-...-design.md`):**
 
 - §3 Distribution → Task 1 (pyproject), Task 3 (plugin.json), Task 25 (install scripts)
-- §4 Architecture → file structure listed at plan top
+- §4 Architecture → file structure at plan top
 - §5 All 8 backends → Tasks 9–17
 - §6 Wizard → Task 19
 - §7 Three-level switching → Task 22 (SKILL.md), Task 21 (config CLI)
 - §8 CLI flags → Tasks 20–21
 - §9 Slash command → Task 23
 - §10 Triggers → Task 22
-- §11 Downloader → Task 7
-- §12 Output writer → Task 5
+- §11 Downloader → Task 7 (+ probe_input/expand_channel_or_playlist)
+- §12 Output writer → Task 5 (per-video) + batch writers
 - §13 Config + secrets → Task 6
 - §14 README → Task 24
 - §15 Tests → Tasks 4–18 (unit), Task 26 (e2e)
@@ -4079,9 +5790,29 @@ Repo is ready. Anyone can install via:
 - §17 Risks → addressed in Task 7 (yt-dlp), Tasks 28–29 (Mac validation)
 - §18 Final checklist → Task 30
 
-**Placeholder scan:** No "TBD" / "TODO". Task 24 README is a "starter template" by design — full content is left for the implementer to flesh out from the spec, but every section heading is concrete and the content rules are spelled out (hardware table, switching examples, etc.). Task 17 `_resolve_compute_type` uses default safe choice — explicit, not a placeholder.
+**Spec coverage (расширение `2026-05-09-...-batch-extension-design.md`):**
 
-**Type consistency:** `Segment` defined in Task 5, used identically in Tasks 8–18. `TranscriptionResult` defined in Task 8, returned by every backend with same fields. `Config` defined in Task 6, mutated only via `_override_config` (Task 20) and `config set` (Task 21). `BackendError` / `BackendNotConfigured` raised consistently.
+- §3 Архитектура (Resolver, новые writers, run_pipeline core) → Tasks 5 (writers), 7 (probe_input), 7B (Resolver), 20 (run_pipeline + cli root), 20B (batch sub-command)
+- §4 CLI контракт (transcribe + batch sub-commands, флаги, auto-slug, slash) → Tasks 20, 20B, 23
+- §5 Resolver (algorithm, dedup, --from-file format) → Task 7B
+- §6 Структура выходов и форматы (combined.md, manifest.json, errors.log) → Tasks 5, 20B; в README → Task 24
+- §7 Defaults (sequential, continue-on-error, no cache в v0.1, system temp для аудио) → Task 20 (run_pipeline.tempdir), Task 20B (continue-on-error)
+- §8 Тестирование (unit, e2e под флагом, Mac ручной) → Tasks 5/7/7B/20/20B (unit), Task 26 (e2e + batch e2e), Task 29 (Mac batch)
+- §9 Roadmap → Task 24 README обновлён под v0.3/v0.4
+- §10 Влияние на план → реализовано (Tasks 5, 7, 7B, 20, 20B, 22, 23, 24, 26, 29)
+- §11 Risk #4 (Click default-routing) → реализован через `_BareURLGroup` в Task 20
+
+**Placeholder scan:** No "TBD" / "TODO" / "implement later". Task 24 README is a "starter template" by design — full content is left for the implementer to flesh out from the spec. Task 17 `_resolve_compute_type` uses default safe choice — explicit, not a placeholder. Поля `since/until/min_duration/max_duration/include_shorts` в `ResolverFilters` (Task 7B) — намеренный задел под v0.3, документированный в коде комментарием.
+
+**Type consistency:**
+- `Segment` defined in Task 5, used identically in Tasks 8–18.
+- `TranscriptionResult` defined in Task 8, returned by every backend with same fields and consumed by `run_pipeline` (Task 20).
+- `Config` defined in Task 6, mutated only via `_override_config` (Tasks 20 / 20B) and `config set` (Task 21). `BackendError` / `BackendNotConfigured` raised consistently.
+- `ResolvedTarget` (Task 7B) has fields `url, title, upload_date, duration_sec, channel, source, video_id` — used identically in Task 20 (`_derive_basename`), Task 20B (`_build_video_status`, `_auto_batch_name`, `_infer_source_type`).
+- `ResolverFilters.limit` consumed by `expand_channel_or_playlist` (Task 7) which is called from Task 7B `resolve()`.
+- `BatchMeta`, `BatchVideoStatus`, `BatchFailure` (Task 5) — used identically in Task 20B (`cmd_batch`).
+- `ChannelEntry` (Task 7) — used by Task 7B (`_channel_entry_to_target`).
+- `_BareURLGroup` and `cli` group in Task 20 — `cmd_batch` registers into the same group via `@cli.command(name="batch")` in Task 20B.
 
 ---
 
