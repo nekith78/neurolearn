@@ -82,11 +82,11 @@ def _channel_entry_to_target(e: ChannelEntry, source: Source) -> ResolvedTarget:
 
 
 def _video_info_to_target(info: dict, url: str, source: Source) -> ResolvedTarget:
-    from skills.youtube_transcribe.utils.downloader import _parse_yt_date
+    from skills.youtube_transcribe.utils.downloader import parse_yt_date
     return ResolvedTarget(
         url=url,
         title=info.get("title"),
-        upload_date=_parse_yt_date(info.get("upload_date")),
+        upload_date=parse_yt_date(info.get("upload_date")),
         duration_sec=int(info["duration"]) if info.get("duration") else None,
         channel=info.get("channel") or info.get("uploader"),
         source=source,
@@ -106,7 +106,16 @@ def resolve(
     from_file: Path | None,
     filters: ResolverFilters,
 ) -> list[ResolvedTarget]:
-    """Expand inputs into a flat list of ResolvedTarget. No media download."""
+    """Expand user input into a flat list of ResolvedTarget. No media download.
+
+    KNOWN DEVIATION from spec extension §5: this function raises
+    UnresolvableInput on the FIRST inline URL that fails probing, instead of
+    collecting failures and continuing. The collect-and-continue behaviour
+    will be implemented in Task 20B (batch CLI), where each batch item gets
+    individually wrapped, failures land in errors.log, and the rest proceed.
+    Single-mode (Task 20) only ever passes one input, so the deviation has
+    no user-visible effect there.
+    """
     raw: list[tuple[str, Source]] = []
     for u in inputs:
         raw.append((u, "inline"))

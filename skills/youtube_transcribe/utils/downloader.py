@@ -178,7 +178,7 @@ def _yt_url_from_id(video_id: str) -> str:
     return f"https://www.youtube.com/watch?v={video_id}"
 
 
-def _parse_yt_date(s: str | None) -> date | None:
+def parse_yt_date(s: str | None) -> date | None:
     """yt-dlp возвращает 'YYYYMMDD' либо None."""
     if not s or len(s) != 8:
         return None
@@ -239,7 +239,7 @@ def expand_channel_or_playlist(url: str, limit: int) -> list[ChannelEntry]:
             url=e.get("url") or _yt_url_from_id(vid),
             title=e.get("title"),
             duration_sec=int(e["duration"]) if e.get("duration") else None,
-            upload_date=_parse_yt_date(e.get("upload_date")),
+            upload_date=parse_yt_date(e.get("upload_date")),
             channel=info.get("title") or info.get("uploader"),
         ))
     return out
