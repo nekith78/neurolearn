@@ -15,38 +15,20 @@ from skills.youtube_transcribe.utils.output_writer import Segment
 
 
 class _ApiAdapter:
-    """Thin adapter that wraps the installed youtube-transcript-api version,
-    exposing a stable ``get_transcript(video_id, languages)`` interface
-    regardless of whether the library uses the old class-method API or the
-    newer instance-based API (0.6+)."""
+    """Adapter over youtube-transcript-api ≥0.6 instance-based API.
+    Returns list of dicts with text/start/duration keys for backend convenience."""
 
     def get_transcript(self, video_id: str, languages: list[str] | None = None) -> list[dict]:
         from youtube_transcript_api import YouTubeTranscriptApi
 
         langs = languages or ["en"]
-
-        # ---- new API (≥0.6): instance with .fetch() → FetchedTranscript ----
-        if hasattr(YouTubeTranscriptApi, "fetch") and not hasattr(YouTubeTranscriptApi, "get_transcript"):
-            api = YouTubeTranscriptApi()
-            try:
-                fetched = api.fetch(video_id, languages=langs)
-            except Exception as e:
-                raise e
-            # FetchedTranscript has a .snippets list of FetchedTranscriptSnippet dataclasses
-            snippets = getattr(fetched, "snippets", None)
-            if snippets is not None:
-                return [
-                    {"start": s.start, "duration": s.duration, "text": s.text}
-                    for s in snippets
-                ]
-            # Fallback: try iterating (some versions make FetchedTranscript iterable)
-            return [
-                {"start": s.start, "duration": s.duration, "text": s.text}
-                for s in fetched
-            ]
-
-        # ---- old API (<0.6): class-method .get_transcript() → list[dict] ----
-        return YouTubeTranscriptApi.get_transcript(video_id, languages=langs)
+        api = YouTubeTranscriptApi()
+        fetched = api.fetch(video_id, languages=langs)
+        # FetchedTranscript is iterable; each FetchedTranscriptSnippet has .text/.start/.duration
+        return [
+            {"start": s.start, "duration": s.duration, "text": s.text}
+            for s in fetched
+        ]
 
 
 def _get_transcript_api() -> _ApiAdapter:
@@ -100,6 +82,11 @@ class SubtitlesBackend:
                 end=start + duration,
                 text=str(item.get("text", "")).strip(),
             ))
+        if not segments:
+            raise BackendError(
+                f"Субтитры для видео {video_id} пусты или недоступны на запрошенных языках. "
+                "Smart-mode переключится на fallback-бэкенд."
+            )
         text = " ".join(s.text for s in segments)
         return TranscriptionResult(
             text=text,

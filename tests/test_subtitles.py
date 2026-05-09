@@ -1,3 +1,5 @@
+import sys
+import pytest
 from unittest.mock import patch, MagicMock
 from skills.youtube_transcribe.backends.subtitles import SubtitlesBackend
 from skills.youtube_transcribe.backends.base import BackendError
@@ -9,7 +11,6 @@ def test_supports_url_true():
 
 def test_only_youtube_urls_supported():
     b = SubtitlesBackend()
-    import pytest
     with pytest.raises(BackendError, match="YouTube"):
         b.transcribe("https://vimeo.com/123", language="en")
 
@@ -33,3 +34,26 @@ def test_transcribe_returns_result():
     assert len(result.segments) == 2
     assert result.segments[0].text == "Hello"
     assert result.segments[0].end == 2.5
+
+
+def test_transcribe_empty_subtitles_raises_backend_error():
+    """Empty transcript list must raise BackendError so smart-mode fallback activates."""
+    fake_api = MagicMock()
+    fake_api.get_transcript.return_value = []
+
+    with patch(
+        "skills.youtube_transcribe.backends.subtitles._get_transcript_api",
+        return_value=fake_api,
+    ):
+        b = SubtitlesBackend()
+        with pytest.raises(BackendError, match="пусты"):
+            b.transcribe("https://youtu.be/aaa", language="en")
+
+
+def test_is_configured_when_youtube_transcript_api_missing(monkeypatch):
+    """If youtube-transcript-api is not installed, is_configured returns (False, hint)."""
+    monkeypatch.setitem(sys.modules, "youtube_transcript_api", None)  # poison the import
+    backend = SubtitlesBackend()
+    ok, reason = backend.is_configured()
+    assert ok is False
+    assert reason and "youtube-transcript-api" in reason.lower()
