@@ -146,13 +146,22 @@ def _from_toml_dict(d: dict) -> Config:
 def load_config(path: Path = CONFIG_PATH) -> Config:
     if not path.exists():
         return DEFAULT_CONFIG
-    data = tomllib.loads(path.read_text(encoding="utf-8"))
-    return _from_toml_dict(data)
+    try:
+        raw = tomllib.loads(path.read_text(encoding="utf-8"))
+    except tomllib.TOMLDecodeError as e:
+        raise ValueError(
+            f"Malformed TOML in {path}: {e}. "
+            f"Restore from backup or run `youtube-transcribe config wizard`."
+        ) from e
+    return _from_toml_dict(raw)
 
 
 def save_config(cfg: Config, path: Path = CONFIG_PATH) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_bytes(tomli_w.dumps(_to_toml_dict(cfg)).encode("utf-8"))
+    payload = tomli_w.dumps(_to_toml_dict(cfg)).encode("utf-8")
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_bytes(payload)
+    os.replace(tmp, path)
 
 
 def get_api_key(backend: str, env_path: Path = ENV_PATH) -> str | None:
@@ -173,6 +182,8 @@ def get_api_key(backend: str, env_path: Path = ENV_PATH) -> str | None:
 
 
 def set_api_key(backend: str, value: str, env_path: Path = ENV_PATH) -> None:
+    if "\n" in value or "\r" in value:
+        raise ValueError("API key value cannot contain newline characters")
     var = _BACKEND_ENV_VAR.get(backend)
     if not var:
         raise ValueError(f"Unknown backend for env var: {backend}")

@@ -2,6 +2,9 @@ from pathlib import Path
 import os
 from unittest.mock import patch
 
+import pytest
+
+import skills.youtube_transcribe.config as config_module
 from skills.youtube_transcribe.config import (
     Config,
     load_config,
@@ -82,3 +85,16 @@ def test_mask_key_long():
     assert masked.startswith("sk-")
     assert masked.endswith("cdef")
     assert "*" in masked
+
+
+def test_set_api_key_rejects_newline(tmp_path, monkeypatch):
+    monkeypatch.setattr(config_module, "ENV_PATH", tmp_path / ".env")
+    with pytest.raises(ValueError, match="newline"):
+        config_module.set_api_key("openai", "abc\ndef")
+
+
+def test_load_config_raises_on_malformed_toml(tmp_path):
+    bad = tmp_path / "config.toml"
+    bad.write_text("not = valid = toml = [[[", encoding="utf-8")
+    with pytest.raises(ValueError, match="Malformed TOML"):
+        config_module.load_config(bad)
