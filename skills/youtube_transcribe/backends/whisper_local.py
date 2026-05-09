@@ -148,5 +148,30 @@ class WhisperLocalBackend:
         )
 
     def _transcribe_mlx(self, audio: Path, model_name: str, language: str) -> TranscriptionResult:
-        # Implementation added in Task 10
-        raise NotImplementedError("mlx implementation added in Task 10")
+        import mlx_whisper  # type: ignore  # noqa: PLC0415
+        lang = None if language == "auto" else language
+        # mlx_whisper.transcribe returns dict with "text", "segments", "language"
+        result = mlx_whisper.transcribe(
+            str(audio),
+            path_or_hf_repo=model_name,
+            language=lang,
+            word_timestamps=False,
+        )
+        segments: list[Segment] = []
+        total_duration = 0.0
+        for s in result.get("segments", []):
+            seg = Segment(
+                start=float(s.get("start", 0.0)),
+                end=float(s.get("end", 0.0)),
+                text=str(s.get("text", "")),
+            )
+            segments.append(seg)
+            total_duration = max(total_duration, seg.end)
+        text = result.get("text") or " ".join(s.text.strip() for s in segments)
+        return TranscriptionResult(
+            text=text,
+            segments=segments,
+            language_detected=result.get("language"),
+            backend_name=self.name,
+            duration_seconds=total_duration,
+        )

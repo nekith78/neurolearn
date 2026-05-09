@@ -57,3 +57,27 @@ def test_transcribe_calls_faster_whisper(tmp_path: Path):
     assert len(result.segments) == 1
     assert result.segments[0].start == 0.0
     fake_model.transcribe.assert_called_once()
+
+
+def test_transcribe_calls_mlx_whisper(tmp_path: Path):
+    fake_response = {
+        "text": "hello world",
+        "segments": [
+            {"start": 0.0, "end": 1.5, "text": "hello world"},
+        ],
+        "language": "en",
+    }
+    audio = tmp_path / "a.mp3"
+    audio.write_bytes(b"fake")
+
+    fake_module = MagicMock()
+    fake_module.transcribe.return_value = fake_response
+
+    with patch.dict("sys.modules", {"mlx_whisper": fake_module}):
+        b = WhisperLocalBackend(model="turbo", device="mps", compute_type="auto", impl="mlx")
+        result = b.transcribe(audio, language="en")
+
+    assert result.text.strip() == "hello world"
+    assert result.backend_name == "whisper-local"
+    assert result.segments[0].text == "hello world"
+    fake_module.transcribe.assert_called_once()
