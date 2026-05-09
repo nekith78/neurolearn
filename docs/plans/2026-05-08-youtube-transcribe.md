@@ -111,7 +111,11 @@ dependencies = [
     "deepgram-sdk>=3.7.0",
     "assemblyai>=0.34.0",
     # Local Whisper — Windows/Linux/Intel-Mac path
-    "faster-whisper>=1.0.3",
+    # NOT installed on macOS arm64: faster-whisper 1.2+ requires onnxruntime
+    # which has no wheels for macOS arm64. On Apple Silicon, use mlx-whisper
+    # (см. spec §5.2: platform_detect выбирает mlx на arm64-darwin).
+    # NB: PEP 508 не поддерживает `not (...)` через hatchling; используем эквивалент по де Моргану.
+    "faster-whisper>=1.0.3; sys_platform != 'darwin' or platform_machine != 'arm64'",
     # Apple Silicon path (only installs on macOS arm64)
     "mlx-whisper>=0.4.1; sys_platform == 'darwin' and platform_machine == 'arm64'",
 ]

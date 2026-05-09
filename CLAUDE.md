@@ -58,6 +58,8 @@ uv run youtube-transcribe --help       # CLI после Task 20+
 
 `mlx-whisper` подцепляется PEP 508 marker'ом `sys_platform == 'darwin' and platform_machine == 'arm64'` — не импортировать напрямую без проверки платформы, иначе на Windows будет ImportError.
 
+**Симметричный marker на `faster-whisper`:** `sys_platform != 'darwin' or platform_machine != 'arm64'` (де Морган от `not (... and ...)` — стандарт PEP 508 не поддерживает `not (...)` через hatchling). Причина — `faster-whisper 1.2+` тянет `onnxruntime 1.26+`, у которого нет wheel под macOS arm64. На Mac arm64 используется только mlx-whisper, на Windows/Linux/x86_64-Mac — только faster-whisper. `backends/whisper_local.py` (Tasks 9-10) импортирует обе библиотеки внутри функций после `platform_detect`, не на module-level.
+
 ## Тестирование
 
 - **Уровень 1:** unit с моками — `subprocess`/`platform` для `platform_detect`, SDK-клиенты для каждого бэкенда. Должны зеленеть на любой ОС без ключей и без интернета.
