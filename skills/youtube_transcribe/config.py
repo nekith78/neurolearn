@@ -1,0 +1,199 @@
+"""Config loading/saving and API key handling.
+
+Config layout (TOML):
+  ~/.youtube-transcribe/config.toml — non-secret defaults
+  ~/.youtube-transcribe/.env        — API keys (NOT committed, perms 0600)
+
+API key precedence:
+  1. process env var
+  2. ~/.youtube-transcribe/.env
+  3. None (caller must handle)
+"""
+from __future__ import annotations
+
+import os
+import sys
+from dataclasses import asdict, dataclass, field
+from pathlib import Path
+from typing import Literal
+
+if sys.version_info >= (3, 11):
+    import tomllib
+else:
+    import tomli as tomllib
+
+import tomli_w
+from dotenv import dotenv_values
+
+CONFIG_DIR = Path.home() / ".youtube-transcribe"
+CONFIG_PATH = CONFIG_DIR / "config.toml"
+ENV_PATH = CONFIG_DIR / ".env"
+
+BackendName = Literal[
+    "smart", "subtitles", "whisper-local",
+    "gemini", "groq", "openai", "deepgram", "assemblyai", "custom",
+]
+WhisperModel = Literal["turbo", "large", "medium", "small", "distil"]
+
+
+@dataclass
+class Config:
+    default_backend: BackendName = "whisper-local"
+    fallback_backend: BackendName = "whisper-local"
+
+    whisper_model: WhisperModel = "turbo"
+    whisper_device: str = "auto"
+    whisper_compute_type: str = "auto"
+    beam_size: int = 5
+    vad: bool = True
+
+    gemini_model: str = "gemini-2.5-flash"
+    groq_model: str = "whisper-large-v3-turbo"
+    openai_model: str = "whisper-1"
+    deepgram_model: str = "nova-3"
+    assemblyai_model: str = "best"
+    custom_base_url: str = ""
+    custom_model: str = ""
+
+    language: str = "auto"
+    timestamps: bool = True
+    srt: bool = True
+    output_dir: str = "./transcripts"
+
+    keep_audio: bool = False
+    yt_dlp_auto_update: bool = True
+    cookies_browser: str = ""
+    fast_path_enabled: bool = True
+
+
+DEFAULT_CONFIG = Config()
+
+
+_BACKEND_ENV_VAR = {
+    "gemini": "GEMINI_API_KEY",
+    "groq": "GROQ_API_KEY",
+    "openai": "OPENAI_API_KEY",
+    "deepgram": "DEEPGRAM_API_KEY",
+    "assemblyai": "ASSEMBLYAI_API_KEY",
+    "custom": "CUSTOM_API_KEY",
+}
+
+
+def _to_toml_dict(cfg: Config) -> dict:
+    """Pack Config into nested dict matching the spec layout."""
+    d = asdict(cfg)
+    return {
+        "default_backend": d["default_backend"],
+        "fallback_backend": d["fallback_backend"],
+        "whisper-local": {
+            "model": d["whisper_model"],
+            "device": d["whisper_device"],
+            "compute_type": d["whisper_compute_type"],
+            "beam_size": d["beam_size"],
+            "vad": d["vad"],
+        },
+        "gemini": {"model": d["gemini_model"]},
+        "groq": {"model": d["groq_model"]},
+        "openai": {"model": d["openai_model"]},
+        "deepgram": {"model": d["deepgram_model"]},
+        "assemblyai": {"model": d["assemblyai_model"]},
+        "custom": {"base_url": d["custom_base_url"], "model": d["custom_model"]},
+        "output": {
+            "language": d["language"],
+            "timestamps": d["timestamps"],
+            "srt": d["srt"],
+            "output_dir": d["output_dir"],
+        },
+        "behavior": {
+            "keep_audio": d["keep_audio"],
+            "yt_dlp_auto_update": d["yt_dlp_auto_update"],
+            "cookies_browser": d["cookies_browser"],
+            "fast_path_enabled": d["fast_path_enabled"],
+        },
+    }
+
+
+def _from_toml_dict(d: dict) -> Config:
+    wl = d.get("whisper-local", {})
+    out = d.get("output", {})
+    beh = d.get("behavior", {})
+    return Config(
+        default_backend=d.get("default_backend", DEFAULT_CONFIG.default_backend),
+        fallback_backend=d.get("fallback_backend", DEFAULT_CONFIG.fallback_backend),
+        whisper_model=wl.get("model", DEFAULT_CONFIG.whisper_model),
+        whisper_device=wl.get("device", DEFAULT_CONFIG.whisper_device),
+        whisper_compute_type=wl.get("compute_type", DEFAULT_CONFIG.whisper_compute_type),
+        beam_size=wl.get("beam_size", DEFAULT_CONFIG.beam_size),
+        vad=wl.get("vad", DEFAULT_CONFIG.vad),
+        gemini_model=d.get("gemini", {}).get("model", DEFAULT_CONFIG.gemini_model),
+        groq_model=d.get("groq", {}).get("model", DEFAULT_CONFIG.groq_model),
+        openai_model=d.get("openai", {}).get("model", DEFAULT_CONFIG.openai_model),
+        deepgram_model=d.get("deepgram", {}).get("model", DEFAULT_CONFIG.deepgram_model),
+        assemblyai_model=d.get("assemblyai", {}).get("model", DEFAULT_CONFIG.assemblyai_model),
+        custom_base_url=d.get("custom", {}).get("base_url", ""),
+        custom_model=d.get("custom", {}).get("model", ""),
+        language=out.get("language", DEFAULT_CONFIG.language),
+        timestamps=out.get("timestamps", DEFAULT_CONFIG.timestamps),
+        srt=out.get("srt", DEFAULT_CONFIG.srt),
+        output_dir=out.get("output_dir", DEFAULT_CONFIG.output_dir),
+        keep_audio=beh.get("keep_audio", DEFAULT_CONFIG.keep_audio),
+        yt_dlp_auto_update=beh.get("yt_dlp_auto_update", DEFAULT_CONFIG.yt_dlp_auto_update),
+        cookies_browser=beh.get("cookies_browser", DEFAULT_CONFIG.cookies_browser),
+        fast_path_enabled=beh.get("fast_path_enabled", DEFAULT_CONFIG.fast_path_enabled),
+    )
+
+
+def load_config(path: Path = CONFIG_PATH) -> Config:
+    if not path.exists():
+        return DEFAULT_CONFIG
+    data = tomllib.loads(path.read_text(encoding="utf-8"))
+    return _from_toml_dict(data)
+
+
+def save_config(cfg: Config, path: Path = CONFIG_PATH) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(tomli_w.dumps(_to_toml_dict(cfg)).encode("utf-8"))
+
+
+def get_api_key(backend: str, env_path: Path = ENV_PATH) -> str | None:
+    var = _BACKEND_ENV_VAR.get(backend)
+    if not var:
+        return None
+    # 1. process env
+    val = os.environ.get(var)
+    if val:
+        return val
+    # 2. ~/.youtube-transcribe/.env
+    if env_path.exists():
+        values = dotenv_values(env_path)
+        v = values.get(var)
+        if v:
+            return v
+    return None
+
+
+def set_api_key(backend: str, value: str, env_path: Path = ENV_PATH) -> None:
+    var = _BACKEND_ENV_VAR.get(backend)
+    if not var:
+        raise ValueError(f"Unknown backend for env var: {backend}")
+
+    env_path.parent.mkdir(parents=True, exist_ok=True)
+    existing = {}
+    if env_path.exists():
+        existing = dict(dotenv_values(env_path))
+    existing[var] = value
+
+    lines = [f"{k}={v}" for k, v in existing.items() if v is not None]
+    env_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    if os.name != "nt":
+        try:
+            os.chmod(env_path, 0o600)
+        except OSError:
+            pass
+
+
+def mask_key(key: str) -> str:
+    """sk-1234567890abcdef → sk-1***cdef"""
+    if not key or len(key) < 8:
+        return "***"
+    return key[:4] + "***" + key[-4:]
