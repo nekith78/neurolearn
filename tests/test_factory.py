@@ -1,0 +1,268 @@
+"""Tests for backends/factory.py — backend factory + smart-mode composition."""
+from __future__ import annotations
+
+import pytest
+from unittest.mock import MagicMock, patch
+
+from skills.youtube_transcribe.config import Config
+from skills.youtube_transcribe.backends.factory import build_backend, run_smart
+
+
+# ---------------------------------------------------------------------------
+# build_backend: individual backends
+# ---------------------------------------------------------------------------
+
+
+def test_build_backend_subtitles():
+    cfg = Config()
+    with patch("skills.youtube_transcribe.backends.factory.SubtitlesBackend") as MockCls:
+        instance = MagicMock()
+        instance.name = "subtitles"
+        MockCls.return_value = instance
+        b = build_backend("subtitles", cfg)
+    MockCls.assert_called_once_with()
+    assert b.name == "subtitles"
+
+
+def test_build_backend_whisper_local():
+    cfg = Config(
+        whisper_model="medium",
+        whisper_device="cpu",
+        whisper_compute_type="int8",
+        beam_size=3,
+        vad=False,
+    )
+    with (
+        patch("skills.youtube_transcribe.backends.factory.WhisperLocalBackend") as MockCls,
+        patch("skills.youtube_transcribe.backends.factory.detect_platform") as mock_detect,
+    ):
+        platform_info = MagicMock()
+        platform_info.backend_impl = "faster"
+        platform_info.device = "cpu"
+        platform_info.recommended_compute_type = "int8"
+        mock_detect.return_value = platform_info
+
+        instance = MagicMock()
+        instance.name = "whisper-local"
+        MockCls.return_value = instance
+
+        b = build_backend("whisper-local", cfg)
+
+    # device and compute_type come from cfg when not "auto"
+    MockCls.assert_called_once_with(
+        model="medium",
+        device="cpu",
+        compute_type="int8",
+        impl="faster",
+        beam_size=3,
+        vad=False,
+    )
+    assert b.name == "whisper-local"
+
+
+def test_build_backend_whisper_local_auto_uses_platform_info():
+    """When cfg has device/compute_type == 'auto', values come from platform_detect."""
+    cfg = Config(
+        whisper_model="turbo",
+        whisper_device="auto",
+        whisper_compute_type="auto",
+        beam_size=5,
+        vad=True,
+    )
+    with (
+        patch("skills.youtube_transcribe.backends.factory.WhisperLocalBackend") as MockCls,
+        patch("skills.youtube_transcribe.backends.factory.detect_platform") as mock_detect,
+    ):
+        platform_info = MagicMock()
+        platform_info.backend_impl = "mlx"
+        platform_info.device = "mps"
+        platform_info.recommended_compute_type = "float16"
+        mock_detect.return_value = platform_info
+
+        instance = MagicMock()
+        instance.name = "whisper-local"
+        MockCls.return_value = instance
+
+        build_backend("whisper-local", cfg)
+
+    MockCls.assert_called_once_with(
+        model="turbo",
+        device="mps",
+        compute_type="float16",
+        impl="mlx",
+        beam_size=5,
+        vad=True,
+    )
+
+
+def test_build_backend_gemini():
+    cfg = Config(gemini_model="gemini-2.5-pro")
+    with patch("skills.youtube_transcribe.backends.factory.GeminiBackend") as MockCls:
+        instance = MagicMock()
+        instance.name = "gemini"
+        MockCls.return_value = instance
+        b = build_backend("gemini", cfg)
+    MockCls.assert_called_once_with(model="gemini-2.5-pro")
+    assert b.name == "gemini"
+
+
+def test_build_backend_groq():
+    cfg = Config(groq_model="whisper-large-v3")
+    with patch("skills.youtube_transcribe.backends.factory.GroqBackend") as MockCls:
+        instance = MagicMock()
+        instance.name = "groq"
+        MockCls.return_value = instance
+        b = build_backend("groq", cfg)
+    MockCls.assert_called_once_with(model="whisper-large-v3")
+    assert b.name == "groq"
+
+
+def test_build_backend_openai():
+    cfg = Config(openai_model="whisper-1")
+    with patch("skills.youtube_transcribe.backends.factory.OpenAIBackend") as MockCls:
+        instance = MagicMock()
+        instance.name = "openai"
+        MockCls.return_value = instance
+        b = build_backend("openai", cfg)
+    MockCls.assert_called_once_with(model="whisper-1")
+    assert b.name == "openai"
+
+
+def test_build_backend_deepgram():
+    cfg = Config(deepgram_model="nova-3")
+    with patch("skills.youtube_transcribe.backends.factory.DeepgramBackend") as MockCls:
+        instance = MagicMock()
+        instance.name = "deepgram"
+        MockCls.return_value = instance
+        b = build_backend("deepgram", cfg)
+    MockCls.assert_called_once_with(model="nova-3")
+    assert b.name == "deepgram"
+
+
+def test_build_backend_assemblyai():
+    cfg = Config(assemblyai_model="best")
+    with patch("skills.youtube_transcribe.backends.factory.AssemblyAIBackend") as MockCls:
+        instance = MagicMock()
+        instance.name = "assemblyai"
+        MockCls.return_value = instance
+        b = build_backend("assemblyai", cfg)
+    MockCls.assert_called_once_with(model="best")
+    assert b.name == "assemblyai"
+
+
+def test_build_backend_custom():
+    cfg = Config(custom_base_url="https://myapi.example.com/v1", custom_model="my-model")
+    with patch("skills.youtube_transcribe.backends.factory.CustomBackend") as MockCls:
+        instance = MagicMock()
+        instance.name = "custom"
+        MockCls.return_value = instance
+        b = build_backend("custom", cfg)
+    MockCls.assert_called_once_with(
+        base_url="https://myapi.example.com/v1",
+        model="my-model",
+    )
+    assert b.name == "custom"
+
+
+def test_build_backend_unknown_raises():
+    cfg = Config()
+    with pytest.raises(ValueError, match="Unknown backend"):
+        build_backend("not-a-backend", cfg)
+
+
+# ---------------------------------------------------------------------------
+# run_smart: composition logic
+# ---------------------------------------------------------------------------
+
+
+def test_smart_uses_subtitles_for_youtube_when_available():
+    """YouTube URL + fast_path_enabled → tries subtitles; success → returns immediately."""
+    cfg = Config(default_backend="smart", fallback_backend="whisper-local", fast_path_enabled=True)
+    fake_subs = MagicMock()
+    fake_subs.transcribe.return_value = MagicMock(backend_name="subtitles")
+    fake_fallback = MagicMock()
+
+    with patch(
+        "skills.youtube_transcribe.backends.factory.build_backend",
+        side_effect=lambda n, c: fake_subs if n == "subtitles" else fake_fallback,
+    ):
+        result = run_smart("https://youtu.be/abc", cfg, language="en")
+
+    assert result.backend_name == "subtitles"
+    fake_fallback.transcribe.assert_not_called()
+
+
+def test_smart_falls_back_when_subtitles_fail():
+    """YouTube URL + subtitles raises BackendError → fallback used."""
+    cfg = Config(default_backend="smart", fallback_backend="whisper-local", fast_path_enabled=True)
+    from skills.youtube_transcribe.backends.base import BackendError
+    fake_subs = MagicMock()
+    fake_subs.transcribe.side_effect = BackendError("no subs")
+    fake_fallback = MagicMock()
+    fake_fallback.transcribe.return_value = MagicMock(backend_name="whisper-local")
+
+    with patch(
+        "skills.youtube_transcribe.backends.factory.build_backend",
+        side_effect=lambda n, c: fake_subs if n == "subtitles" else fake_fallback,
+    ):
+        result = run_smart("https://youtu.be/abc", cfg, language="en")
+
+    assert result.backend_name == "whisper-local"
+    fake_fallback.transcribe.assert_called_once()
+
+
+def test_smart_skips_subtitles_for_non_youtube_url():
+    """Non-YouTube URL → skip subtitles, go straight to fallback."""
+    cfg = Config(default_backend="smart", fallback_backend="whisper-local", fast_path_enabled=True)
+    fake_subs = MagicMock()
+    fake_fallback = MagicMock()
+    fake_fallback.transcribe.return_value = MagicMock(backend_name="whisper-local")
+
+    with patch(
+        "skills.youtube_transcribe.backends.factory.build_backend",
+        side_effect=lambda n, c: fake_subs if n == "subtitles" else fake_fallback,
+    ):
+        result = run_smart("/tmp/audio.mp3", cfg, language="auto")
+
+    fake_subs.transcribe.assert_not_called()
+    assert result.backend_name == "whisper-local"
+
+
+def test_smart_skips_subtitles_when_fast_path_disabled():
+    """fast_path_enabled=False → always skip subtitles, even for YouTube URLs."""
+    cfg = Config(
+        default_backend="smart",
+        fallback_backend="whisper-local",
+        fast_path_enabled=False,
+    )
+    fake_subs = MagicMock()
+    fake_fallback = MagicMock()
+    fake_fallback.transcribe.return_value = MagicMock(backend_name="whisper-local")
+
+    with patch(
+        "skills.youtube_transcribe.backends.factory.build_backend",
+        side_effect=lambda n, c: fake_subs if n == "subtitles" else fake_fallback,
+    ):
+        result = run_smart("https://youtu.be/xyz", cfg, language="auto")
+
+    fake_subs.transcribe.assert_not_called()
+    assert result.backend_name == "whisper-local"
+
+
+def test_smart_uses_configured_fallback_backend():
+    """run_smart respects cfg.fallback_backend (e.g. gemini, not whisper-local)."""
+    cfg = Config(
+        default_backend="smart",
+        fallback_backend="gemini",
+        fast_path_enabled=False,
+    )
+    fake_gemini = MagicMock()
+    fake_gemini.transcribe.return_value = MagicMock(backend_name="gemini")
+
+    with patch(
+        "skills.youtube_transcribe.backends.factory.build_backend",
+        side_effect=lambda n, c: fake_gemini,
+    ):
+        result = run_smart("/tmp/audio.mp3", cfg, language="fr")
+
+    assert result.backend_name == "gemini"

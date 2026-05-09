@@ -1,0 +1,100 @@
+"""Backend factory + smart-mode composition.
+
+Public API:
+  build_backend(name, cfg) -> Transcriber
+  run_smart(audio_or_url, cfg, *, language) -> TranscriptionResult
+"""
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Union
+
+from skills.youtube_transcribe.backends.assemblyai import AssemblyAIBackend
+from skills.youtube_transcribe.backends.base import (
+    BackendError,
+    Transcriber,
+    TranscriptionResult,
+)
+from skills.youtube_transcribe.backends.custom import CustomBackend
+from skills.youtube_transcribe.backends.deepgram import DeepgramBackend
+from skills.youtube_transcribe.backends.gemini import GeminiBackend
+from skills.youtube_transcribe.backends.groq import GroqBackend
+from skills.youtube_transcribe.backends.openai_api import OpenAIBackend
+from skills.youtube_transcribe.backends.subtitles import SubtitlesBackend
+from skills.youtube_transcribe.backends.whisper_local import WhisperLocalBackend
+from skills.youtube_transcribe.config import Config
+from skills.youtube_transcribe.utils.downloader import is_youtube_url
+from skills.youtube_transcribe.utils.platform_detect import detect_platform
+
+
+def build_backend(name: str, cfg: Config) -> Transcriber:
+    """Return a configured Transcriber instance for *name*.
+
+    Raises ValueError for unknown names.
+    """
+    if name == "subtitles":
+        return SubtitlesBackend()
+
+    if name == "whisper-local":
+        info = detect_platform()
+        impl = info.backend_impl
+        device = info.device if cfg.whisper_device == "auto" else cfg.whisper_device
+        compute = (
+            info.recommended_compute_type
+            if cfg.whisper_compute_type == "auto"
+            else cfg.whisper_compute_type
+        )
+        return WhisperLocalBackend(
+            model=cfg.whisper_model,
+            device=device,
+            compute_type=compute,
+            impl=impl,
+            beam_size=cfg.beam_size,
+            vad=cfg.vad,
+        )
+
+    if name == "gemini":
+        return GeminiBackend(model=cfg.gemini_model)
+
+    if name == "groq":
+        return GroqBackend(model=cfg.groq_model)
+
+    if name == "openai":
+        return OpenAIBackend(model=cfg.openai_model)
+
+    if name == "deepgram":
+        return DeepgramBackend(model=cfg.deepgram_model)
+
+    if name == "assemblyai":
+        return AssemblyAIBackend(model=cfg.assemblyai_model)
+
+    if name == "custom":
+        return CustomBackend(base_url=cfg.custom_base_url, model=cfg.custom_model)
+
+    raise ValueError(f"Unknown backend: {name!r}")
+
+
+def run_smart(
+    audio_or_url: Union[str, Path],
+    cfg: Config,
+    *,
+    language: str = "auto",
+) -> TranscriptionResult:
+    """Smart-mode composition: subtitles fast-path → fallback_backend.
+
+    Logic (spec §5.9):
+    1. If cfg.fast_path_enabled AND audio_or_url is a YouTube URL:
+       - Try SubtitlesBackend; on success return immediately.
+       - On BackendError: fall through to fallback.
+    2. Use cfg.fallback_backend for everything else.
+    """
+    src = str(audio_or_url)
+    if cfg.fast_path_enabled and is_youtube_url(src):
+        try:
+            subs = build_backend("subtitles", cfg)
+            return subs.transcribe(src, language=language)
+        except BackendError:
+            pass  # fall through to fallback
+
+    fb = build_backend(cfg.fallback_backend, cfg)
+    return fb.transcribe(audio_or_url, language=language)
