@@ -120,6 +120,7 @@ def run_wizard() -> None:
         key = Prompt.ask(
             f"Введи {backend.upper()}_API_KEY  (Enter — пропустить)",
             default="",
+            password=True,
         )
         if key.strip():
             set_api_key(backend, key.strip(), env_path=ENV_PATH)
