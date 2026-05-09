@@ -1,10 +1,12 @@
 """Format transcription segments into .txt and .srt files."""
 from __future__ import annotations
 
+import json as _json
 import re
 from dataclasses import dataclass
+from datetime import date, datetime
 from pathlib import Path
-from typing import Iterable
+from typing import Iterable, Literal
 
 PARAGRAPH_PAUSE_SECONDS = 2.0
 PARAGRAPH_AFTER_N_SEGMENTS = 5
@@ -87,12 +89,6 @@ def sanitize_filename(name: str) -> str:
     """Keep letters/digits/Cyrillic/-/_, collapse everything else into _."""
     cleaned = _SAFE_NAME_RE.sub("_", name).strip("_")
     return cleaned or "transcript"
-
-
-import json as _json
-from dataclasses import dataclass, field, asdict
-from datetime import date, datetime
-from typing import Literal
 
 
 SourceType = Literal["channel", "playlist", "file", "inline", "mixed"]
