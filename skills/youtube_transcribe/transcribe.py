@@ -11,10 +11,16 @@ import click
 from rich.console import Console
 
 from skills.youtube_transcribe.backends.base import BackendError, BackendNotConfigured
+from skills.youtube_transcribe.backends.factory import build_backend
 from skills.youtube_transcribe.config import (
     CONFIG_PATH,
+    ENV_PATH,
     Config,
+    get_api_key,
     load_config,
+    mask_key,
+    save_config,
+    set_api_key,
 )
 from skills.youtube_transcribe.pipeline import run_pipeline
 from skills.youtube_transcribe.utils.downloader import (
@@ -429,9 +435,111 @@ def batch_cmd(
     )
 
 
-# Task 21 will register `config` sub-group.
-# Keeping that explicit in __all__ to make the module-level extension contract obvious.
-__all__ = ["cli", "transcribe_cmd", "batch_cmd"]
+# ---------------------------------------------------------------------------
+# Task 21 — config sub-group
+# ---------------------------------------------------------------------------
+
+@cli.group()
+def config() -> None:
+    """Manage configuration and API keys."""
+
+
+@config.command("show")
+def config_show() -> None:
+    """Print current config and API-key status."""
+    cfg = load_config(CONFIG_PATH)
+    console.print(f"[bold]Config file:[/bold] {CONFIG_PATH}")
+    console.print("\n[bold]Settings:[/bold]")
+    for field_name, value in cfg.__dict__.items():
+        console.print(f"  {field_name} = {value}")
+    console.print("\n[bold]API keys:[/bold]")
+    for backend in ["gemini", "groq", "openai", "deepgram", "assemblyai", "custom"]:
+        k = get_api_key(backend)
+        status = mask_key(k) if k else "[dim]not set[/dim]"
+        console.print(f"  {backend}: {status}")
+
+
+# Map kebab-case config keys to Config dataclass field names.
+_SET_KEY_TO_FIELD: dict[str, str] = {
+    "backend": "default_backend",
+    "fallback": "fallback_backend",
+    "whisper-model": "whisper_model",
+    "gemini-model": "gemini_model",
+    "groq-model": "groq_model",
+    "openai-model": "openai_model",
+    "deepgram-model": "deepgram_model",
+    "assemblyai-model": "assemblyai_model",
+    "language": "language",
+    "output-dir": "output_dir",
+    "cookies-browser": "cookies_browser",
+    "custom.base_url": "custom_base_url",
+    "custom.model": "custom_model",
+}
+
+# Keys whose values must be validated against BACKEND_CHOICES.
+_BACKEND_FIELD_NAMES = {"default_backend", "fallback_backend"}
+
+
+@config.command("set")
+@click.argument("key")
+@click.argument("value")
+def config_set(key: str, value: str) -> None:
+    """Set a config field.  KEY is kebab-case (e.g. backend, whisper-model)."""
+    field = _SET_KEY_TO_FIELD.get(key)
+    if not field:
+        console.print(f"[red]Unknown key:[/red] {key!r}")
+        console.print(f"Known keys: {', '.join(_SET_KEY_TO_FIELD)}")
+        sys.exit(2)
+    # Validate backend-type values.
+    if field in _BACKEND_FIELD_NAMES and value not in BACKEND_CHOICES:
+        console.print(f"[red]Invalid value for {key!r}:[/red] {value!r}")
+        console.print(f"Allowed: {', '.join(BACKEND_CHOICES)}")
+        sys.exit(2)
+    cfg = load_config(CONFIG_PATH)
+    setattr(cfg, field, value)
+    save_config(cfg, CONFIG_PATH)
+    console.print(f"[green]✓[/green] {key} = {value}")
+
+
+@config.command("set-key")
+@click.argument("backend", type=click.Choice(
+    ["gemini", "groq", "openai", "deepgram", "assemblyai", "custom"]
+))
+def config_set_key(backend: str) -> None:
+    """Interactively set an API key for BACKEND (stored in .env, never in config)."""
+    key = click.prompt(f"{backend.upper()}_API_KEY", hide_input=True, default="")
+    if not key:
+        console.print("[yellow]No key entered — nothing saved.[/yellow]")
+        return
+    set_api_key(backend, key, env_path=ENV_PATH)
+    console.print(f"[green]✓[/green] {backend} key saved to {ENV_PATH} ({mask_key(key)})")
+
+
+@config.command("test")
+@click.argument("backend", type=click.Choice(BACKEND_CHOICES))
+def config_test(backend: str) -> None:
+    """Run a quick configuration sanity-check for BACKEND (no real audio)."""
+    cfg = load_config(CONFIG_PATH)
+    try:
+        b = build_backend(backend, cfg)
+    except Exception as e:
+        console.print(f"[red]✗[/red] build_backend failed: {e}")
+        sys.exit(2)
+    ok, reason = b.is_configured()
+    if ok:
+        console.print(f"[green]✓[/green] {backend} is configured")
+    else:
+        console.print(f"[red]✗[/red] {backend}: {reason}")
+        sys.exit(3)
+
+
+@config.command("wizard")
+def config_wizard() -> None:
+    """Re-run the first-run setup wizard."""
+    run_wizard()
+
+
+__all__ = ["cli", "transcribe_cmd", "batch_cmd", "config"]
 
 
 if __name__ == "__main__":
