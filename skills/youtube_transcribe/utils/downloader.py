@@ -293,3 +293,31 @@ def expand_channel_or_playlist(url: str, limit: int) -> list[ChannelEntry]:
             channel=info.get("title") or info.get("uploader"),
         ))
     return out
+
+
+def search_videos(query: str, limit: int) -> list[ChannelEntry]:
+    """YouTube search via yt-dlp `ytsearchN:query` URL.
+
+    No YouTube Data API key needed. Returns top-N results by relevance
+    (yt-dlp's default ranking — close to YouTube web search order).
+    """
+    if not query.strip():
+        raise DownloadError("--search query is empty")
+    n = max(1, int(limit))
+    search_url = f"ytsearch{n}:{query.strip()}"
+    info = _extract_flat(search_url)
+    entries = info.get("entries") or []
+    out: list[ChannelEntry] = []
+    for e in entries[:n]:
+        if not e or not e.get("id"):
+            continue
+        vid = e["id"]
+        out.append(ChannelEntry(
+            video_id=vid,
+            url=e.get("url") or _yt_url_from_id(vid),
+            title=e.get("title"),
+            duration_sec=int(e["duration"]) if e.get("duration") else None,
+            upload_date=parse_yt_date(e.get("upload_date")),
+            channel=e.get("channel") or e.get("uploader"),
+        ))
+    return out

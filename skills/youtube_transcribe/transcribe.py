@@ -489,6 +489,9 @@ def _infer_source_type(targets: list[ResolvedTarget], from_file: Path | None) ->
 @click.option("--workers", "workers_opt", type=int, default=1, show_default=True,
               help="Parallel workers for batch (cloud backends only — whisper-local "
                    "and rate-limited APIs may not benefit).")
+@click.option("--search", "search_opt", default=None,
+              help="YouTube search query — fetch top --limit results via yt-dlp "
+                   "(no API key needed).")
 def batch_cmd(
     inputs: tuple[str, ...],
     from_file: Path | None,
@@ -567,6 +570,7 @@ def batch_cmd(
         min_duration_sec=opts.get("min_duration_opt"),
         max_duration_sec=opts.get("max_duration_opt"),
         include_shorts=not opts.get("no_shorts_opt", False),
+        search_query=opts.get("search_opt"),
     )
     targets, resolve_failures = resolve(list(inputs), from_file, filters)
 

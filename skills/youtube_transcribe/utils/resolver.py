@@ -17,7 +17,7 @@ from skills.youtube_transcribe.utils.downloader import (
 )
 
 
-Source = Literal["inline", "file", "channel", "playlist", "single"]
+Source = Literal["inline", "file", "channel", "playlist", "single", "search"]
 
 
 @dataclass
@@ -34,12 +34,14 @@ class ResolvedTarget:
 @dataclass
 class ResolverFilters:
     limit: int = 10
-    # задел под v0.3 (поля присутствуют, в v0.1 не используются):
     since: date | None = None
     until: date | None = None
     min_duration_sec: int | None = None
     max_duration_sec: int | None = None
     include_shorts: bool = True
+    # v0.3 #4: search-by-tags. When set, resolve() runs a YouTube search
+    # via yt-dlp `ytsearchN:query` instead of (or in addition to) `inputs`.
+    search_query: str | None = None
 
 
 class CLIInputError(Exception):
@@ -128,8 +130,10 @@ def resolve(
     if from_file is not None:
         for u in parse_from_file(from_file):
             raw.append((u, "file"))
-    if not raw:
-        raise CLIInputError("No inputs given. Pass URL(s) or --from-file PATH.")
+    if not raw and not filters.search_query:
+        raise CLIInputError(
+            "No inputs given. Pass URL(s), --from-file PATH, or --search QUERY."
+        )
 
     targets: list[ResolvedTarget] = []
     failures: list[ResolveFailure] = []
@@ -166,6 +170,25 @@ def resolve(
             if t.video_id:
                 seen_video_ids.add(t.video_id)
             targets.append(t)
+
+    # v0.3 #4: search-by-tags via yt-dlp ytsearchN:query
+    if filters.search_query:
+        from skills.youtube_transcribe.utils.downloader import search_videos
+        try:
+            entries = search_videos(filters.search_query, limit=filters.limit)
+            for e in entries:
+                t = _channel_entry_to_target(e, source="search")
+                if t.video_id and t.video_id in seen_video_ids:
+                    continue
+                if t.video_id:
+                    seen_video_ids.add(t.video_id)
+                targets.append(t)
+        except Exception as e:
+            failures.append(ResolveFailure(
+                url=f"ytsearch:{filters.search_query}",
+                error=str(e),
+                source="search",
+            ))
 
     # v0.3: apply post-resolution filters (since/until/duration/shorts).
     # `limit` is handled per-source in expand_* (yt-dlp playlistend); the
