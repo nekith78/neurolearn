@@ -313,6 +313,82 @@ def write_manifest_json(
     return path
 
 
+def write_json(
+    segments: Iterable[Segment],
+    path: Path,
+    *,
+    language: str | None = None,
+    backend: str | None = None,
+    duration_sec: float | None = None,
+    quality: object | None = None,
+    visual_segments: list | None = None,
+    summary: str = "",
+) -> None:
+    """Machine-readable JSON dump of a single transcript.
+
+    Schema:
+      {
+        "language": "en",
+        "backend": "gemini",
+        "duration_sec": 123.4,
+        "segments": [{"start": 0.0, "end": 5.5, "text": "..."}, ...],
+        "quality": {...} | null,
+        "visual_segments": [{...}, ...] | [],
+        "summary": "## TL;DR\\n..." | "",
+      }
+    """
+    segs = list(segments)
+    payload: dict = {
+        "language": language,
+        "backend": backend,
+        "duration_sec": duration_sec,
+        "segments": [
+            {"start": s.start, "end": s.end, "text": s.text}
+            for s in segs
+        ],
+    }
+    if quality is not None:
+        payload["quality"] = {
+            "score": getattr(quality, "score", None),
+            "breakdown": getattr(quality, "breakdown", {}),
+            "flags": getattr(quality, "flags", []),
+            "recommendation": getattr(quality, "recommendation", None),
+        }
+    else:
+        payload["quality"] = None
+    if visual_segments:
+        payload["visual_segments"] = [
+            {
+                "start": vs.start, "end": vs.end,
+                "description": vs.description, "keyframes": vs.keyframes,
+                "detected_objects": vs.detected_objects,
+                "trigger_reason": vs.trigger_reason,
+                "importance": vs.importance,
+            }
+            for vs in visual_segments
+        ]
+    else:
+        payload["visual_segments"] = []
+    payload["summary"] = summary or ""
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(_json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+
+
+def write_vtt(segments: Iterable[Segment], path: Path) -> None:
+    """WebVTT format for web players (HTML5 <track>).
+
+    Same timestamps as SRT (HH:MM:SS.mmm) but `.` decimal and a header.
+    """
+    parts: list[str] = ["WEBVTT", ""]
+    for s in segments:
+        parts.append(f"{_format_timestamp_dotted(s.start)} --> {_format_timestamp_dotted(s.end)}")
+        parts.append(s.text.strip())
+        parts.append("")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("\n".join(parts), encoding="utf-8")
+
+
 def write_visual_md(
     visual_segments: list,
     output_path: Path,

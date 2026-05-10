@@ -3,6 +3,36 @@
 All notable changes to youtube-transcribe will be documented here.
 The format is loosely based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.5.1] — 2026-05-11
+
+Power-user polish.
+
+### Added
+
+- **`--summary` flag** — generates a Markdown auto-summary (`## TL;DR`,
+  `## Key points`, `## Notable quotes`) alongside the transcript via a
+  single cheap LLM call (gemini / claude / openai / ollama).
+  `<basename>.summary.md` is written when transcript completes.
+- **`--output-format {txt,srt,vtt,json,all}` (repeatable)** — choose any
+  combination of output files. Defaults to `txt` + `srt` for backward
+  compatibility. JSON includes full transcript + quality + visuals +
+  summary — drop-in for tooling/automation.
+- **`--vision-prompt FILE`** — provide a custom vision-LLM template
+  file. Placeholders: `{language}`, `{transcript_snippet}`,
+  `{start_sec}`, `{end_sec}`. Tutorial authors can tune the description
+  style without forking the package.
+
+### Changed
+
+- `TranscriptionResult` gains a `summary: str = ""` field. Backward-
+  compatible with v0.5.0 callers.
+- `write_json()` and `write_vtt()` added to `utils/output_writer.py`.
+  JSON uses `ensure_ascii=False` so Cyrillic and other scripts stay
+  readable in the file.
+
+### Tests
+- 533 unit tests green (was 510 in v0.5.0; +23).
+
 ## [0.5.0] — 2026-05-11
 
 Local-LLM + multi-speaker + multi-language.

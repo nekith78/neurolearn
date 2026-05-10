@@ -147,6 +147,19 @@ def cli() -> None:
 @click.option("--translate-backend", "translate_backend_opt",
               type=click.Choice(["gemini", "claude", "openai", "ollama"]), default=None,
               help="LLM provider for translation (default: gemini).")
+@click.option("--summary", "summarize_opt", is_flag=True, default=None,
+              help="Generate Markdown summary alongside transcript.")
+@click.option("--summary-backend", "summarize_backend_opt",
+              type=click.Choice(["gemini", "claude", "openai", "ollama"]), default=None,
+              help="LLM provider for summary (default: gemini).")
+@click.option("--output-format", "output_format_opt",
+              type=click.Choice(["all", "txt", "srt", "vtt", "json"]),
+              default=None, multiple=True,
+              help="Output format(s). Repeat for multiple. Default: txt+srt.")
+@click.option("--vision-prompt", "vision_prompt_path_opt",
+              type=click.Path(exists=True), default=None,
+              help="Custom vision prompt template (placeholders {language}, "
+                   "{transcript_snippet}, {start_sec}, {end_sec}).")
 def transcribe_cmd(audio_or_url: str, **opts) -> None:
     """Transcribe a YouTube URL, supported video URL, or local audio/video file."""
     if not CONFIG_PATH.exists():
@@ -219,6 +232,12 @@ def transcribe_cmd(audio_or_url: str, **opts) -> None:
         cli_overrides["translate_to"] = opts["translate_to_opt"]
     if opts.get("translate_backend_opt"):
         cli_overrides["translate_backend"] = opts["translate_backend_opt"]
+    if opts.get("summarize_opt") is True:
+        cli_overrides["summarize"] = True
+    if opts.get("summarize_backend_opt"):
+        cli_overrides["summarize_backend"] = opts["summarize_backend_opt"]
+    if opts.get("vision_prompt_path_opt"):
+        cli_overrides["vision_prompt_path"] = opts["vision_prompt_path_opt"]
 
     preset_name = opts.get("preset") or "smart"
     if preset_name not in list_preset_names():
@@ -299,16 +318,46 @@ def transcribe_cmd(audio_or_url: str, **opts) -> None:
     base_name = sanitize_filename(_derive_basename(target))
     txt_path = output_dir / f"{base_name}.txt"
     srt_path = output_dir / f"{base_name}.srt"
+    vtt_path = output_dir / f"{base_name}.vtt"
+    json_path = output_dir / f"{base_name}.json"
+    summary_path = output_dir / f"{base_name}.summary.md"
 
     timestamps = cfg.timestamps if opts.get("timestamps") is None else opts["timestamps"]
     write_srt_flag = cfg.srt if opts.get("srt") is None else opts["srt"]
 
-    if timestamps:
-        write_txt_with_timestamps(result.segments, txt_path)
-    else:
-        write_txt_plain(result.segments, txt_path)
-    if write_srt_flag:
+    formats: tuple[str, ...] = tuple(opts.get("output_format_opt") or ())
+    # If no --output-format given, fall back to legacy txt+srt behavior.
+    write_txt = (not formats) or ("all" in formats) or ("txt" in formats)
+    write_srt_pick = (not formats and write_srt_flag) or ("all" in formats) or ("srt" in formats)
+    write_vtt_pick = ("all" in formats) or ("vtt" in formats)
+    write_json_pick = ("all" in formats) or ("json" in formats)
+
+    if write_txt:
+        if timestamps:
+            write_txt_with_timestamps(result.segments, txt_path)
+        else:
+            write_txt_plain(result.segments, txt_path)
+    if write_srt_pick:
         write_srt(result.segments, srt_path)
+    if write_vtt_pick:
+        from skills.youtube_transcribe.utils.output_writer import write_vtt
+        write_vtt(result.segments, vtt_path)
+    _summary_text = getattr(result, "summary", "")
+    if not isinstance(_summary_text, str):
+        _summary_text = ""
+    if write_json_pick:
+        from skills.youtube_transcribe.utils.output_writer import write_json
+        write_json(
+            result.segments, json_path,
+            language=getattr(result, "language_detected", None),
+            backend=getattr(result, "backend_name", None),
+            duration_sec=getattr(result, "duration_seconds", None),
+            quality=getattr(result, "quality", None),
+            visual_segments=list(getattr(result, "visual_segments", []) or []),
+            summary=_summary_text,
+        )
+    if _summary_text:
+        summary_path.write_text(_summary_text, encoding="utf-8")
 
     # === v0.2: write .visual.md if visual stage produced any segments ===
     visual_path: Path | None = None
@@ -326,12 +375,19 @@ def transcribe_cmd(audio_or_url: str, **opts) -> None:
     console.print(f"[green]✓[/green] {result.backend_name} | "
                   f"язык={result.language_detected or 'auto'} | "
                   f"длительность={result.duration_seconds:.1f}s")
-    console.print(f"  [bold]{txt_path}[/bold]")
-    if write_srt_flag:
+    if write_txt:
+        console.print(f"  [bold]{txt_path}[/bold]")
+    if write_srt_pick:
         console.print(f"  [bold]{srt_path}[/bold]")
+    if write_vtt_pick:
+        console.print(f"  [bold]{vtt_path}[/bold]")
+    if write_json_pick:
+        console.print(f"  [bold]{json_path}[/bold]")
     if visual_path is not None:
         console.print(f"  [bold]{visual_path}[/bold] "
                       f"({len(visual_segments)} visual moments)")
+    if _summary_text:
+        console.print(f"  [bold]{summary_path}[/bold] (summary)")
 
 
 def _derive_basename(target: ResolvedTarget) -> str:
@@ -533,6 +589,19 @@ def _infer_source_type(targets: list[ResolvedTarget], from_file: Path | None) ->
 @click.option("--translate-backend", "translate_backend_opt",
               type=click.Choice(["gemini", "claude", "openai", "ollama"]), default=None,
               help="LLM provider for translation (default: gemini).")
+@click.option("--summary", "summarize_opt", is_flag=True, default=None,
+              help="Generate Markdown summary alongside transcript.")
+@click.option("--summary-backend", "summarize_backend_opt",
+              type=click.Choice(["gemini", "claude", "openai", "ollama"]), default=None,
+              help="LLM provider for summary (default: gemini).")
+@click.option("--output-format", "output_format_opt",
+              type=click.Choice(["all", "txt", "srt", "vtt", "json"]),
+              default=None, multiple=True,
+              help="Output format(s). Repeat for multiple. Default: txt+srt.")
+@click.option("--vision-prompt", "vision_prompt_path_opt",
+              type=click.Path(exists=True), default=None,
+              help="Custom vision prompt template (placeholders {language}, "
+                   "{transcript_snippet}, {start_sec}, {end_sec}).")
 def batch_cmd(
     inputs: tuple[str, ...],
     from_file: Path | None,
@@ -586,6 +655,12 @@ def batch_cmd(
         cli_overrides["translate_to"] = opts["translate_to_opt"]
     if opts.get("translate_backend_opt"):
         cli_overrides["translate_backend"] = opts["translate_backend_opt"]
+    if opts.get("summarize_opt") is True:
+        cli_overrides["summarize"] = True
+    if opts.get("summarize_backend_opt"):
+        cli_overrides["summarize_backend"] = opts["summarize_backend_opt"]
+    if opts.get("vision_prompt_path_opt"):
+        cli_overrides["vision_prompt_path"] = opts["vision_prompt_path_opt"]
 
     preset_name = opts.get("preset") or "smart"
     if preset_name not in list_preset_names():

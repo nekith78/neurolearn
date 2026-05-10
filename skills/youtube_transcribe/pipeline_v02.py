@@ -25,6 +25,21 @@ from skills.youtube_transcribe.vision.gemini import GeminiVisionBackend
 from skills.youtube_transcribe.vision.prompts import DEFAULT_PROMPT
 
 
+def _load_vision_prompt(cfg: dict[str, Any]) -> str:
+    """Return user-supplied vision prompt or DEFAULT_PROMPT.
+
+    Path errors fall back to default; misconfiguration shouldn't break
+    the pipeline.
+    """
+    path_str = (cfg.get("vision_prompt_path") or "").strip()
+    if not path_str:
+        return DEFAULT_PROMPT
+    try:
+        return Path(path_str).expanduser().read_text(encoding="utf-8")
+    except Exception:
+        return DEFAULT_PROMPT
+
+
 Source = Literal["youtube_manual", "youtube_auto", "whisper", "external_asr"]
 
 
@@ -262,7 +277,7 @@ def apply_v02_stages(
             visuals = backend.annotate_segments(
                 video_path=video_path,
                 windows=windows,
-                prompt_template=DEFAULT_PROMPT,
+                prompt_template=_load_vision_prompt(cfg),
                 language=result.language_detected or "en",
                 video_id=video_id,
                 out_dir=out_dir,
@@ -286,5 +301,35 @@ def apply_v02_stages(
                 else:
                     new_visuals.append(vs)
             result.visual_segments = new_visuals
+
+    # === Auto-summary (opt-in, runs last on final segments) ===
+    if cfg.get("summarize") and result.segments:
+        from skills.youtube_transcribe.quality.summarizer import summarize_transcript
+        sum_backend = cfg.get("summarize_backend", "gemini")
+        if sum_backend == "ollama":
+            sum_api_key = None
+            sum_can_run = True
+        else:
+            sum_key = {
+                "gemini": "gemini",
+                "claude": "anthropic",
+                "openai": "openai",
+            }.get(sum_backend)
+            sum_api_key = _config_mod.get_api_key(sum_key) if sum_key else None
+            sum_can_run = sum_api_key is not None
+        if sum_can_run:
+            try:
+                summary_md = summarize_transcript(
+                    result.segments,
+                    language=result.language_detected or "en",
+                    api_key=sum_api_key,
+                    backend=sum_backend,
+                    ollama_model=cfg.get("ollama_model", "llama3.2:3b"),
+                    ollama_host=cfg.get("ollama_host", "http://localhost:11434"),
+                )
+                if summary_md:
+                    object.__setattr__(result, "summary", summary_md)
+            except Exception:
+                pass
 
     return result
