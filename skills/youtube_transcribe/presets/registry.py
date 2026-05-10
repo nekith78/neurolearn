@@ -127,6 +127,26 @@ REGISTRY: list[OptionField] = [
         description="Ollama HTTP host. Default = local daemon.",
         section="smart",
     ),
+    # === Diarization (v0.5) ===
+    OptionField(
+        key="diarize", type=bool, default=False,
+        choices=None,
+        description=(
+            "Run speaker diarization (pyannote.audio). Requires "
+            "`[diarization]` extra and HF_TOKEN env var. Prepends each "
+            "segment's text with `[SPEAKER_NN]`."
+        ),
+        section="smart",
+    ),
+    OptionField(
+        key="diarize_num_speakers", type=int, default=0,
+        choices=None,
+        description=(
+            "If known, constrain diarization to this exact number of "
+            "speakers. 0 = auto-detect."
+        ),
+        section="smart",
+    ),
 ]
 
 

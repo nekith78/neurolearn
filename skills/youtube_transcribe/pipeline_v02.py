@@ -101,6 +101,7 @@ def apply_v02_stages(
     source: Source,
     triggers_path: Path | None = None,
     no_default_triggers: bool = False,
+    audio_path: Path | None = None,
 ) -> TranscriptionResult:
     """Apply quality check + detect + vision stages. Returns enriched result.
 
@@ -108,7 +109,25 @@ def apply_v02_stages(
                    (CLI flag `--triggers /path/to/file.toml`).
     no_default_triggers: skip built-in default phrases — use only user file
                         (CLI flag `--no-default-triggers`).
+    audio_path: optional path to audio file for diarization. If `video_path`
+                is set (mp4), pyannote can use it directly so `audio_path`
+                is unnecessary.
     """
+    # === Speaker diarization (opt-in, runs first to enrich segments
+    # before quality scoring sees the speaker labels) ===
+    if cfg.get("diarize") and result.segments:
+        diar_source = audio_path or video_path
+        if diar_source is not None:
+            from skills.youtube_transcribe.quality.diarization import (
+                attach_speakers_to_segments, diarize_audio,
+            )
+            num_spk = int(cfg.get("diarize_num_speakers") or 0) or None
+            intervals = diarize_audio(diar_source, num_speakers=num_spk)
+            if intervals:
+                result.segments = attach_speakers_to_segments(
+                    result.segments, intervals,
+                )
+
     # === Quality check ===
     if cfg.get("quality_check"):
         checker = HeuristicChecker(enable_perplexity=bool(cfg.get("quality_perplexity")))
