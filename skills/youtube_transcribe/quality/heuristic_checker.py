@@ -22,12 +22,19 @@ from skills.youtube_transcribe.utils.output_writer import Segment
 
 @dataclass
 class HeuristicChecker:
-    """Default QualityChecker implementation. Local, no network."""
+    """Default QualityChecker implementation. Local, no network.
+
+    Perplexity (kirpich F per spec §3) is OFF by default. Pass
+    `enable_perplexity=True` to activate — requires `[perplexity]` extra
+    and triggers ~500 MB GPT-2 download on first call (English only).
+    """
 
     music_threshold: float = 0.25
     oov_threshold: float = 0.15
     rep_threshold: float = 0.3
     boh_threshold: float = 0.1
+    perplexity_threshold: float = 0.5
+    enable_perplexity: bool = False
 
     def check(
         self,
@@ -87,6 +94,21 @@ class HeuristicChecker:
             flags.append("looped")
         if boh > self.boh_threshold:
             flags.append("boilerplate_hallucinations")
+
+        # Perplexity (opt-in) — penalty term, never boost.
+        if self.enable_perplexity:
+            from skills.youtube_transcribe.quality.perplexity import (
+                is_perplexity_available_for_lang,
+                perplexity_anomaly_score,
+            )
+            if is_perplexity_available_for_lang(language):
+                ppl = perplexity_anomaly_score(segments, language)
+                breakdown["perplexity"] = ppl
+                if ppl >= 0:
+                    if ppl > self.perplexity_threshold:
+                        flags.append("high_perplexity")
+                    # Penalty: subtract up to 0.25 from score for fully-anomalous text.
+                    score = max(score - 0.25 * ppl, 0.0)
 
         rec: Recommendation = (
             "use_as_is" if score >= 0.6

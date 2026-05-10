@@ -111,7 +111,7 @@ def apply_v02_stages(
     """
     # === Quality check ===
     if cfg.get("quality_check"):
-        checker = HeuristicChecker()
+        checker = HeuristicChecker(enable_perplexity=bool(cfg.get("quality_perplexity")))
         report = checker.check(result.segments, result.language_detected or "en", source=source)
         result.quality = report
 

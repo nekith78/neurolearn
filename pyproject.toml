@@ -60,10 +60,11 @@ ocr = [
     "easyocr>=1.7.0",
 ]
 
-# Perplexity — opt-in. KenLM requires C++ build.
-# On Mac arm64 needs `brew install cmake`.
+# Perplexity — opt-in. lmppl wraps HuggingFace transformers (already
+# pulled by sentence-transformers core dep). On first call downloads
+# GPT-2 small (~500 MB) for English; non-English languages skip the brick.
 perplexity = [
-    "kenlm>=0.2.0",
+    "lmppl>=0.3.0",
 ]
 
 [project.scripts]
