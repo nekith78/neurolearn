@@ -61,8 +61,17 @@ def refine_with_frame_diff(
         detect_frame_changes_in_window,
     )
 
+    # High-confidence signals — never drop, never re-score. The user (raw/strict
+    # exact-match triggers) or an LLM (llm_full_pass) explicitly flagged these
+    # moments as worth capturing; frame_diff shouldn't second-guess that.
+    _STRONG_REASONS = ("raw", "strict:", "llm_full_pass:")
+
     out: list[DetectionWindow] = []
     for w in windows:
+        if w.reason.startswith(_STRONG_REASONS):
+            out.append(w)
+            continue
+
         try:
             diffs = detect_frame_changes_in_window(
                 video_path, start=w.start, end=w.end,
@@ -75,7 +84,7 @@ def refine_with_frame_diff(
 
         n = len(diffs)
         if n < min_changes:
-            # Static talking-head — drop this window.
+            # Static talking-head — drop this weak-signal window.
             continue
         if n >= rich_changes:
             new_score = min(w.score * rich_score_boost, 1.0)

@@ -97,3 +97,39 @@ def test_ffmpeg_failure_keeps_window():
 def test_empty_windows_returns_empty():
     out = refine_with_frame_diff([], Path("fake.mp4"))
     assert out == []
+
+
+def test_raw_trigger_window_never_dropped():
+    """raw-reason windows are user explicit intent — never drop, never re-score."""
+    w_raw = _w(0, 5, score=0.5, reason="raw", phrase="TODO")
+    with patch(
+        "skills.youtube_transcribe.detection.frame_diff.detect_frame_changes_in_window",
+        return_value=[],  # would normally drop
+    ) as mock_diff:
+        out = refine_with_frame_diff([w_raw], Path("fake.mp4"))
+    assert len(out) == 1
+    assert out[0].score == 0.5  # unchanged
+    mock_diff.assert_not_called()  # short-circuit before ffmpeg
+
+
+def test_strict_lang_window_never_dropped():
+    w_strict = _w(0, 5, score=0.5, reason="strict:ru", phrase="баг")
+    with patch(
+        "skills.youtube_transcribe.detection.frame_diff.detect_frame_changes_in_window",
+        return_value=[],
+    ):
+        out = refine_with_frame_diff([w_strict], Path("fake.mp4"))
+    assert len(out) == 1
+
+
+def test_llm_window_never_dropped():
+    """LLM classifier saw the transcript and judged this moment worth capturing
+    — frame_diff shouldn't override that, even if visuals are static."""
+    w_llm = _w(0, 5, score=0.9, reason="llm_full_pass:code on screen", phrase="")
+    with patch(
+        "skills.youtube_transcribe.detection.frame_diff.detect_frame_changes_in_window",
+        return_value=[],
+    ):
+        out = refine_with_frame_diff([w_llm], Path("fake.mp4"))
+    assert len(out) == 1
+    assert out[0].score == 0.9
