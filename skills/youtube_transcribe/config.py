@@ -71,6 +71,7 @@ _BACKEND_ENV_VAR = {
     "deepgram": "DEEPGRAM_API_KEY",
     "assemblyai": "ASSEMBLYAI_API_KEY",
     "custom": "CUSTOM_API_KEY",
+    "anthropic": "ANTHROPIC_API_KEY",       # v0.4: Claude vision backend
 }
 
 

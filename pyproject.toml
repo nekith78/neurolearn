@@ -24,6 +24,8 @@ dependencies = [
     "openai>=1.50.0",
     "deepgram-sdk>=7.0.0",                 # 7.x rewrote the API (client.listen.v1.media.transcribe_file); 3.x/4.x not supported by our backend
     "assemblyai>=0.34.0",
+    "anthropic>=0.40.0",                   # Claude vision (v0.4) — images-only multimodal, keyframes via ffmpeg
+
     # Local Whisper — Windows/Linux/Intel-Mac path
     # NOT installed on macOS arm64: faster-whisper 1.2+ requires onnxruntime
     # which has no wheels for macOS arm64. On Apple Silicon, use mlx-whisper

@@ -116,8 +116,11 @@ def apply_v02_stages(
         result.quality = report
 
     # === Visual detection + annotation ===
-    if cfg.get("vision_backend") == "gemini" and video_path is not None:
-        api_key = _config_mod.get_api_key("gemini")
+    vision_backend_name = cfg.get("vision_backend", "off")
+    if vision_backend_name in ("gemini", "claude") and video_path is not None:
+        # Each multimodal backend uses its own API key.
+        api_key_lookup = {"gemini": "gemini", "claude": "anthropic"}[vision_backend_name]
+        api_key = _config_mod.get_api_key(api_key_lookup)
         if not api_key:
             return result
 
@@ -144,10 +147,19 @@ def apply_v02_stages(
         )
 
         if windows:
-            backend = GeminiVisionBackend(
-                api_key=api_key,
-                frames_per_window=cfg.get("frames_per_window", 3),
-            )
+            if vision_backend_name == "claude":
+                from skills.youtube_transcribe.vision.claude_vision import (
+                    ClaudeVisionBackend,
+                )
+                backend = ClaudeVisionBackend(
+                    api_key=api_key,
+                    frames_per_window=cfg.get("frames_per_window", 3),
+                )
+            else:  # gemini
+                backend = GeminiVisionBackend(
+                    api_key=api_key,
+                    frames_per_window=cfg.get("frames_per_window", 3),
+                )
             visuals = backend.annotate_segments(
                 video_path=video_path,
                 windows=windows,

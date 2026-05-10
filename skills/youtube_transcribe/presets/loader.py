@@ -95,12 +95,18 @@ def resolve_with_env_checks(
     )
     info: list[str] = []
 
-    if values.get("vision_backend") == "gemini":
-        if not get_api_key("gemini"):
+    vb = values.get("vision_backend")
+    _VISION_KEY_MAP = {
+        "gemini": ("gemini", "GEMINI_API_KEY"),
+        "claude": ("anthropic", "ANTHROPIC_API_KEY"),
+    }
+    if vb in _VISION_KEY_MAP:
+        backend_key, env_var = _VISION_KEY_MAP[vb]
+        if not get_api_key(backend_key):
             values["vision_backend"] = "off"
             info.append(
-                "ℹ Visual mode disabled: GEMINI_API_KEY not set. "
-                "Add to ~/.youtube-transcribe/.env to enable."
+                f"ℹ Visual mode disabled: {env_var} not set. "
+                f"Add to ~/.youtube-transcribe/.env to enable."
             )
 
     return values, info
