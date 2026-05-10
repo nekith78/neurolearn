@@ -3,6 +3,34 @@
 All notable changes to youtube-transcribe will be documented here.
 The format is loosely based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.2.1] — 2026-05-11
+
+### Closed Important issues from final code review of v0.2.0
+
+- **Step 1**: `keywords_only` / `semantic` / `hybrid` / `llm_full_pass` теперь
+  по-настоящему различаются. `match_segment` принимает `mode=` kwarg.
+  `keywords_only` больше не загружает 118MB MiniLM — экономит память
+  на pure-keyword прогонах.
+- **Step 2**: `detect_frame_changes_in_window` интегрирован в pipeline.
+  В `hybrid`/`llm_full_pass` пустые (talking-head) окна дропаются,
+  визуально-богатые окна получают score-boost x1.3.
+- **Step 3**: `llm_full_pass` теперь делает реальный LLM-classify pass.
+  Один text-only Gemini call на видео, парсит JSON timecodes, возвращает
+  до 10 окон с reason="llm_full_pass:<why>".
+- **Step 4**: kirpich F (perplexity) реализован. Заменили `kenlm` на
+  `lmppl` (использует transformers, уже установлен через
+  sentence-transformers). English через GPT-2 small. Penalty в score
+  до 0.25 за полностью аномальный текст. Opt-in через
+  `enable_perplexity=True` (или `quality_perplexity=true` в presets).
+
+### Changed
+- `[project.optional-dependencies] perplexity` теперь требует `lmppl>=0.3.0`
+  вместо `kenlm>=0.2.0`. KenLM требовал pre-built ARPA модели
+  (непрактично для конечных пользователей).
+
+### Tests
+- 390 unit-тестов зелёные (было 346 в v0.2.0; +44 теста).
+
 ## [0.2.0] — 2026-05-11
 
 ### Added
