@@ -369,6 +369,9 @@ def _build_video_status(
         files=files,
         status="ok",
         error=None,
+        # === v0.2 carry-through ===
+        visual_segments=list(getattr(result, "visual_segments", []) or []),
+        quality=getattr(result, "quality", None),
     )
 
 
@@ -430,6 +433,29 @@ def _infer_source_type(targets: list[ResolvedTarget], from_file: Path | None) ->
 @click.option("--beam-size", type=int, default=None)
 @click.option("--vad/--no-vad", default=None)
 @click.option("--verbose", is_flag=True)
+@click.option("--with-visuals", is_flag=True, help="Shortcut for --vision-backend=gemini.")
+@click.option("--vision-backend", "vision_backend_opt",
+              type=click.Choice(["off", "gemini"]), default=None,
+              help="Visual mode backend. off = audio only.")
+@click.option("--detect-method", "detect_method_opt",
+              type=click.Choice(["keywords_only", "semantic", "hybrid", "llm_full_pass"]),
+              default=None, help="How to find visual moments.")
+@click.option("--frames-per-window", "frames_per_window_opt", type=int, default=None)
+@click.option("--max-windows", "max_windows_opt", type=int, default=None)
+@click.option("--ocr", "ocr_opt", is_flag=True, default=None,
+              help="Run OCR on keyframes (--ocr opt-in).")
+@click.option("--check-quality", is_flag=True, default=None,
+              help="Force quality check + write to manifest.")
+@click.option("--no-quality-check", is_flag=True, default=None,
+              help="Skip quality check even in smart preset.")
+@click.option("--preset", default=None,
+              help="Preset name (eco/smart/standard/premium).")
+@click.option("--config", "config_path", type=click.Path(exists=True), default=None,
+              help="External config TOML.")
+@click.option("--triggers", "triggers_path", type=click.Path(exists=True), default=None,
+              help="External triggers TOML.")
+@click.option("--no-default-triggers", is_flag=True, default=False,
+              help="Disable built-in triggers.")
 def batch_cmd(
     inputs: tuple[str, ...],
     from_file: Path | None,
@@ -447,6 +473,45 @@ def batch_cmd(
     cfg = _override_config(cfg, opts)
     if opts.get("no_fast_path"):
         cfg.fast_path_enabled = False
+
+    # === v0.2 preset / config / overrides resolution (once per batch) ===
+    from skills.youtube_transcribe.pipeline_v02 import apply_v02_stages
+    from skills.youtube_transcribe.presets.loader import (
+        list_preset_names,
+        resolve_with_env_checks,
+    )
+
+    cli_overrides: dict = {}
+    if opts.get("vision_backend_opt") is not None:
+        cli_overrides["vision_backend"] = opts["vision_backend_opt"]
+    if opts.get("with_visuals"):
+        cli_overrides["vision_backend"] = "gemini"
+    if opts.get("detect_method_opt") is not None:
+        cli_overrides["detect_method"] = opts["detect_method_opt"]
+    if opts.get("frames_per_window_opt") is not None:
+        cli_overrides["frames_per_window"] = opts["frames_per_window_opt"]
+    if opts.get("max_windows_opt") is not None:
+        cli_overrides["max_windows_per_video"] = opts["max_windows_opt"]
+    if opts.get("ocr_opt") is True:
+        cli_overrides["ocr"] = True
+    if opts.get("check_quality") is True:
+        cli_overrides["quality_check"] = True
+    if opts.get("no_quality_check") is True:
+        cli_overrides["quality_check"] = False
+
+    preset_name = opts.get("preset") or "smart"
+    if preset_name not in list_preset_names():
+        console.print(f"[red]Unknown preset: {preset_name}[/red]. Known: {list_preset_names()}")
+        sys.exit(2)
+
+    config_path_opt = opts.get("config_path")
+    cfg_v02, info_msgs = resolve_with_env_checks(
+        preset_name,
+        external_config_path=Path(config_path_opt) if config_path_opt else None,
+        cli_overrides=cli_overrides,
+    )
+    for msg in info_msgs:
+        console.print(msg, style="dim")
 
     targets, resolve_failures = resolve(list(inputs), from_file, ResolverFilters(limit=limit))
 
@@ -512,6 +577,67 @@ def batch_cmd(
                 console.print(f"[red]Ошибка транскрипции:[/red] {e}")
                 sys.exit(4)
             continue
+
+        # === v0.2: apply quality check + visual stages per video ===
+        bn = (getattr(result, "backend_name", None) or "").lower()
+        if "subtitles_manual" in bn:
+            v02_source = "youtube_manual"
+        elif "subtitles" in bn:
+            v02_source = "youtube_auto"
+        elif "whisper" in bn:
+            v02_source = "whisper"
+        else:
+            v02_source = "external_asr"
+
+        v02_video_id = target.video_id or f"video-{i}"
+        triggers_path_opt = opts.get("triggers_path")
+        no_default_triggers_opt = bool(opts.get("no_default_triggers"))
+
+        needs_video = (
+            cfg_v02.get("vision_backend") == "gemini"
+            and is_url(target.url)
+        )
+        if needs_video:
+            import tempfile
+            from skills.youtube_transcribe.utils.downloader import download_video
+            with tempfile.TemporaryDirectory(prefix=f"yt-visual-{i}-") as v_tmp:
+                try:
+                    v_path = download_video(
+                        target.url, Path(v_tmp),
+                        cookies_browser=cfg.cookies_browser,
+                    )
+                except Exception as e:
+                    console.print(
+                        f"[yellow]⚠ Видео {i}: визуал отключён — {e}[/yellow]",
+                        style="dim",
+                    )
+                    v_path = None
+                result = apply_v02_stages(
+                    result=result,
+                    cfg=cfg_v02,
+                    video_path=v_path,
+                    video_id=v02_video_id,
+                    out_dir=batch_dir,
+                    source=v02_source,
+                    triggers_path=Path(triggers_path_opt) if triggers_path_opt else None,
+                    no_default_triggers=no_default_triggers_opt,
+                )
+        else:
+            local_video_path = (
+                Path(target.url).expanduser().resolve()
+                if not is_url(target.url) and cfg_v02.get("vision_backend") == "gemini"
+                else None
+            )
+            result = apply_v02_stages(
+                result=result,
+                cfg=cfg_v02,
+                video_path=local_video_path,
+                video_id=v02_video_id,
+                out_dir=batch_dir,
+                source=v02_source,
+                triggers_path=Path(triggers_path_opt) if triggers_path_opt else None,
+                no_default_triggers=no_default_triggers_opt,
+            )
 
         # success → write per-video files
         prefix = f"{i:02d}"
