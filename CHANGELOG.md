@@ -3,6 +3,34 @@
 All notable changes to youtube-transcribe will be documented here.
 The format is loosely based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.3.0] — 2026-05-11
+
+Major batch features.
+
+### Added
+
+- **`--since YYYY-MM-DD` / `--until YYYY-MM-DD`** — filter channel/playlist/search
+  results by upload date.
+- **`--min-duration SECONDS` / `--max-duration SECONDS`** — filter by duration.
+- **`--no-shorts`** — skip YouTube Shorts (videos ≤ 60s heuristic).
+- **`--skip-existing`** — skip videos already transcribed in `output_dir`
+  (rglob `*.txt`, dedup by video_id suffix). Useful for incremental
+  channel re-fetches.
+- **`--workers N`** — parallel batch processing via ThreadPoolExecutor.
+  Cloud backends benefit; whisper-local saturates serially. Output may
+  interleave; incompatible with `--fail-fast`.
+- **`--search "query"`** — YouTube search via yt-dlp `ytsearchN:`. No API
+  key needed. Combines with inline URLs / `--from-file` if also set.
+
+### Changed
+
+- `ResolverFilters` gained `search_query` field; `Source` Literal
+  extended with `"search"`.
+
+### Tests
+
+- 434 unit tests green (was 402 in v0.2.2; +32 v0.3 tests).
+
 ## [0.2.2] — 2026-05-11
 
 ### Real-validation fixes (v0.2.1 features broken under live testing)
