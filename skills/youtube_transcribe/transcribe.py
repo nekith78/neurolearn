@@ -219,13 +219,16 @@ def transcribe_cmd(audio_or_url: str, **opts) -> None:
         source = "external_asr"
 
     video_id = target.video_id or "unknown"
+    triggers_path_opt = opts.get("triggers_path")
     result = apply_v02_stages(
         result=result,
         cfg=cfg_v02,
-        video_path=None,  # TODO: thread mp4 path from downloader when --with-visuals; for v0.2 keep None for audio-only flow
+        video_path=None,  # mp4 threading wired in Fix A3
         video_id=video_id,
         out_dir=output_dir,
         source=source,
+        triggers_path=Path(triggers_path_opt) if triggers_path_opt else None,
+        no_default_triggers=bool(opts.get("no_default_triggers")),
     )
 
     base_name = sanitize_filename(_derive_basename(target))

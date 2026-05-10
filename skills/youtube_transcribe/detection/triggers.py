@@ -109,14 +109,24 @@ def _merge(builtin: TriggerConfig, user: TriggerConfig) -> TriggerConfig:
     return out
 
 
-def load_triggers(user_path: Path | None = DEFAULT_USER_PATH) -> TriggerConfig:
+def load_triggers(
+    user_path: Path | None = DEFAULT_USER_PATH,
+    *,
+    force_replace: bool = False,
+) -> TriggerConfig:
     """Load merged config: built-in defaults + user overrides.
 
     If user file has `mode = "replace"` at top level, builtin is skipped.
+    `force_replace=True` (CLI `--no-default-triggers`) skips builtin even
+    when the user file doesn't set mode.
     """
     user_raw = _load_toml(user_path) if user_path else {}
-    builtin_cfg = _build_config(_load_builtin())
 
+    if force_replace:
+        # User-only config (or empty if no user file).
+        return _build_config(user_raw) if user_raw else TriggerConfig()
+
+    builtin_cfg = _build_config(_load_builtin())
     if not user_raw:
         return builtin_cfg
 

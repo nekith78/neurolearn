@@ -75,8 +75,16 @@ def apply_v02_stages(
     video_id: str,
     out_dir: Path,
     source: Source,
+    triggers_path: Path | None = None,
+    no_default_triggers: bool = False,
 ) -> TranscriptionResult:
-    """Apply quality check + detect + vision stages. Returns enriched result."""
+    """Apply quality check + detect + vision stages. Returns enriched result.
+
+    triggers_path: override default user triggers.toml location
+                   (CLI flag `--triggers /path/to/file.toml`).
+    no_default_triggers: skip built-in default phrases — use only user file
+                        (CLI flag `--no-default-triggers`).
+    """
     # === Quality check ===
     if cfg.get("quality_check"):
         checker = HeuristicChecker()
@@ -89,7 +97,10 @@ def apply_v02_stages(
         if not api_key:
             return result
 
-        triggers = load_triggers()
+        triggers = load_triggers(
+            user_path=triggers_path if triggers_path else None,
+            force_replace=no_default_triggers,
+        ) if triggers_path or no_default_triggers else load_triggers()
         windows = find_detection_windows(
             result, video_path, triggers, cfg.get("detect_method", "keywords_only")
         )
@@ -119,17 +130,20 @@ def apply_v02_stages(
 
         # === v0.2: OCR (opt-in) ===
         if cfg.get("ocr") and result.visual_segments:
+            from dataclasses import replace
             from skills.youtube_transcribe.vision.ocr import ocr_keyframes
+            new_visuals = []
             for vs in result.visual_segments:
                 kf_paths = [out_dir / kf for kf in vs.keyframes]
                 ocr_texts = ocr_keyframes(kf_paths)
-                # Append non-empty OCR results to detected_objects
-                for text in ocr_texts:
-                    if text:
-                        # Mutate via dict access since dataclass is frozen
-                        object.__setattr__(
-                            vs, "detected_objects",
-                            list(vs.detected_objects) + [f"ocr:{text[:200]}"],
-                        )
+                additions = [f"ocr:{t[:200]}" for t in ocr_texts if t]
+                if additions:
+                    new_visuals.append(replace(
+                        vs,
+                        detected_objects=list(vs.detected_objects) + additions,
+                    ))
+                else:
+                    new_visuals.append(vs)
+            result.visual_segments = new_visuals
 
     return result
