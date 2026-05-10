@@ -1,6 +1,8 @@
 """Window merge (combine overlaps + close gaps) and budget selection."""
 from __future__ import annotations
 
+from pathlib import Path
+
 from skills.youtube_transcribe.detection.base import DetectionWindow
 
 
@@ -24,6 +26,63 @@ def merge_overlapping_windows(
                 weight=best.weight,
                 phrase=best.phrase,
             )
+        else:
+            out.append(w)
+    return out
+
+
+def refine_with_frame_diff(
+    windows: list[DetectionWindow],
+    video_path: Path,
+    *,
+    change_threshold: int = 20,
+    fps: float = 1.0,
+    min_changes: int = 1,
+    rich_changes: int = 5,
+    rich_score_boost: float = 1.3,
+) -> list[DetectionWindow]:
+    """Refine windows with perceptual-hash frame diffing (spec §5 brick C).
+
+    For each window:
+      - Count frame changes inside (hamming distance > change_threshold).
+      - If 0 < changes < min_changes: drop the window (static talking-head,
+        not worth a Gemini call).
+      - If changes >= rich_changes: boost score (visually-rich moment).
+      - Otherwise: keep as-is.
+
+    Failures (e.g. ffmpeg hiccup) → keep window unchanged. Non-fatal.
+    """
+    if not windows:
+        return []
+
+    # Lazy import: frame_diff calls ffmpeg subprocess; keep this module
+    # importable in pure unit-test contexts that mock at the top level.
+    from skills.youtube_transcribe.detection.frame_diff import (
+        detect_frame_changes_in_window,
+    )
+
+    out: list[DetectionWindow] = []
+    for w in windows:
+        try:
+            diffs = detect_frame_changes_in_window(
+                video_path, start=w.start, end=w.end,
+                threshold=change_threshold, fps=fps,
+            )
+        except Exception:
+            # ffmpeg failed for this window — keep it, let vision backend decide.
+            out.append(w)
+            continue
+
+        n = len(diffs)
+        if n < min_changes:
+            # Static talking-head — drop this window.
+            continue
+        if n >= rich_changes:
+            new_score = min(w.score * rich_score_boost, 1.0)
+            out.append(DetectionWindow(
+                start=w.start, end=w.end, reason=w.reason,
+                score=new_score, weight=w.weight, phrase=w.phrase,
+            ))
         else:
             out.append(w)
     return out

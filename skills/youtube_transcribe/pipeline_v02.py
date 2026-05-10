@@ -16,6 +16,7 @@ from skills.youtube_transcribe.detection.scene import find_scene_boundaries
 from skills.youtube_transcribe.detection.triggers import load_triggers, TriggerConfig
 from skills.youtube_transcribe.detection.window_merge import (
     merge_overlapping_windows,
+    refine_with_frame_diff,
     select_windows_by_budget,
 )
 from skills.youtube_transcribe.quality.heuristic_checker import HeuristicChecker
@@ -103,10 +104,16 @@ def apply_v02_stages(
             user_path=triggers_path if triggers_path else None,
             force_replace=no_default_triggers,
         ) if triggers_path or no_default_triggers else load_triggers()
+        detect_method = cfg.get("detect_method", "keywords_only")
         windows = find_detection_windows(
-            result, video_path, triggers, cfg.get("detect_method", "keywords_only")
+            result, video_path, triggers, detect_method
         )
         windows = merge_overlapping_windows(windows, max_gap=1.0)
+
+        # Frame-diff refinement (spec §5 brick C) — hybrid / llm_full_pass only.
+        # Drops static talking-head windows, boosts visually-rich ones.
+        if detect_method in ("hybrid", "llm_full_pass") and windows:
+            windows = refine_with_frame_diff(windows, video_path)
 
         video_duration = result.segments[-1].end if result.segments else 0.0
         windows = select_windows_by_budget(
