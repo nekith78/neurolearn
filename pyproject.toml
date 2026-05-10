@@ -3,7 +3,7 @@ name = "youtube-transcribe"
 version = "0.1.0"
 description = "Transcribe YouTube videos and local media via 8 interchangeable backends (Whisper local / subtitles / Gemini / Groq / OpenAI / Deepgram / AssemblyAI / custom)."
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 license = { text = "MIT" }
 authors = [{ name = "youtube-transcribe contributors" }]
 keywords = ["whisper", "transcription", "youtube", "claude-code", "skill"]
@@ -11,7 +11,7 @@ keywords = ["whisper", "transcription", "youtube", "claude-code", "skill"]
 dependencies = [
     "click>=8.1",
     "rich>=13.7",
-    "tomli>=2.0; python_version < '3.11'",
+    # tomllib is stdlib on Python ≥3.11 — no `tomli` shim needed since requires-python = ">=3.11"
     "tomli-w>=1.0",
     "python-dotenv>=1.0",
     "yt-dlp>=2024.10.0",

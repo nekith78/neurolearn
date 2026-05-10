@@ -12,15 +12,10 @@ API key precedence:
 from __future__ import annotations
 
 import os
-import sys
+import tomllib  # stdlib on Python ≥3.11 (requires-python in pyproject)
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Literal
-
-if sys.version_info >= (3, 11):
-    import tomllib
-else:
-    import tomli as tomllib
 
 import tomli_w
 from dotenv import dotenv_values
