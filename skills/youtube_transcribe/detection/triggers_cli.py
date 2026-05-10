@@ -307,3 +307,128 @@ def cmd_test(text: str):
         return
     click.echo(f"Matched: phrase='{m.phrase}', reason={m.reason}, "
                f"score={m.score:.3f}, weight={m.weight}")
+
+
+@triggers_cli.group("weight")
+def weight_group():
+    """Manage per-phrase weights."""
+
+
+def _find_phrase_in_array(arr, phrase: str) -> int | None:
+    for idx, item in enumerate(arr):
+        if isinstance(item, str) and item == phrase:
+            return idx
+        if isinstance(item, list) and len(item) >= 1 and item[0] == phrase:
+            return idx
+    return None
+
+
+def _resolve_arr(doc, section: str, lang: str | None):
+    if section == "universal":
+        return doc["triggers"]["universal"]["phrases"]
+    if section == "raw":
+        return doc["triggers"]["raw"]["phrases"]
+    return doc["triggers"]["languages"][lang][section]
+
+
+def _parse_weight_args(args: tuple[str, ...]) -> list[tuple[str, float]]:
+    """Two forms:
+      ("function", "1.5")          → [("function", 1.5)]
+      ("function:1.5; class:1.5",) → [("function", 1.5), ("class", 1.5)]
+    """
+    if len(args) == 2:
+        return [(args[0], float(args[1]))]
+    if len(args) == 1:
+        out = []
+        for chunk in _SPLIT_RE.split(args[0]):
+            chunk = chunk.strip()
+            if not chunk:
+                continue
+            if ":" not in chunk:
+                raise ValueError(f"Batch entry must be 'phrase:weight', got '{chunk}'")
+            phrase, w = chunk.rsplit(":", 1)
+            out.append((phrase.strip(), float(w.strip())))
+        return out
+    raise ValueError("Pass 'phrase value' or batch 'phrase:value;...'")
+
+
+@weight_group.command("set")
+@click.option("--universal", "section", flag_value="universal")
+@click.option("--raw", "section", flag_value="raw")
+@click.option("--soft", "section", flag_value="soft")
+@click.option("--strict", "section", flag_value="strict")
+@click.option("--lang", "lang", default=None)
+@click.argument("args", nargs=-1, required=True)
+def cmd_weight_set(section: str, lang: str | None, args: tuple[str, ...]):
+    if section is None:
+        click.echo("Pass --universal/--raw/--soft/--strict", err=True)
+        raise click.exceptions.Exit(1)
+    if section in ("soft", "strict") and not lang:
+        click.echo(f"--{section} requires --lang", err=True)
+        raise click.exceptions.Exit(1)
+
+    pairs = _parse_weight_args(args)
+    path = _user_path()
+    doc = _load_doc(path)
+    arr = _resolve_arr(doc, section, lang)
+
+    for phrase, weight in pairs:
+        if not 0.1 <= weight <= 5.0:
+            click.echo(f"Warning: suspicious weight {weight} for '{phrase}'")
+        idx = _find_phrase_in_array(arr, phrase)
+        if idx is None:
+            click.echo(f"'{phrase}' not in [{section}]", err=True)
+            continue
+        new_entry = tomlkit.array()
+        new_entry.append(phrase)
+        new_entry.append(weight)
+        arr[idx] = new_entry
+        click.echo(f"  {phrase} → weight {weight}")
+
+    _atomic_write(path, doc)
+
+
+@weight_group.command("unset")
+@click.option("--universal", "section", flag_value="universal")
+@click.option("--raw", "section", flag_value="raw")
+@click.option("--soft", "section", flag_value="soft")
+@click.option("--strict", "section", flag_value="strict")
+@click.option("--lang", "lang", default=None)
+@click.argument("phrase")
+def cmd_weight_unset(section: str, lang: str | None, phrase: str):
+    path = _user_path()
+    doc = _load_doc(path)
+    arr = _resolve_arr(doc, section, lang)
+    idx = _find_phrase_in_array(arr, phrase)
+    if idx is None:
+        click.echo(f"'{phrase}' not in [{section}]", err=True)
+        raise click.exceptions.Exit(1)
+    arr[idx] = phrase
+    _atomic_write(path, doc)
+    click.echo(f"  {phrase} → weight 1.0 (reverted)")
+
+
+@weight_group.command("list")
+def cmd_weight_list():
+    """Show only non-default weights."""
+    from skills.youtube_transcribe.detection.triggers import load_triggers
+
+    path = _user_path()
+    cfg = load_triggers(user_path=path if path.exists() else None)
+    found = False
+
+    def _show(name: str, items: dict[str, float]):
+        nonlocal found
+        for phrase, w in items.items():
+            if w != 1.0:
+                click.echo(f"  [{name}] '{phrase}' → {w}")
+                found = True
+
+    _show("universal", cfg.universal)
+    _show("raw", cfg.raw)
+    for lang, lcfg in cfg.languages.items():
+        _show(f"soft:{lang}", lcfg.soft)
+        _show(f"strict:{lang}", lcfg.strict)
+
+    if not found:
+        click.echo("No non-default weights set.")
