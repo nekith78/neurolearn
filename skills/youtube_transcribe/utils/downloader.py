@@ -23,6 +23,10 @@ _YOUTUBE_RE = re.compile(
     r"^(?:https?://)?(?:www\.)?(?:youtube\.com/(?:watch\?v=|shorts/|embed/)|youtu\.be/)([\w\-]+)",
     re.IGNORECASE,
 )
+_INSTAGRAM_RE = re.compile(
+    r"^(?:https?://)?(?:www\.)?instagram\.com/(?:p|reel|tv|reels)/([\w\-]+)",
+    re.IGNORECASE,
+)
 _STATE_PATH = CONFIG_DIR / "state.json"
 
 
@@ -34,8 +38,17 @@ def is_youtube_url(s: str) -> bool:
     return bool(_YOUTUBE_RE.match(s))
 
 
+def is_instagram_url(s: str) -> bool:
+    return bool(_INSTAGRAM_RE.match(s))
+
+
 def extract_youtube_video_id(s: str) -> str | None:
     m = _YOUTUBE_RE.match(s)
+    return m.group(1) if m else None
+
+
+def extract_instagram_shortcode(s: str) -> str | None:
+    m = _INSTAGRAM_RE.match(s)
     return m.group(1) if m else None
 
 
@@ -107,6 +120,15 @@ def maybe_auto_update_ytdlp(enabled: bool, *, max_age_hours: int = 24) -> bool:
 def _diagnose_ytdlp_error(stderr: str) -> str:
     """Map common yt-dlp errors to actionable hints."""
     s = stderr.lower()
+    # Instagram-specific signals first (more specific than generic YouTube ones)
+    if "instagram" in s and (
+        "login" in s or "session" in s or "logged" in s or "rate-limit" in s
+    ):
+        return (
+            "Instagram требует залогиненную сессию. Передай "
+            "--cookies-from-browser chrome (или firefox/edge/safari). "
+            "Stories и приватные аккаунты — только с cookies того, кто на них подписан."
+        )
     if "sign in to confirm you" in s or "bot" in s or "403" in s:
         return ("YouTube заблокировал запрос как бот. Попробуй: "
                 "--cookies-from-browser chrome (или firefox/edge). "

@@ -1,6 +1,6 @@
 # youtube-transcribe
 
-Universal audio/video transcription — YouTube, TikTok, Vimeo, Twitter, Twitch, local files. 8 interchangeable backends. Offline-by-default.
+Universal audio/video transcription — YouTube, Instagram (posts / reels / IGTV), TikTok, Vimeo, Twitter, Twitch, local files. 8 interchangeable backends. Offline-by-default.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
