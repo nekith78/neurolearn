@@ -179,6 +179,23 @@ def write_combined_md(
     parts.append(f"\n# Batch transcript — {meta.batch_name} — {meta.created_at.date().isoformat()}\n")
     parts.append(f"\n{total} видео, бэкенд: {meta.backend}. {ok} успешно, {failed} с ошибкой.\n")
 
+    # ## Inputs — quick TOC of every video that went into this batch
+    if videos:
+        parts.append("\n## Inputs\n\n")
+        for v in videos:
+            title = v.title or "(без названия)"
+            meta_bits: list[str] = []
+            if v.upload_date:
+                meta_bits.append(_fmt_date(v.upload_date))
+            if v.duration_sec is not None:
+                meta_bits.append(_fmt_duration(v.duration_sec))
+            if v.channel:
+                meta_bits.append(v.channel)
+            if v.status == "failed":
+                meta_bits.append("❌ failed")
+            suffix = f" — {' • '.join(meta_bits)}" if meta_bits else ""
+            parts.append(f"{v.index}. [{title}]({v.url}){suffix}\n")
+
     for v in videos:
         if v.status != "ok":
             continue

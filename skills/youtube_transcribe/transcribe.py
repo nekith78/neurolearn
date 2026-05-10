@@ -169,6 +169,17 @@ def transcribe_cmd(audio_or_url: str, **opts) -> None:
 
 
 def _derive_basename(target: ResolvedTarget) -> str:
+    """Pick a human-readable filename for a single transcript.
+
+    Prefer the video title (sanitized) and append the video_id suffix to
+    keep filenames unique across re-runs and same-titled videos. Falls back
+    to `yt_<id>` / `url_transcript` / local stem when no title is available.
+    """
+    if target.title:
+        # Title-based: "<sanitized-title>_<video_id-or-suffix>"
+        if target.video_id:
+            return f"{target.title}_{target.video_id}"
+        return target.title
     if is_youtube_url(target.url):
         vid = extract_youtube_video_id(target.url)
         return f"yt_{vid}" if vid else "url_transcript"
