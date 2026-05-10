@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import json as _json
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, datetime
 from pathlib import Path
 from typing import Iterable, Literal
@@ -122,6 +122,9 @@ class BatchVideoStatus:
     files: dict                            # {"txt": "...", "srt": "..."} relative paths
     status: Literal["ok", "failed"]
     error: str | None = None
+    # === v0.2 additions ===
+    visual_segments: list = field(default_factory=list)        # list[VisualSegment]
+    quality: object | None = None                               # QualityReport | None
 
 
 @dataclass
@@ -209,6 +212,28 @@ def write_combined_md(
         parts.append(f"| Channel | {v.channel or '—'} |\n")
         parts.append(f"| Language detected | {v.language_detected or '—'} |\n\n")
         parts.append(v.text.strip() + "\n")
+
+        # === v0.2: quality warning ===
+        if v.quality is not None and v.quality.recommendation != "use_as_is":
+            parts.append("\n")
+            flags_str = ", ".join(v.quality.flags) if v.quality.flags else "—"
+            parts.append(
+                f"⚠ **Quality: {v.quality.recommendation}** "
+                f"(score={v.quality.score:.2f}, flags=[{flags_str}])\n"
+            )
+
+        # === v0.2: visual moments ===
+        if v.visual_segments:
+            parts.append("\n### Visual moments\n\n")
+            for vs in v.visual_segments:
+                ts = _format_timestamp_dotted(vs.start)
+                parts.append(f"#### {ts} — {vs.description.split('.')[0]} (importance: {vs.importance})\n\n")
+                for kf in vs.keyframes:
+                    parts.append(f"![]({kf})\n\n")
+                parts.append(f"{vs.description}\n\n")
+                if vs.detected_objects:
+                    parts.append(f"Objects detected: {', '.join(vs.detected_objects)}\n\n")
+                parts.append(f"Trigger: `{vs.trigger_reason}`\n\n")
 
     path = output_dir / "combined.md"
     path.write_text("".join(parts), encoding="utf-8")
