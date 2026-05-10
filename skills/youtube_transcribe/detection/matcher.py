@@ -180,37 +180,57 @@ def _detect_lang(text: str) -> str:
         return "en"
 
 
-def match_segment(text: str, cfg: TriggerConfig) -> TriggerMatch | None:
-    """Run all matchers in priority order. Returns first match or None.
+_MODES_WITH_PER_LANG = ("keywords_only", "hybrid", "llm_full_pass")
+_MODES_WITH_UNIVERSAL = ("semantic", "hybrid", "llm_full_pass")
 
-    Priority:
-      1. raw (any lang, exact)
-      2. languages.<seg_lang>.strict (per-lang exact)
-      3. languages.<seg_lang>.soft (per-lang lemmatized)
-      4. universal (cross-lingual embeddings)
+
+def match_segment(
+    text: str,
+    cfg: TriggerConfig,
+    *,
+    mode: str = "hybrid",
+) -> TriggerMatch | None:
+    """Run matchers in priority order. Returns first match or None.
+
+    Priority within a mode:
+      1. raw (any lang, exact) — runs in all modes
+      2. languages.<seg_lang>.strict (per-lang exact) — keywords_only / hybrid / llm_full_pass
+      3. languages.<seg_lang>.soft (per-lang lemmatized) — keywords_only / hybrid / llm_full_pass
+      4. universal (cross-lingual embeddings) — semantic / hybrid / llm_full_pass
+
+    Modes per spec §5:
+      - keywords_only: raw + per-lang only (no universal — saves 118MB MiniLM load)
+      - semantic: raw + universal only (no per-lang)
+      - hybrid: all four matchers
+      - llm_full_pass: all four matchers (LLM-classify pass added in pipeline_v02)
     """
     seg_lang = _detect_lang(text)
 
+    # raw — runs in all modes
     raw_auto = _build_raw_automaton(cfg)
     hit = _match_aho(text, raw_auto)
     if hit:
         phrase, weight = hit
         return TriggerMatch(score=1.0, weight=weight, reason="raw", phrase=phrase)
 
-    strict_auto = _build_strict_automaton(cfg, seg_lang)
-    hit = _match_aho(text, strict_auto)
-    if hit:
-        phrase, weight = hit
-        return TriggerMatch(score=1.0, weight=weight, reason=f"strict:{seg_lang}", phrase=phrase)
+    # per-language matchers — skip in semantic mode
+    if mode in _MODES_WITH_PER_LANG:
+        strict_auto = _build_strict_automaton(cfg, seg_lang)
+        hit = _match_aho(text, strict_auto)
+        if hit:
+            phrase, weight = hit
+            return TriggerMatch(score=1.0, weight=weight, reason=f"strict:{seg_lang}", phrase=phrase)
 
-    soft_hit = _match_soft(text, cfg, seg_lang)
-    if soft_hit:
-        phrase, weight = soft_hit
-        return TriggerMatch(score=0.9, weight=weight, reason=f"soft:{seg_lang}", phrase=phrase)
+        soft_hit = _match_soft(text, cfg, seg_lang)
+        if soft_hit:
+            phrase, weight = soft_hit
+            return TriggerMatch(score=0.9, weight=weight, reason=f"soft:{seg_lang}", phrase=phrase)
 
-    uni_hit = _match_universal(text, cfg)
-    if uni_hit:
-        phrase, score, weight = uni_hit
-        return TriggerMatch(score=score, weight=weight, reason="universal", phrase=phrase)
+    # universal embeddings — skip in keywords_only mode
+    if mode in _MODES_WITH_UNIVERSAL:
+        uni_hit = _match_universal(text, cfg)
+        if uni_hit:
+            phrase, score, weight = uni_hit
+            return TriggerMatch(score=score, weight=weight, reason="universal", phrase=phrase)
 
     return None

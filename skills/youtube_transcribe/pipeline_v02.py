@@ -36,8 +36,10 @@ def find_detection_windows(
     windows: list[DetectionWindow] = []
 
     # 1. Trigger-based windows from transcript
+    # Pass detect_method as `mode` so matcher can skip universal embeddings
+    # in keywords_only / per-lang in semantic. See spec §5 composition table.
     for seg in result.segments:
-        m = match_segment(seg.text, triggers)
+        m = match_segment(seg.text, triggers, mode=detect_method)
         if m:
             windows.append(DetectionWindow(
                 start=max(seg.start - 1.5, 0.0),
