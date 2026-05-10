@@ -484,6 +484,8 @@ def _infer_source_type(targets: list[ResolvedTarget], from_file: Path | None) ->
               help="Maximum video duration in seconds.")
 @click.option("--no-shorts", "no_shorts_opt", is_flag=True, default=False,
               help="Skip YouTube Shorts (videos <= 60s).")
+@click.option("--skip-existing", "skip_existing_opt", is_flag=True, default=False,
+              help="Skip videos already transcribed (any *_<video_id>.txt under output-dir).")
 def batch_cmd(
     inputs: tuple[str, ...],
     from_file: Path | None,
@@ -594,8 +596,29 @@ def batch_cmd(
     failures: list[BatchFailure] = list(initial_failures)
     target_index_offset = len(initial_failures)
 
+    # === v0.3 --skip-existing: build set of already-transcribed video_ids ===
+    skip_existing = bool(opts.get("skip_existing_opt"))
+    existing_ids: set[str] = set()
+    if skip_existing and output_root.exists():
+        for txt in output_root.rglob("*.txt"):
+            stem = txt.stem
+            # Filename pattern: <prefix>_<slug>_<video_id>.txt or <slug>_<video_id>.txt
+            if "_" in stem:
+                candidate = stem.rsplit("_", 1)[-1]
+                if candidate and len(candidate) >= 8:  # YouTube ids are 11 chars
+                    existing_ids.add(candidate)
+
+    skipped_count = 0
     started = datetime.now()
     for i, target in enumerate(targets, start=1 + target_index_offset):
+        if skip_existing and target.video_id and target.video_id in existing_ids:
+            skipped_count += 1
+            console.print(
+                f"  [dim]· skip #{i} {target.title or target.video_id} "
+                f"(already transcribed)[/dim]",
+            )
+            continue
+
         try:
             result = run_pipeline(
                 target, cfg,
@@ -736,10 +759,12 @@ def batch_cmd(
     write_errors_log(failures, batch_dir)
 
     elapsed = (datetime.now() - started).total_seconds()
+    skip_str = f"   [dim]· {skipped_count} skipped[/dim]" if skipped_count else ""
     console.print(
         f"\n[green]✓[/green] {len(statuses)} ok   "
-        f"[red]✗[/red] {len(failures)} failed   "
-        f"Total: {len(statuses) + len(failures)}   Elapsed: {elapsed:.0f}s"
+        f"[red]✗[/red] {len(failures)} failed{skip_str}   "
+        f"Total: {len(statuses) + len(failures) + skipped_count}   "
+        f"Elapsed: {elapsed:.0f}s"
     )
     console.print(f"\n  [bold]{batch_dir}/[/bold]")
     if not no_combined:
