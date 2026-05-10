@@ -75,6 +75,7 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["skills"]
+include = ["skills/youtube_transcribe/presets/data/*.toml"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
