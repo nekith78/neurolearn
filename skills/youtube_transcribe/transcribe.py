@@ -111,6 +111,27 @@ def cli() -> None:
 @click.option("--beam-size", type=int, default=None)
 @click.option("--vad/--no-vad", default=None)
 @click.option("--verbose", is_flag=True)
+@click.option("--with-visuals", is_flag=True, help="Shortcut for --vision-backend=gemini.")
+@click.option("--vision-backend", "vision_backend_opt", type=click.Choice(["off", "gemini"]), default=None,
+              help="Visual mode backend. off = audio only.")
+@click.option("--detect-method", "detect_method_opt",
+              type=click.Choice(["keywords_only", "semantic", "hybrid", "llm_full_pass"]),
+              default=None, help="How to find visual moments.")
+@click.option("--frames-per-window", "frames_per_window_opt", type=int, default=None)
+@click.option("--max-windows", "max_windows_opt", type=int, default=None)
+@click.option("--ocr", "ocr_opt", is_flag=True, default=None, help="Run OCR on keyframes (--ocr opt-in).")
+@click.option("--check-quality", is_flag=True, default=None,
+              help="Force quality check + write to manifest.")
+@click.option("--no-quality-check", is_flag=True, default=None,
+              help="Skip quality check even in smart preset.")
+@click.option("--preset", default=None,
+              help="Preset name (eco/smart/standard/premium).")
+@click.option("--config", "config_path", type=click.Path(exists=True), default=None,
+              help="External config TOML (alternative to ~/.youtube-transcribe/config.toml).")
+@click.option("--triggers", "triggers_path", type=click.Path(exists=True), default=None,
+              help="External triggers TOML.")
+@click.option("--no-default-triggers", is_flag=True, default=False,
+              help="Disable built-in triggers, use only user file.")
 def transcribe_cmd(audio_or_url: str, **opts) -> None:
     """Transcribe a YouTube URL, supported video URL, or local audio/video file."""
     if not CONFIG_PATH.exists():
@@ -145,6 +166,67 @@ def transcribe_cmd(audio_or_url: str, **opts) -> None:
     except BackendError as e:
         console.print(f"[red]Ошибка транскрипции:[/red] {e}")
         sys.exit(4)
+
+    # === v0.2 stage application ===
+    from skills.youtube_transcribe.pipeline_v02 import apply_v02_stages
+    from skills.youtube_transcribe.presets.loader import (
+        list_preset_names,
+        resolve_with_env_checks,
+    )
+
+    cli_overrides: dict = {}
+    if opts.get("vision_backend_opt") is not None:
+        cli_overrides["vision_backend"] = opts["vision_backend_opt"]
+    if opts.get("with_visuals"):
+        cli_overrides["vision_backend"] = "gemini"
+    if opts.get("detect_method_opt") is not None:
+        cli_overrides["detect_method"] = opts["detect_method_opt"]
+    if opts.get("frames_per_window_opt") is not None:
+        cli_overrides["frames_per_window"] = opts["frames_per_window_opt"]
+    if opts.get("max_windows_opt") is not None:
+        cli_overrides["max_windows_per_video"] = opts["max_windows_opt"]
+    if opts.get("ocr_opt") is True:
+        cli_overrides["ocr"] = True
+    if opts.get("check_quality") is True:
+        cli_overrides["quality_check"] = True
+    if opts.get("no_quality_check") is True:
+        cli_overrides["quality_check"] = False
+
+    preset_name = opts.get("preset") or "smart"
+    if preset_name not in list_preset_names():
+        console.print(f"[red]Unknown preset: {preset_name}[/red]. "
+                      f"Known: {list_preset_names()}")
+        sys.exit(2)
+
+    config_path_opt = opts.get("config_path")
+    cfg_v02, info_msgs = resolve_with_env_checks(
+        preset_name,
+        external_config_path=Path(config_path_opt) if config_path_opt else None,
+        cli_overrides=cli_overrides,
+    )
+    for msg in info_msgs:
+        console.print(msg, style="dim")
+
+    # Map backend_name to source for quality check
+    bn = (result.backend_name or "").lower()
+    if "subtitles_manual" in bn:
+        source = "youtube_manual"
+    elif "subtitles" in bn:
+        source = "youtube_auto"
+    elif "whisper" in bn:
+        source = "whisper"
+    else:
+        source = "external_asr"
+
+    video_id = target.video_id or "unknown"
+    result = apply_v02_stages(
+        result=result,
+        cfg=cfg_v02,
+        video_path=None,  # TODO: thread mp4 path from downloader when --with-visuals; for v0.2 keep None for audio-only flow
+        video_id=video_id,
+        out_dir=output_dir,
+        source=source,
+    )
 
     base_name = sanitize_filename(_derive_basename(target))
     txt_path = output_dir / f"{base_name}.txt"
@@ -559,6 +641,9 @@ def config_wizard() -> None:
     """Re-run the first-run setup wizard."""
     run_wizard()
 
+
+from skills.youtube_transcribe.detection.triggers_cli import triggers_cli
+cli.add_command(triggers_cli)
 
 __all__ = ["cli", "transcribe_cmd", "batch_cmd", "config"]
 
