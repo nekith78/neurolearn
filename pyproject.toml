@@ -1,9 +1,9 @@
 [project]
 name = "youtube-transcribe"
-version = "0.1.0"
+version = "0.2.0-dev"
 description = "Transcribe YouTube videos and local media via 8 interchangeable backends (Whisper local / subtitles / Gemini / Groq / OpenAI / Deepgram / AssemblyAI / custom)."
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.11,<3.14"
 license = { text = "MIT" }
 authors = [{ name = "youtube-transcribe contributors" }]
 keywords = ["whisper", "transcription", "youtube", "claude-code", "skill"]
@@ -29,12 +29,39 @@ dependencies = [
     "faster-whisper>=1.0.3; sys_platform != 'darwin' or platform_machine != 'arm64'",
     # Apple Silicon path (only installs on macOS arm64)
     "mlx-whisper>=0.4.1; sys_platform == 'darwin' and platform_machine == 'arm64'",
+    # === v0.2: Quality check ===
+    "pyspellchecker>=0.8.0",
+    "pyahocorasick>=2.1.0",
+    "langdetect>=1.0.9",
+    # === v0.2: Triggers (multilingual) ===
+    "sentence-transformers>=3.0.0",
+    "lemminflect>=0.2.3",
+    "pymorphy3>=2.0.2",
+    # === v0.2: Triggers CLI (preserve comments in TOML) ===
+    "tomlkit>=0.13.0",
+    # === v0.2: Detection ===
+    "scenedetect>=0.6.4",
+    "imagehash>=4.3.1",
 ]
 
 [project.optional-dependencies]
 dev = [
     "pytest>=8.0",
     "pytest-cov>=5.0",
+]
+
+# OCR — opt-in. Pytesseract requires system `tesseract` binary
+# (brew install tesseract / apt-get install tesseract-ocr).
+# easyocr — fallback, heavy (60MB models), but no system deps.
+ocr = [
+    "pytesseract>=0.3.10",
+    "easyocr>=1.7.0",
+]
+
+# Perplexity — opt-in. KenLM requires C++ build.
+# On Mac arm64 needs `brew install cmake`.
+perplexity = [
+    "kenlm>=0.2.0",
 ]
 
 [project.scripts]
