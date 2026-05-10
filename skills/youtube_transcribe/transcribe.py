@@ -486,6 +486,9 @@ def _infer_source_type(targets: list[ResolvedTarget], from_file: Path | None) ->
               help="Skip YouTube Shorts (videos <= 60s).")
 @click.option("--skip-existing", "skip_existing_opt", is_flag=True, default=False,
               help="Skip videos already transcribed (any *_<video_id>.txt under output-dir).")
+@click.option("--workers", "workers_opt", type=int, default=1, show_default=True,
+              help="Parallel workers for batch (cloud backends only — whisper-local "
+                   "and rate-limited APIs may not benefit).")
 def batch_cmd(
     inputs: tuple[str, ...],
     from_file: Path | None,
@@ -608,17 +611,22 @@ def batch_cmd(
                 if candidate and len(candidate) >= 8:  # YouTube ids are 11 chars
                     existing_ids.add(candidate)
 
+    workers = max(1, int(opts.get("workers_opt") or 1))
+    if workers > 1 and fail_fast:
+        console.print(
+            "[red]--workers > 1 is incompatible with --fail-fast[/red]: "
+            "in-flight tasks can't be reliably cancelled. Use one or the other."
+        )
+        sys.exit(2)
+
     skipped_count = 0
     started = datetime.now()
-    for i, target in enumerate(targets, start=1 + target_index_offset):
-        if skip_existing and target.video_id and target.video_id in existing_ids:
-            skipped_count += 1
-            console.print(
-                f"  [dim]· skip #{i} {target.title or target.video_id} "
-                f"(already transcribed)[/dim]",
-            )
-            continue
 
+    # Per-video processor — pure function (no shared mutable state besides
+    # console which is thread-safe in Rich). Returns one of:
+    #   ("ok", BatchVideoStatus) — transcribed and written
+    #   ("failed", BatchFailure) — pipeline raised; collect for errors.log
+    def _process_one(i: int, target: ResolvedTarget):
         try:
             result = run_pipeline(
                 target, cfg,
@@ -626,32 +634,24 @@ def batch_cmd(
                 keep_audio_to=(batch_dir / "audio") if cfg.keep_audio else None,
             )
         except BackendNotConfigured as e:
-            failures.append(BatchFailure(
+            return ("failed", BatchFailure(
                 index=i, url=target.url, stage="backend",
                 error_text=str(e),
                 hint=_diagnose_failure_hint("backend", str(e)),
             ))
-            if fail_fast:
-                console.print(f"[red]Бэкенд не настроен:[/red] {e}")
-                sys.exit(3)
-            continue
         except BackendError as e:
             stage = (
                 "download"
                 if "yt-dlp" in str(e).lower() or "403" in str(e)
                 else "backend"
             )
-            failures.append(BatchFailure(
+            return ("failed", BatchFailure(
                 index=i, url=target.url, stage=stage,
                 error_text=str(e),
                 hint=_diagnose_failure_hint(stage, str(e)),
             ))
-            if fail_fast:
-                console.print(f"[red]Ошибка транскрипции:[/red] {e}")
-                sys.exit(4)
-            continue
 
-        # === v0.2: apply quality check + visual stages per video ===
+        # === v0.2 stages ===
         bn = (getattr(result, "backend_name", None) or "").lower()
         if "subtitles_manual" in bn:
             v02_source = "youtube_manual"
@@ -712,7 +712,10 @@ def batch_cmd(
                 no_default_triggers=no_default_triggers_opt,
             )
 
-        # success → write per-video files
+        return ("ok", result)
+
+    def _write_outputs_and_record(i: int, target: ResolvedTarget, result):
+        """Write txt/srt for one transcribed target and append BatchVideoStatus."""
         prefix = f"{i:02d}"
         slug = _slugify(target.title or f"video-{i}")
         vid = target.video_id or "local"
@@ -732,6 +735,56 @@ def batch_cmd(
                 "srt": str(srt_path.relative_to(batch_dir)) if write_srt_flag else None,
             },
         ))
+
+    # Filter out skip-existing targets first (so workers don't waste time on them).
+    pending: list[tuple[int, ResolvedTarget]] = []
+    for i, target in enumerate(targets, start=1 + target_index_offset):
+        if skip_existing and target.video_id and target.video_id in existing_ids:
+            skipped_count += 1
+            console.print(
+                f"  [dim]· skip #{i} {target.title or target.video_id} "
+                f"(already transcribed)[/dim]",
+            )
+            continue
+        pending.append((i, target))
+
+    if workers == 1:
+        # Serial path (default; preserves fail-fast).
+        for i, target in pending:
+            kind, payload = _process_one(i, target)
+            if kind == "failed":
+                failures.append(payload)
+                if fail_fast:
+                    console.print(f"[red]Ошибка #{i}: {payload.error_text}[/red]")
+                    sys.exit(4)
+            else:
+                _write_outputs_and_record(i, target, payload)
+    else:
+        # Parallel path. fail_fast already validated incompatible above.
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        console.print(
+            f"[dim]Running with {workers} parallel workers — output may "
+            f"interleave; fail-fast disabled.[/dim]"
+        )
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            future_to_target = {
+                pool.submit(_process_one, i, target): (i, target)
+                for i, target in pending
+            }
+            for fut in as_completed(future_to_target):
+                i, target = future_to_target[fut]
+                try:
+                    kind, payload = fut.result()
+                except Exception as e:  # pragma: no cover — unexpected
+                    failures.append(BatchFailure(
+                        index=i, url=target.url, stage="backend",
+                        error_text=f"unexpected: {e}", hint=None,
+                    ))
+                    continue
+                if kind == "failed":
+                    failures.append(payload)
+                else:
+                    _write_outputs_and_record(i, target, payload)
 
     meta = BatchMeta(
         batch_name=name,
