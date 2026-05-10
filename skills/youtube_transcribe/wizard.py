@@ -23,16 +23,18 @@ from skills.youtube_transcribe.utils.platform_detect import detect_platform
 # ---------------------------------------------------------------------------
 
 _BACKEND_CHOICES = [
-    ("whisper-local", "Локальный Whisper. Оффлайн, приватно, лучшее качество."),
+    ("whisper-local", "Локальный Whisper — оффлайн, приватно, лучшее качество.  [бесплатно]"),
     ("smart",         "Субтитры YouTube → fallback. Быстро и надёжно."),
-    ("subtitles",     "Только субтитры YouTube. Мгновенно, среднее качество, только YouTube."),
-    ("gemini",        "Google AI Studio. Бесплатный free tier. Нужен ключ."),
-    ("groq",          "Groq Whisper API. Самый быстрый облачный. Free tier. Нужен ключ."),
-    ("openai",        "OpenAI Whisper API. Платно (~$0.006/мин). Нужен ключ."),
-    ("deepgram",      "Deepgram Nova-3. $200 стартовый кредит. Нужен ключ."),
-    ("assemblyai",    "AssemblyAI. Free tier. Хорош для длинных интервью. Нужен ключ."),
-    ("custom",        "OpenAI-совместимый API. Для продвинутых."),
+    ("subtitles",     "Только субтитры YouTube. Мгновенно, только YouTube.  [бесплатно, без API]"),
+    ("gemini",        "Google AI Studio.  [free tier ~часы/день]  Нужен ключ."),
+    ("groq",          "Groq Whisper API — самый быстрый облачный.  [free tier ~8 ч/день]  Нужен ключ."),
+    ("openai",        "OpenAI Whisper API.  [платно ~$0.006/мин]  Нужен ключ."),
+    ("deepgram",      "Deepgram Nova-3.  [starter-кредит $200 ≈ 750 ч]  Нужен ключ."),
+    ("assemblyai",    "AssemblyAI — хорош для длинных интервью.  [free tier ~5 ч/мес]  Нужен ключ."),
+    ("custom",        "OpenAI-совместимый API. Для продвинутых.  [зависит от провайдера]"),
 ]
+# NOTE: free-tier quotas above — ориентир на момент Jan 2026.
+# Реальные числа меняются провайдером; точные лимиты — на странице получения ключа.
 
 # Map backend name → URL where the user can get an API key
 _KEY_GUIDE: dict[str, str] = {
