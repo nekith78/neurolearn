@@ -3,6 +3,43 @@
 All notable changes to youtube-transcribe will be documented here.
 The format is loosely based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.4.0] — 2026-05-11
+
+Multimodal alternatives + post-processing + Instagram + Web UI.
+
+### Added
+
+- **Claude Sonnet vision backend** (`--vision-backend claude`). Images-only,
+  reuses ffmpeg keyframes. Default model: claude-sonnet-4-6. Needs
+  `ANTHROPIC_API_KEY`.
+- **OpenAI GPT-4o vision backend** (`--vision-backend openai`). Images-only,
+  base64 data URLs. Default model: gpt-4o.
+- **ASR error correction** (`correct_asr: true` in preset, or future CLI
+  flag). When quality check flags a transcript as fallback / low_quality,
+  one cheap LLM call (gemini-flash / claude-haiku / gpt-4o-mini) fixes
+  garbled/truncated words. Best-effort: returns original on any error.
+  Provider via `correct_asr_backend` registry option.
+- **Instagram URL recognition.** `is_instagram_url`,
+  `extract_instagram_shortcode` for `/p/`, `/reel/`, `/tv/`, `/reels/`
+  patterns. yt-dlp handles the downloading; tailored error message hints
+  to `--cookies-from-browser` when login required.
+- **Web UI** via Gradio (`youtube-transcribe webui`). URL/file input,
+  preset/backend selectors, visual + ASR-correct toggles. Output tabbed:
+  Transcript / Visual moments / Quality. Local-only by default
+  (127.0.0.1:7860). Opt-in via `[webui]` extra.
+
+### Changed
+
+- `vision_backend` choices now `["off", "gemini", "claude", "openai"]`.
+- `_BACKEND_ENV_VAR` now includes `anthropic` → `ANTHROPIC_API_KEY`.
+- `core deps` adds `anthropic>=0.40.0` (small; comparable to existing
+  openai/groq SDKs).
+- `_VISION_KEY_MAP` in presets/loader.py honors all three vision
+  backends with their respective env vars for silent fallback.
+
+### Tests
+- 480 unit tests green (was 437 in v0.3.1; +43 v0.4 tests).
+
 ## [0.3.1] — 2026-05-11
 
 ### Added
