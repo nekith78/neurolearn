@@ -313,6 +313,53 @@ def write_manifest_json(
     return path
 
 
+def write_visual_md(
+    visual_segments: list,
+    output_path: Path,
+    *,
+    title: str | None = None,
+    url: str | None = None,
+    quality: object | None = None,
+) -> Path:
+    """Write per-video .visual.md for single-mode transcribe.
+
+    Mirrors the per-video block of combined.md's `### Visual moments` section,
+    but as a standalone file so single-mode users see the visual annotations.
+    """
+    parts: list[str] = []
+    parts.append(f"# {title or '(без названия)'}\n\n")
+    if url:
+        parts.append(f"Source: {url}\n\n")
+
+    if quality is not None and getattr(quality, "recommendation", "use_as_is") != "use_as_is":
+        flags_str = ", ".join(quality.flags) if quality.flags else "—"
+        parts.append(
+            f"⚠ **Quality: {quality.recommendation}** "
+            f"(score={quality.score:.2f}, flags=[{flags_str}])\n\n"
+        )
+
+    if not visual_segments:
+        parts.append("_No visual moments detected._\n")
+    else:
+        parts.append("## Visual moments\n\n")
+        for vs in visual_segments:
+            ts = _format_timestamp_dotted(vs.start)
+            head = vs.description.split('.')[0] if vs.description else "(no description)"
+            parts.append(f"### {ts} — {head} (importance: {vs.importance})\n\n")
+            for kf in vs.keyframes:
+                parts.append(f"![]({kf})\n\n")
+            if vs.description:
+                parts.append(f"{vs.description}\n\n")
+            if vs.detected_objects:
+                parts.append(f"Objects detected: {', '.join(vs.detected_objects)}\n\n")
+            if vs.trigger_reason:
+                parts.append(f"Trigger: `{vs.trigger_reason}`\n\n")
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text("".join(parts), encoding="utf-8")
+    return output_path
+
+
 def write_errors_log(
     failures: list[BatchFailure],
     output_dir: Path,

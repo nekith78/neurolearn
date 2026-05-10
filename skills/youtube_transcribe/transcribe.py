@@ -39,6 +39,7 @@ from skills.youtube_transcribe.utils.output_writer import (
     write_srt,
     write_txt_plain,
     write_txt_with_timestamps,
+    write_visual_md,
 )
 from skills.youtube_transcribe.utils.resolver import (
     ResolvedTarget,
@@ -282,12 +283,28 @@ def transcribe_cmd(audio_or_url: str, **opts) -> None:
     if write_srt_flag:
         write_srt(result.segments, srt_path)
 
+    # === v0.2: write .visual.md if visual stage produced any segments ===
+    visual_path: Path | None = None
+    visual_segments = list(getattr(result, "visual_segments", []) or [])
+    if visual_segments or getattr(result, "quality", None) is not None:
+        visual_path = output_dir / f"{base_name}.visual.md"
+        write_visual_md(
+            visual_segments,
+            visual_path,
+            title=target.title,
+            url=target.url,
+            quality=getattr(result, "quality", None),
+        )
+
     console.print(f"[green]✓[/green] {result.backend_name} | "
                   f"язык={result.language_detected or 'auto'} | "
                   f"длительность={result.duration_seconds:.1f}s")
     console.print(f"  [bold]{txt_path}[/bold]")
     if write_srt_flag:
         console.print(f"  [bold]{srt_path}[/bold]")
+    if visual_path is not None:
+        console.print(f"  [bold]{visual_path}[/bold] "
+                      f"({len(visual_segments)} visual moments)")
 
 
 def _derive_basename(target: ResolvedTarget) -> str:
