@@ -71,3 +71,36 @@ def load_preset_values(
                 values[k] = v
 
     return values
+
+
+def resolve_with_env_checks(
+    preset_name: str,
+    *,
+    user_config_path: Path | None = None,
+    external_config_path: Path | None = None,
+    cli_overrides: dict[str, Any] | None = None,
+) -> tuple[dict[str, Any], list[str]]:
+    """Same as load_preset_values, but applies silent fallbacks for missing API keys.
+
+    Returns (values, info_messages). Info messages should be printed to stderr
+    so user knows why visual mode is off.
+    """
+    from skills.youtube_transcribe.config import get_api_key
+
+    values = load_preset_values(
+        preset_name,
+        user_config_path=user_config_path,
+        external_config_path=external_config_path,
+        cli_overrides=cli_overrides,
+    )
+    info: list[str] = []
+
+    if values.get("vision_backend") == "gemini":
+        if not get_api_key("gemini"):
+            values["vision_backend"] = "off"
+            info.append(
+                "ℹ Visual mode disabled: GEMINI_API_KEY not set. "
+                "Add to ~/.youtube-transcribe/.env to enable."
+            )
+
+    return values, info
