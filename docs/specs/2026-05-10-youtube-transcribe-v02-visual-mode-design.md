@@ -1,0 +1,903 @@
+# Дизайн-документ: youtube-transcribe v0.2 — visual mode + quality check + dynamic presets
+
+**Дата:** 2026-05-10
+**Статус:** Черновик к согласованию
+**Автор:** brainstorm с пользователем (Claude Code)
+**Базовые спеки:**
+- [v0.1 single](2026-05-08-youtube-transcribe-design.md)
+- [v0.1 batch extension](2026-05-09-youtube-transcribe-v01-batch-extension-design.md)
+
+---
+
+## 1. Контекст и цель v0.2
+
+v0.1.2 в production: 8 бэкендов, batch, smart-режим, wizard, slash, CI на 3 ОС × 2 Python, uv tool install, 208 unit + 2 e2e тестов зелёные, валидация на реальных API прошла.
+
+**Главная мечта v0.2** (формулировка пользователя):
+
+> «Хочу не просто транскрипт того, что говорят, а инструкцию с наглядными картинками — описание происходящего на экране, ключевые моменты с скриншотами, чтобы потом из этого сделать заметку или туториал.»
+
+Это уникальная фича. Среди 8 бэкендов только Gemini multimodal умеет работать с видео целиком. Остальные семь — audio-only. v0.2 строится вокруг этой возможности, но **не привязана к одному провайдеру архитектурно**: добавляем `VisionBackend` как Protocol, чтобы будущие multimodal бэкенды (Claude Sonnet vision, GPT-4o vision) подключались без переделки.
+
+Вторая цель v0.2 — **закрыть слабость smart-режима**: сейчас `subtitles` берутся всегда, если они есть, без проверки качества. На авто-сабах ютуба (60-70% accuracy в среднем) это даёт мусорный результат. Добавляем quality check.
+
+Третья цель — **выкатить динамические презеты** вместо нынешних хардкод-настроек. Конфиг становится единой системой: реестр опций → CLI / TUI / будущий web UI читают одно и то же.
+
+### Что входит в v0.2
+
+- **Visual mode** для backend=gemini: `--with-visuals`, frame-detection, vision-prompt, embedded screenshots в combined.md.
+- **Quality check** для транскриптов: `is_generated` от youtube-transcript-api + spell-check + 3-gram repetition + Aho–Corasick BoH + опц. perplexity (kenlm).
+- **Multilingual triggers** через локальные embeddings (`paraphrase-multilingual-MiniLM-L12-v2`) + per-language soft/strict + raw.
+- **Dynamic presets** — 4 готовых тира (eco / smart / standard / premium), все поля перекрываются CLI-флагами или своим конфигом.
+- **Custom triggers TOML** в `~/.youtube-transcribe/triggers.toml`.
+- **Architecture seam для web UI v0.4+**: единый реестр опций, никакого global state в pipeline.
+
+### Out-of-scope для v0.2
+
+| Фича | Куда отложено | Причина |
+|---|---|---|
+| Web UI | v0.4+ | Большой UX-проект, требует отдельной архитектурной фазы |
+| ASR error correction (исправление ошибок через LLM) | v0.4+ | Отдельная подсистема, увеличит задержку и cost |
+| Visual mode на других multimodal-моделях (Claude vision, GPT-4o) | v0.3 | API существует, но v0.2 фокусируется на Gemini для отладки |
+| Search by tags (`batch --search`) | v0.3 | Унаследованный долг из v0.1 batch extension |
+| Channel filters (`--since`, `--until`, `--no-shorts`) | v0.3 | Поля уже зарезервированы в `ResolverFilters` |
+| `--workers N` параллелизм | v0.3 | Cloud-rate-limits, whisper-local не выигрывает |
+| `--skip-existing` кэш | v0.3 | По фидбеку |
+| Diarization (кто говорит) | v1.x | Глобально out-of-scope для всех бэкендов |
+| Instagram backend | v0.4+ | Анти-бот, отдельная стратегия |
+
+---
+
+## 2. Архитектура
+
+### Новые protocols
+
+```python
+# skills/youtube_transcribe/backends/vision_base.py
+from typing import Protocol
+from dataclasses import dataclass
+
+@dataclass(frozen=True)
+class VisualSegment:
+    """Один визуально-аннотированный кусок видео."""
+    start: float                    # секунды
+    end: float
+    description: str                # текст от vision-LLM: что происходит на экране
+    keyframes: list[str]            # пути к кадрам (frames/<vid>_<sec>.jpg)
+    detected_objects: list[str]     # опц. результат OCR / классификации
+    trigger_reason: str             # "keyword:смотри сюда" | "scene_change" | "llm_classify" | "user_keyword:дедлайн"
+
+class VisionBackend(Protocol):
+    """Multimodal LLM, способный анализировать видео+аудио вместе."""
+    def annotate_segments(
+        self,
+        video_path: Path,
+        windows: list[DetectionWindow],
+        prompt_template: str,
+        language: str,
+    ) -> list[VisualSegment]: ...
+
+# skills/youtube_transcribe/quality/base.py
+@dataclass(frozen=True)
+class QualityReport:
+    score: float                    # 0.0-1.0
+    breakdown: dict[str, float]     # {"oov": 0.12, "repetition": 0.04, ...}
+    flags: list[str]                # ["mostly_music", "high_oov", "looped"]
+    recommendation: Literal["use_as_is", "fallback_recommended", "skip"]
+
+class QualityChecker(Protocol):
+    def check(
+        self,
+        segments: list[Segment],
+        language: str,
+        source: Literal["youtube_manual", "youtube_auto", "whisper", "external_asr"],
+    ) -> QualityReport: ...
+
+# skills/youtube_transcribe/detection/base.py
+@dataclass(frozen=True)
+class DetectionWindow:
+    start: float
+    end: float
+    reason: str                     # совпадает с trigger_reason VisualSegment
+    score: float                    # приоритет, для бюджета кадров
+
+class Detector(Protocol):
+    def find_windows(
+        self,
+        segments: list[Segment],
+        video_path: Path,
+        triggers: TriggerConfig,
+    ) -> list[DetectionWindow]: ...
+```
+
+### Изменения в существующих типах
+
+```python
+# backends/base.py
+@dataclass
+class TranscriptionResult:
+    text: str
+    segments: list[Segment]
+    language: str
+    backend_used: str
+    # NEW v0.2:
+    quality: QualityReport | None = None
+    visual_segments: list[VisualSegment] = field(default_factory=list)
+```
+
+`text` и `segments` остаются как раньше. `quality` заполнен всегда (в т.ч. score=1.0 для manual subs). `visual_segments` непустой только если запрошен visual-режим и backend=gemini.
+
+### Pipeline в v0.2
+
+```
+ResolvedTarget
+    ↓
+download (mp4 если visual, m4a иначе)
+    ↓
+transcribe → TranscriptionResult{text, segments}
+    ↓
+quality_check → quality
+    ↓ (smart-режим: если score < threshold → fallback transcribe)
+detect_visual_windows → list[DetectionWindow]   (если --with-visuals)
+    ↓
+vision_annotate → list[VisualSegment]           (если windows непустой)
+    ↓
+write outputs (.txt, .srt, .visual.md или embedded в combined.md)
+```
+
+`run_pipeline()` остаётся единой точкой входа. Visual + quality — два опциональных stage перед write-этапом, не ломают ни single, ни batch.
+
+### Файловая структура новых модулей
+
+```
+skills/youtube_transcribe/
+├── backends/
+│   └── vision_base.py             # NEW: VisionBackend Protocol, VisualSegment
+├── quality/
+│   ├── __init__.py
+│   ├── base.py                    # NEW: QualityChecker Protocol, QualityReport
+│   ├── heuristic_checker.py       # NEW: композитный чек из всех кирпичей
+│   ├── spell.py                   # NEW: pyspellchecker wrapper
+│   ├── repetition.py              # NEW: 3-gram loops detection
+│   ├── boh.py                     # NEW: Aho-Corasick BoH
+│   ├── perplexity.py              # NEW: kenlm wrapper (опц.)
+│   └── data/
+│       └── boh_phrases.txt        # NEW: список типичных whisper-галлюцинаций
+├── detection/
+│   ├── __init__.py
+│   ├── base.py                    # NEW: Detector Protocol, DetectionWindow
+│   ├── triggers.py                # NEW: TriggerConfig, load_triggers()
+│   ├── matcher.py                 # NEW: regex/lemma/embedding matching
+│   ├── scene.py                   # NEW: PySceneDetect wrapper
+│   ├── frame_diff.py              # NEW: ImageHash diffing
+│   └── data/
+│       └── triggers_default.toml  # NEW: built-in EN universal phrases
+├── vision/
+│   ├── __init__.py
+│   ├── gemini.py                  # NEW: VisionBackend для Gemini
+│   ├── prompts.py                 # NEW: vision-prompt templates
+│   └── frames.py                  # NEW: ffmpeg keyframe extraction
+└── presets/
+    ├── __init__.py
+    ├── registry.py                # NEW: реестр всех опций (для CLI/TUI/web)
+    └── data/
+        └── presets_default.toml   # NEW: 4 готовых тира
+```
+
+---
+
+## 3. Quality check
+
+### Принцип
+
+Composable. Один итоговый `HeuristicChecker` = композиция отдельных кирпичей. Каждый кирпич можно отключить флагом конфига. Все локальные, без сети.
+
+### Кирпич A — `is_generated` gate
+
+Источник: youtube-transcript-api `transcript.is_generated` (есть в публичном API). Стоимость: ноль (флаг идёт в той же мете, что текст). Если `False` (manual subs) → итог `score=1.0`, остальные кирпичи не запускаются.
+
+### Кирпич B — Out-of-vocab ratio (`pyspellchecker`)
+
+```python
+def out_of_vocab_ratio(text: str, lang: str) -> float:
+    spell = SpellChecker(language=lang)  # en, ru, de, es, fr, it, pt, ar
+    tokens = re.findall(r"\b[a-zA-Zа-яА-ЯёЁ]+\b", text.lower())
+    if not tokens:
+        return 1.0
+    unknown = spell.unknown(tokens)
+    return len(unknown) / len(tokens)
+```
+
+- Норма: <0.05 (имена + редкие термины).
+- Тревога: >0.15 — массовые обрезки слов ("првие" вместо "привет").
+- Если язык не поддерживается pyspellchecker (например, kk), кирпич отключается, breakdown содержит `"oov": null`.
+
+### Кирпич C — 3-gram repetition
+
+```python
+def trigram_repetition_rate(text: str) -> float:
+    tokens = text.lower().split()
+    if len(tokens) < 6:
+        return 0.0
+    trigrams = list(zip(tokens, tokens[1:], tokens[2:]))
+    counter = Counter(trigrams)
+    most_common_count = counter.most_common(1)[0][1]
+    return most_common_count / len(trigrams)
+```
+
+- Норма: <0.1.
+- Тревога: >0.3 — петля Whisper или мусор.
+
+### Кирпич D — Bag of Hallucinations (Aho–Corasick)
+
+Файл `quality/data/boh_phrases.txt` — стартовый список ≈50 фраз: "thank you for watching", "subtitles by", "♪ ♪", "you", "Пожалуйста, поделитесь видео", "Subscribe to my channel" и т.д. Источники: [whisper github discussion #679](https://github.com/openai/whisper/discussions/679), [arxiv 2501.11378](https://arxiv.org/html/2501.11378v1). Aho-Corasick через `pyahocorasick`. Метрика: суммарная длина hallucination-фраз / длина текста.
+
+### Кирпич E — Non-speech markers
+
+Регулярка по `[Music]`, `♪`, `🎵`, `[Applause]`, `(unintelligible)`, `[laughter]`, `[Music playing]`. Считаем долю покрытия по таймингу. Если >0.25 — флаг `mostly_music=True` в `flags`. На music whisper галлюцинирует, поэтому в smart-режиме quality падает до 0.3 даже без других проверок.
+
+### Кирпич F — Perplexity (опционально, premium-преcет)
+
+`kenlm` ngram-модель `wiki40b/<lang>` (≈30MB на язык, lazy download в `~/.cache/youtube-transcribe/lm/`). Считаем средний perplexity на сегмент, ищем outliers. Опционально, потому что:
+- модели не существуют для редких языков;
+- замедление ≈100ms на сегмент при тысячах сегментов даёт ощутимую задержку;
+- pyspellchecker + repetition + BoH покрывают 90% реальных проблем без perplexity.
+
+В eco/smart/standard выключен. В premium — включён.
+
+### Композитный score
+
+```python
+def assess_transcript_quality(segments, language, source) -> QualityReport:
+    if source == "youtube_manual":
+        return QualityReport(1.0, {}, [], "use_as_is")
+
+    text = " ".join(s.text for s in segments)
+    breakdown = {}
+
+    music = non_speech_marker_ratio(segments)
+    breakdown["music"] = music
+    if music > 0.25:
+        return QualityReport(0.3, breakdown, ["mostly_music"], "fallback_recommended")
+
+    oov = out_of_vocab_ratio(text, language)        # 0.0 хорошо, 1.0 плохо
+    rep = trigram_repetition_rate(text)              # 0.0 хорошо, 1.0 плохо
+    boh = bag_of_hallucinations_coverage(text)       # 0.0 хорошо, 1.0 плохо
+    breakdown.update({"oov": oov, "repetition": rep, "boh": boh})
+
+    if perplexity_enabled(language):
+        ppl_outlier = perplexity_outlier_ratio(segments, language)
+        breakdown["perplexity_outlier"] = ppl_outlier
+    else:
+        ppl_outlier = 0.0
+
+    # Веса подобраны на golden set из 30 видео разных типов (см. §11 testing).
+    # 1 - x → инвертируем чтобы все слагаемые «больше = лучше».
+    score = (
+        0.30 * (1 - min(oov / 0.15, 1.0)) +
+        0.25 * (1 - min(rep / 0.3, 1.0)) +
+        0.25 * (1 - min(boh / 0.1, 1.0)) +
+        0.20 * (1 - min(ppl_outlier / 0.2, 1.0))
+    )
+
+    flags = []
+    if oov > 0.15: flags.append("high_oov")
+    if rep > 0.3: flags.append("looped")
+    if boh > 0.1: flags.append("boilerplate_hallucinations")
+
+    rec = "use_as_is" if score >= 0.6 else (
+        "fallback_recommended" if score >= 0.3 else "skip"
+    )
+    return QualityReport(score, breakdown, flags, rec)
+```
+
+### Где запускается
+
+- **Smart-режим (обязательно):** auto-subs прогоняются через checker. Если `recommendation != "use_as_is"` → fallback к `presets.smart.fallback_backend`.
+- **Любой режим (опционально):** флаг `--check-quality` или `[output] check_transcript_quality = true`. Запись в `manifest.json`, печать в логе. Не меняет поведение.
+
+### Threshold-конфиг
+
+```toml
+[smart]
+subtitle_quality_threshold = 0.6   # score < этого → fallback
+quality_perplexity = false         # включить kenlm
+quality_perplexity_lang_models = ["en", "ru"]   # какие модели держать
+```
+
+### Зависимости (новые в requirements)
+
+| Пакет | Размер | Что даёт |
+|---|---|---|
+| `pyspellchecker` | ≈30MB (со словарями) | OOV detection |
+| `pyahocorasick` | ≈1MB | Aho-Corasick для BoH и raw triggers |
+| `kenlm` (опц.) | ≈5MB код + 30MB/lang модели | perplexity |
+| `langdetect` | ≈1MB | язык per-segment для триггеров |
+
+---
+
+## 4. Триггеры — мультиязычные через локальные embeddings
+
+### Принцип
+
+Пользователь пишет триггеры на **одном языке** (default English) — они работают на видео любого языка через cross-lingual semantic similarity. Per-language секции остаются для случаев, когда нужно точное совпадение или сленг. **Никаких LLM-вызовов** — всё локально через `paraphrase-multilingual-MiniLM-L12-v2`.
+
+### Структура `triggers.toml`
+
+```toml
+# ~/.youtube-transcribe/triggers.toml
+# Override и extend built-in default. Built-in лежит в
+# skills/youtube_transcribe/detection/data/triggers_default.toml.
+
+# Основной язык универсальных триггеров.
+default_language = "en"
+
+# Метод матчинга универсальных триггеров на видео других языков.
+# В v0.2 единственный поддерживаемый метод — semantic (локальные embeddings).
+universal_match_method = "semantic"
+universal_match_threshold = 0.65   # cosine similarity 0..1
+
+# === УНИВЕРСАЛЬНЫЕ ТРИГГЕРЫ ===
+# Срабатывают на ЛЮБОМ языке видео через cross-lingual embeddings.
+[triggers.universal]
+phrases = [
+  "look here",
+  "pay attention",
+  "see this code",
+  "this is important",
+  "for example",
+  "step by step",
+  "demonstrate",
+  "result",
+  "diagram",
+  "notice this",
+]
+
+# === КАТЕГОРИИ ===
+# Группировка + boost score.
+[triggers.categories.code]
+phrases = ["function", "class", "method", "variable", "API", "endpoint"]
+boost = 1.5
+
+[triggers.categories.demo]
+phrases = ["see this", "this is how", "result", "demo"]
+boost = 1.3
+
+# === PER-LANGUAGE OVERRIDES (опционально) ===
+# Активны только когда detect_language(segment) == ключ.
+[triggers.languages.ru]
+soft   = ["смотри сюда", "обрати внимание", "вот этот код", "посмотрите сюда"]
+strict = ["баг", "PR", "merge conflict", "коммит", "пайплайн"]
+
+[triggers.languages.es]
+soft   = ["mira aquí", "presta atención"]
+
+[triggers.languages.de]
+strict = ["Achtung", "Wichtig"]
+
+# === RAW ===
+# Срабатывают всегда, точное совпадение, на любом языке.
+# Для мемов, сленга, технических терминов, имён собственных.
+[triggers.raw]
+phrases = [
+  "this is fine",
+  "feature not a bug",
+  "deadline",
+  "TODO",
+  "FIXME",
+]
+```
+
+### Алгоритм matching
+
+**Один раз на старте сессии (`load_triggers()`):**
+1. Загрузить built-in default + user override (deep merge, user может выставить `mode = "replace"` для полной замены).
+2. Для `triggers.universal.phrases` и каждой `triggers.categories.*` посчитать embeddings через `paraphrase-multilingual-MiniLM-L12-v2`. Кэш в `~/.cache/youtube-transcribe/embeddings/<sha256(phrases_json)>.npy`.
+3. Скомпилить Aho-Corasick automata: один для `raw`, по одному на каждый `languages.<lang>.strict`.
+4. Загрузить lemmatizers для языков, у которых задан `soft`: `lemminflect` для en, `pymorphy3` для ru, spaCy multilingual model для остальных. Lazy import — только если соответствующая секция в TOML непустая.
+
+**Per-segment в `Detector.find_windows()`:**
+
+```python
+def match_segment(segment: Segment) -> tuple[float, str] | None:
+    """Возвращает (score, reason) или None если триггер не сработал."""
+    seg_lang = langdetect.detect(segment.text)
+    text_lower = segment.text.lower()
+    text_lemmas = lemmatize(text_lower, seg_lang) if has_lemmatizer(seg_lang) else None
+
+    # 1. raw — Aho-Corasick точное совпадение
+    if raw_automaton.search(text_lower):
+        return (1.0, "raw")
+
+    # 2. languages.<seg_lang>.strict — Aho-Corasick точное совпадение
+    if seg_lang in lang_strict_automatons:
+        if lang_strict_automatons[seg_lang].search(text_lower):
+            return (1.0, f"strict:{seg_lang}")
+
+    # 3. languages.<seg_lang>.soft — substring по леммам
+    if text_lemmas and seg_lang in lang_soft_lemmas:
+        for lemma_phrase in lang_soft_lemmas[seg_lang]:
+            if lemma_phrase in text_lemmas:
+                return (0.9, f"soft:{seg_lang}")
+
+    # 4. universal — cosine similarity через multilingual embeddings
+    seg_emb = encoder.encode(segment.text)  # 384-dim float
+    universal_sims = cosine(seg_emb, universal_embeddings)  # vec
+    if universal_sims.max() >= threshold:
+        return (universal_sims.max(), "universal")
+
+    # 5. categories — то же что universal но с boost
+    for cat_name, (cat_emb, boost) in category_embeddings.items():
+        cat_sim = cosine(seg_emb, cat_emb).max()
+        boosted = min(cat_sim * boost, 1.0)
+        if boosted >= threshold:
+            return (boosted, f"category:{cat_name}")
+
+    return None
+```
+
+### Боюсь ли производительности
+
+`paraphrase-multilingual-MiniLM-L12-v2`: 118MB, 384-dim, ≈30ms на сегмент на CPU. Для 1-часового видео ~1500 сегментов × 30ms = 45 секунд один раз на видео. Acceptable. Под GPU (если есть) автоматически в 5x быстрее через PyTorch detect.
+
+### Built-in default `triggers_default.toml`
+
+≈25 универсальных EN-фраз + 8 в `categories.code` + 6 в `categories.demo`. Примеры:
+- universal: "look here", "pay attention", "this is important", "see this code", "for example", "step by step", "demonstrate", "result", "diagram", "notice this", "key point", "remember this", "important note", "watch closely", "the trick is", "the catch is", "this part", "see the difference", "this is how", "let me show you", "right here", "as you can see", "the result is", "compare these", "before and after"
+- categories.code: "function", "class", "method", "variable", "API", "endpoint", "import", "config"
+- categories.demo: "see this", "this is how", "result", "demo", "example", "live"
+
+User может расширять/переопределять без правки built-in.
+
+---
+
+## 5. Детекция визуально-важных моментов
+
+### Стратегия
+
+Не отдаём всё видео в Gemini — это дорого и подавляющая часть контента это «человек говорит на камеру». Выбираем **окна** (диапазоны времени) для визуального анализа:
+
+1. **Trigger-based** — фразы из `triggers.toml` matched на сегментах транскрипта. Окно: ±3 секунды от триггер-сегмента.
+2. **Scene change** — резкая смена сцены через [PySceneDetect](https://github.com/Breakthrough/PySceneDetect) `ContentDetector(threshold=27)`. Окно: 0.5 секунды до и после границы сцены.
+3. **Frame-diff внутри окна** — через `imagehash` (perceptual hashing). Если внутри trigger-окна 5 кадров с разницей > N, расширяем окно или делаем больше keyframes.
+4. **LLM full-pass** (только premium-преcет) — отдаём весь транскрипт в дешёвую LLM с системным промптом «найди фрагменты, где визуальная составляющая важнее аудио». Возвращает таймкоды.
+
+### Composition по `detect_method`
+
+| `detect_method` | A: keywords | B: scene | C: frame-diff | D: llm-full-pass | OCR |
+|---|---|---|---|---|---|
+| `keywords_only` | ✓ | — | — | — | — |
+| `semantic` | universal+raw | — | — | — | — |
+| `hybrid` | ✓ | ✓ | ✓ | — | опц. |
+| `llm_full_pass` | ✓ | ✓ | ✓ | ✓ | ✓ |
+
+Все методы возвращают `list[DetectionWindow]`. После — мердж пересекающихся окон (union интервалов с small gap < 1s) и cap на бюджет: `max_windows_per_video`, `max_total_keyframes`.
+
+### OCR (опц.)
+
+Включается флагом `ocr_enabled = true` в preset. Прогоняем все keyframes через [`pytesseract`](https://github.com/madmaze/pytesseract) (если есть в системе) или [`easyocr`](https://github.com/JaidedAI/EasyOCR) fallback. Результат идёт в `VisualSegment.detected_objects` как массив строк. Полезно когда в видео код, диаграммы, текст на экране — Claude в финальной заметке может процитировать кусок кода даже если в транскрипте речи о нём не было.
+
+OCR off по умолчанию (тяжёлая зависимость, системный binary tesseract, замедление). Включается явно.
+
+---
+
+## 6. Vision backend (Gemini)
+
+### Поведение
+
+`VisionBackend.annotate_segments(video_path, windows, prompt_template, language)`:
+
+1. Извлечь keyframes для каждого окна через `ffmpeg -ss <start> -t <dur> -vf 'select=eq(pict_type\,I)' -vsync vfr frames/%d.jpg`. Бюджет: `frames_per_window` (default 3) на окно.
+2. Загрузить mp4 целиком в Gemini File API (один раз, не на окно). Использовать его в каждом call'е.
+3. На каждое окно — структурированный prompt с timecode-диапазоном и keyframes. Получить JSON с описанием.
+4. Собрать `VisualSegment[]`.
+
+### Промпт-шаблон
+
+```python
+# vision/prompts.py
+
+DEFAULT_PROMPT = """\
+You are analyzing a YouTube video. Below is the transcript snippet for a specific
+moment. Describe what is shown VISUALLY on the screen during this moment in
+{language}, structured as JSON with these keys:
+- description: 1-3 sentences. What is happening visually. Mention UI, code,
+  diagrams, demonstrations. NOT what is said.
+- key_objects: list of distinct visual objects/UI-elements/code-fragments shown.
+- importance: "high" | "medium" | "low" — how visually informative is this moment
+  beyond the spoken content.
+
+Transcript context (audio only):
+{transcript_snippet}
+
+Time window: {start_sec:.1f}s — {end_sec:.1f}s.
+
+Return ONLY valid JSON, no preamble.
+"""
+```
+
+Язык описания (`description`) — берём из `language` параметра, который равен `language_detected` транскрипта. Это даёт consistent UX: транскрипт по-русски → визуальные описания тоже по-русски.
+
+### Cost (Gemini 2.5-flash, по [google.dev/pricing](https://ai.google.dev/gemini-api/docs/pricing))
+
+- Input video через File API: ≈263 input-tokens/sec видео.
+- Output JSON ≈ 100 tokens/window.
+- 60-минутное видео × 20 windows × 3 frames/window ≈ 60×60×263 + 20×100 = ~948k input + 2k output ≈ $0.07 на видео в free tier (бесплатно), на платном — те же копейки.
+- Free tier: 15 RPM, 1500 RPD, 1M TPM. Один call на window. 1500/20 = 75 видео/день в free tier — достаточно для 99% пользователей.
+
+### Обработка ошибок Gemini
+
+- 403 PERMISSION_DENIED → понятный message «ключ заблокирован Google, создай новый проект в AI Studio» + exit code 5.
+- 429 RATE_LIMIT → exponential backoff (3, 6, 12s), 3 попытки. Если всё ещё 429 — собираем то что успели и помечаем оставшиеся windows как `description="(rate-limited)"`. Не валим весь pipeline.
+- timeout (30s/window) → пропуск окна с `description="(timeout)"`.
+- Все ошибки логируются в `manifest.json` per-window.
+
+---
+
+## 7. Embedded screenshots в combined.md
+
+### Структура batch-папки расширяется
+
+```
+transcripts/batch_20260510_120000_anthropic_ai/
+├── combined.md                    # ← extended in v0.2
+├── manifest.json                  # ← extended
+├── errors.log
+├── frames/                        # NEW
+│   ├── jNQXAC9IVRw_00045.jpg     # <video_id>_<sec>.jpg
+│   ├── jNQXAC9IVRw_00112.jpg
+│   └── XYZ_00030.jpg
+├── Me_at_the_zoo_jNQXAC9IVRw.txt
+├── Me_at_the_zoo_jNQXAC9IVRw.srt
+└── How_to_code_XYZ.txt
+```
+
+Single-режим:
+```
+transcripts/
+├── Me_at_the_zoo_jNQXAC9IVRw.txt
+├── Me_at_the_zoo_jNQXAC9IVRw.srt
+├── Me_at_the_zoo_jNQXAC9IVRw.visual.md          # NEW: только если --with-visuals
+└── frames/
+    └── Me_at_the_zoo_jNQXAC9IVRw_*.jpg
+```
+
+### Combined.md формат с visuals
+
+Per-video секция расширяется блоками визуальных моментов:
+
+```markdown
+## 1. Tutorial: building Claude tools
+
+| Поле | Значение |
+|---|---|
+| URL | https://... |
+| Video ID | jNQXAC9IVRw |
+| Date | 2026-04-15 |
+| Duration | 12:34 |
+| Channel | Anthropic |
+| Language detected | en |
+| Quality score | 0.92 (manual subs) |
+| Visual segments | 8 |
+
+### Transcript
+
+Hello and welcome to today's tutorial...
+
+### Visual moments
+
+#### 00:00:45 — Code editor with API call (importance: high)
+
+![](frames/jNQXAC9IVRw_00045.jpg)
+
+The video shows VS Code with `anthropic.messages.create(...)` call being typed.
+Visible imports: `from anthropic import Anthropic`.
+
+Trigger: `category:code` (cosine 0.78)
+
+#### 00:01:52 — Diagram of agent loop (importance: high)
+
+![](frames/jNQXAC9IVRw_00112.jpg)
+
+A whiteboard diagram showing the agent loop: tool_call → execute → result → next.
+```
+
+Скриншоты — relative paths, чтобы combined.md можно было перенести вместе с папкой и оно всё работало в любом markdown-renderer'е (Obsidian, Typora, GitHub preview).
+
+### Как Claude использует это
+
+В SKILL.md добавляется:
+
+> После batch с `--with-visuals`: `combined.md` содержит embedded скриншоты.
+> Пользователь может попросить: «сделай туториал по этому видео» — у тебя есть и
+> текст и визуальные моменты; используй timecodes для структурирования.
+
+---
+
+## 8. Динамические презеты + единый реестр опций
+
+### Идея
+
+Все настройки v0.2 — это поля в одном реестре. Каждое поле имеет: имя, тип, дефолт, допустимые значения, описание. Из реестра рендерятся:
+- Дефолтный `config.toml` с комментариями над каждой опцией;
+- CLI-флаги (Click options генерируются из реестра);
+- TUI `youtube-transcribe config` (Rich-prompts);
+- В будущем v0.4+ web UI (формы из того же реестра).
+
+### Реестр
+
+```python
+# presets/registry.py
+@dataclass(frozen=True)
+class OptionField:
+    key: str
+    type: type
+    default: Any
+    choices: list[Any] | None
+    description: str
+    section: str   # "transcribe" | "vision" | "detection" | "smart" | "output"
+
+REGISTRY: list[OptionField] = [
+    OptionField(
+        "transcribe_backend", str, "subtitles",
+        choices=["subtitles", "whisper-local", "gemini", "groq", "openai",
+                 "deepgram", "assemblyai", "custom"],
+        description="Чем транскрибировать. Subtitles = брать готовые с YouTube.",
+        section="transcribe",
+    ),
+    OptionField(
+        "vision_backend", str, "off",
+        choices=["off", "gemini"],
+        description="Visual mode. Off = только аудио. Gemini = multimodal.",
+        section="vision",
+    ),
+    OptionField(
+        "detect_method", str, "keywords_only",
+        choices=["keywords_only", "semantic", "hybrid", "llm_full_pass"],
+        description="Как находить визуально-важные моменты.",
+        section="detection",
+    ),
+    # ... ~30 полей всего
+]
+```
+
+### Готовые презеты (`presets_default.toml`)
+
+```toml
+# === ECO ===
+# Минимум cost. Пользователь сам выбирает transcribe_backend в wizard
+# (whisper-local оффлайн / groq free / gemini free / subtitles only).
+# Без visual mode.
+[presets.eco]
+transcribe_backend = "subtitles"
+fallback_backend = "whisper-local"  # перекрывается выбором в wizard
+vision_backend = "off"
+detect_method = "keywords_only"
+ocr_enabled = false
+quality_check = false                # экономим CPU
+
+# === SMART ===
+# Дефолт. Subtitles → quality check → fallback → опц. visuals.
+[presets.smart]
+transcribe_backend = "subtitles"
+fallback_backend = "whisper-local"
+quality_check = true
+subtitle_quality_threshold = 0.6
+vision_backend = "gemini"
+detect_method = "hybrid"
+frames_per_window = 3
+max_windows_per_video = 20
+ocr_enabled = false
+
+# === STANDARD ===
+# Visual mode на всех видео без quality-fallback (whisper-local сразу).
+# Подходит когда у пользователя нет YouTube ключа на subtitles или хочет
+# консистентного качества.
+[presets.standard]
+transcribe_backend = "whisper-local"
+vision_backend = "gemini"
+detect_method = "hybrid"
+frames_per_window = 3
+max_windows_per_video = 30
+ocr_enabled = true
+
+# === PREMIUM ===
+# Максимальное качество. LLM-full-pass detection, perplexity quality check,
+# больше кадров.
+[presets.premium]
+transcribe_backend = "whisper-local"
+whisper_model = "large"              # перекрывает дефолт turbo
+vision_backend = "gemini"
+detect_method = "llm_full_pass"
+frames_per_window = 5
+max_windows_per_video = 50
+ocr_enabled = true
+quality_check = true
+quality_perplexity = true
+```
+
+### CLI и override-приоритет
+
+```
+1. CLI flag (--backend, --preset, --vision-backend, ...)
+2. --config /path/to/custom.toml (если задано)
+3. ~/.youtube-transcribe/config.toml [presets.<active>]
+4. presets_default.toml [presets.<active>]
+5. Hard-coded defaults в registry
+```
+
+`active` определяется CLI `--preset <name>` или config `default_preset = "smart"`.
+
+### TUI `youtube-transcribe config`
+
+```
+$ youtube-transcribe config
+[1] Manage API keys
+[2] Edit preset
+[3] Edit triggers
+[4] Show current config
+[5] Reset to defaults
+> 2
+
+Select preset to edit:
+[1] eco       (current default)
+[2] smart
+[3] standard
+[4] premium
+[5] Create new preset (clone from existing)
+> 2
+
+Editing [presets.smart]:
+  transcribe_backend = "subtitles"
+  fallback_backend = "whisper-local"
+  ...
+
+Field to change (number) or [s] to save and exit:
+> 4
+
+vision_backend (off | gemini) [current: gemini]:
+> off
+
+OK. Save? [y/N]: y
+Saved to ~/.youtube-transcribe/config.toml.
+```
+
+Это **не блокер для v0.2** — TUI можно сделать минимально (показ + ручная правка `config.toml`). Полноценный wizard-flow для редактирования преcетов — задача в v0.3.
+
+### --config flag
+
+```bash
+youtube-transcribe URL --config ~/configs/aggressive-quality.toml
+```
+
+Читает указанный файл как полный config, игнорируя `~/.youtube-transcribe/config.toml`. Полезно для:
+- Шеринга своих преcетов между машинами;
+- Разных конфигов под разные проекты (учебные видео vs. рабочие созвоны);
+- CI-сценариев.
+
+---
+
+## 9. CLI флаги v0.2
+
+Новые/изменённые флаги. Полный набор будет в README.
+
+```
+--with-visuals                   shortcut для --vision-backend=gemini
+--vision-backend gemini|off
+--detect-method keywords_only|semantic|hybrid|llm_full_pass
+--frames-per-window N            (override preset)
+--max-windows N
+--ocr                            enable OCR
+--check-quality                  force quality check + write to manifest
+--no-quality-check               skip quality check even in smart preset
+--preset eco|smart|standard|premium|<custom_name>
+--config /path/to/config.toml    use external config file
+--triggers /path/to/triggers.toml
+--no-default-triggers            disable built-in triggers, use only user
+```
+
+CLI приоритет описан в §8. Single-режим и batch принимают одинаковый набор.
+
+---
+
+## 10. Архитектурный seam для web UI v0.4+
+
+В v0.2 не пишем web UI, но соблюдаем требования:
+
+1. **`run_pipeline()` — чистая функция** без `click.echo`/`print`. Все сообщения идут через `progress: ProgressCallback` параметр.
+2. **Реестр опций (`presets.registry`) — единственный источник truth** для того, какие опции существуют, как их валидировать, какие у них defaults. Web UI v0.4+ читает реестр и рендерит формы.
+3. **Никакого global state** в pipeline. `Config`, `TriggerConfig`, `QualityChecker` — параметры функций, не модули с module-level state. Так несколько pipeline-ов параллельно (что web UI потребует) не наступают друг другу на ноги.
+4. **Все side-effects (файлы, сеть) — через injected dependencies**. `Downloader`, `Transcriber`, `VisionBackend`, `QualityChecker` принимаются как параметры конструктора `Pipeline` (или функции `run_pipeline`).
+
+Это не прибавляет работы в v0.2, потому что v0.1 уже почти соответствует. Просто формализуем.
+
+---
+
+## 11. Тестирование
+
+### Unit (CI на 3 ОС × 2 Python)
+
+- `quality/spell.py` — мок словаря, проверка OOV ratio на синтетике.
+- `quality/repetition.py` — синтетические циклы, разные длины.
+- `quality/boh.py` — golden BoH list, проверка точного матчинга.
+- `quality/heuristic_checker.py` — композитный score на 6 синтетических кейсах (good manual, good auto, mostly_music, looped, garbled, mixed).
+- `detection/matcher.py` — мок embedding-encoder (deterministic stub), проверка raw/strict/soft/universal путей.
+- `detection/triggers.py` — load + merge + override TOML.
+- `vision/gemini.py` — мок Gemini-клиента, проверка batch-call'ов и parsing JSON.
+- `presets/registry.py` — все поля имеют валидный default из choices.
+
+### Integration (CI без сети)
+
+- Полный pipeline на fixture (mp4 + готовый whisper-output) → проверка structure manifest, combined.md, frames/.
+- Пресеты: eco/smart/standard/premium прогоняются, проверяется что нужные stage активированы.
+
+### E2E smoke (RUN_E2E_SMOKE=1, manual)
+
+- Реальный 19-секундный YouTube-ролик с visual mode на free Gemini key.
+- Проверка: combined.md содержит ≥1 visual moment, frames/ непустой.
+
+### Golden set для quality check калибровки
+
+30 видео разных типов (подбираются вручную):
+- 10 с manual subs (ожидаемо score ≈ 1.0)
+- 5 с хорошими auto-subs (score 0.7-0.9)
+- 5 с посредственными auto-subs (0.4-0.7)
+- 5 с мусорными auto-subs или whisper-loops (< 0.3)
+- 5 музыкальных (флаг `mostly_music`)
+
+На этом наборе подбираем веса в композитной формуле и threshold по умолчанию. Результат — фиксированный JSON с ожидаемыми scores в `tests/data/quality_golden.json`. CI прогоняет проверку «ни один golden не дрейфанул больше чем на 0.1».
+
+---
+
+## 12. Backward compatibility
+
+v0.1.x → v0.2 — пользователь:
+- Существующий `~/.youtube-transcribe/config.toml` читается без изменений; новые поля с дефолтами добавляются при первом сохранении v0.2.
+- Существующие `combined.md` и `manifest.json` остаются совместимыми — v0.2 только **добавляет** поля (`quality`, `visual_segments`), не меняет старые.
+- `youtube-transcribe URL` без флагов → ведёт себя как раньше (subtitles → fallback whisper-local), потому что `presets.smart` — дефолт, и vision off (preset default = `vision_backend = "off"` в smart? — НЕТ, в smart vision_backend=gemini, см. §8).
+
+**Решение по дефолтному поведению smart:** в smart по умолчанию `vision_backend = "gemini"`, но visual mode активируется **только если у пользователя есть Gemini key**. Если ключа нет — silent fallback на `vision_backend = "off"` с info-сообщением «set GEMINI_API_KEY to enable visual mode». То есть пользователь без Gemini получает то же поведение что в v0.1, плюс quality check.
+
+Это решает «не сломать существующих юзеров» без необходимости инвазивной миграции.
+
+---
+
+## 13. Migration plan v0.1.x → v0.2
+
+1. На первом запуске v0.2 — детектим старый `config.toml`. Если в нём нет поля `default_preset` — добавляем `default_preset = "smart"` и проставляем существующие поля (`whisper_model`, `language` etc.) в `[presets.custom_legacy]`, делаем его дефолтом. Чтобы пользователь, который правил конфиг руками, получил эквивалентное поведение.
+2. Если есть Gemini key и `default_preset = "smart"` → показываем info-сообщение «v0.2 added visual mode. Try `--with-visuals`».
+3. Старый wizard (`config wizard`) запускается заново только если пользователь явно вызвал — не показываем insistently.
+
+---
+
+## 14. Roadmap дальше
+
+| v0.3 | Фильтры канала (`--since`, `--until`, `--no-shorts`), `--workers N`, `--skip-existing`, search by tags (`batch --search`), TUI редактор преcетов |
+| v0.4 | Web UI (Gradio или FastAPI+vanilla), Instagram backend, ASR error correction через LLM, Visual mode на других multimodal моделях (Claude vision, GPT-4o) |
+| v1.x | Diarization, потоковый режим, локальная LLM для саммари |
+
+---
+
+## 15. Открытые вопросы (требуют user-review)
+
+1. **Дефолт smart-преcета**: visual on (с silent fallback для пользователей без Gemini) или off с явным opt-in `--with-visuals`? Текущий выбор: silent fallback. Альтернатива — off, и пусть юзеры вызывают visual явно.
+2. **Built-in triggers**: только EN universal (≈25 фраз) или + raw (≈10 фраз непереводимого мемного типа "this is fine")? Текущий выбор: EN + raw, можно отключить `--no-default-triggers`.
+3. **OCR в standard преcете**: on по умолчанию или off? Включение требует системного `tesseract` или 60MB easyocr download. Текущий выбор: on в standard, off в smart/eco, on в premium.
+4. **Frames бюджет в combined.md**: вырезать ли совсем frames-секцию для видео где `score < 0.6` чтобы не засорять combined.md мусорными скриншотами? Текущий выбор: показываем все, помечая importance.
+5. **Quality threshold для batch failure**: если `recommendation == "skip"` — это считается failure (попадает в `errors.log`) или ok (попадает в combined.md с warning)? Текущий выбор: warning, не failure. Failure только если транскрипт пустой.
+
+---
+
+## 16. Объём работы (оценка)
+
+- **Quality check**: 4-5 файлов, ~600 LOC + ~400 LOC тестов. 1.5 дня.
+- **Triggers**: 3-4 файла, ~500 LOC + multilingual encoder integration + ~300 LOC тестов. 1 день.
+- **Detection (windows + scene + frame-diff)**: 4 файла, ~400 LOC + ~250 LOC тестов. 1 день.
+- **Vision backend (Gemini)**: 3 файла, ~350 LOC + ~250 LOC тестов с mock-клиентом. 1 день.
+- **Presets registry + CLI rewiring**: 2 файла, ~400 LOC + ~200 LOC тестов. 0.5 дня.
+- **Output (embedded screenshots, extended combined.md)**: правка существующего `output_writer.py`, ~200 LOC + 100 LOC тестов. 0.5 дня.
+- **Migration + backward compat**: 1 файл, ~150 LOC + ~150 LOC тестов. 0.5 дня.
+- **Документация (README, SKILL.md, CHANGELOG)**: 0.5 дня.
+- **Real validation на Mac** (как в v0.1.2): 0.5-1 день.
+
+Итого **~6-7 рабочих дней** до v0.2 release-candidate. Это укладывается в наши прошлые темпы (v0.1 ушёл день).
