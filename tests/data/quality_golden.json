@@ -1,0 +1,46 @@
+{
+  "version": 1,
+  "description": "Synthetic golden set for HeuristicChecker calibration. Real-video calibration on Mac is a separate step (manual validation phase).",
+  "cases": [
+    {
+      "id": "manual_clean",
+      "language": "en",
+      "source": "youtube_manual",
+      "text": "Hello and welcome to today's tutorial about Python programming.",
+      "expected_score_min": 0.95,
+      "expected_recommendation": "use_as_is"
+    },
+    {
+      "id": "auto_clean_en",
+      "language": "en",
+      "source": "youtube_auto",
+      "text": "Hello and welcome to today's tutorial about Python programming basics. We will cover variables, functions and classes.",
+      "expected_score_min": 0.65,
+      "expected_recommendation": "use_as_is"
+    },
+    {
+      "id": "auto_garbled_ru",
+      "language": "ru",
+      "source": "youtube_auto",
+      "text": "прьвет дрнае пвоит мфаета звдавр квоиак пжвжыа кмлда сжодг пжмва",
+      "expected_score_max": 0.45,
+      "expected_flags_include": "high_oov"
+    },
+    {
+      "id": "whisper_loop",
+      "language": "en",
+      "source": "whisper",
+      "text": "thank you for watching thank you for watching thank you for watching thank you for watching thank you for watching",
+      "expected_score_max": 0.45,
+      "expected_flags_include_any": ["looped", "boilerplate_hallucinations"]
+    },
+    {
+      "id": "music_video",
+      "language": "en",
+      "source": "youtube_auto",
+      "text": "[Music] [Music] [Music] [Music] hello",
+      "expected_score_max": 0.4,
+      "expected_flags_include": "mostly_music"
+    }
+  ]
+}
