@@ -69,6 +69,12 @@ ocr = [
 # (currently a no-op marker; future multilingual models may add real deps).
 perplexity = []
 
+# Web UI — opt-in. Gradio + uvicorn together pull ~100 MB. Launches via
+# `youtube-transcribe webui` and binds to 127.0.0.1 by default.
+webui = [
+    "gradio>=4.0.0",
+]
+
 [project.scripts]
 youtube-transcribe = "skills.youtube_transcribe.transcribe:cli"
 

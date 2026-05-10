@@ -943,7 +943,29 @@ def config_wizard() -> None:
 from skills.youtube_transcribe.detection.triggers_cli import triggers_cli
 cli.add_command(triggers_cli)
 
-__all__ = ["cli", "transcribe_cmd", "batch_cmd", "config"]
+
+@cli.command(name="webui")
+@click.option("--host", default="127.0.0.1", show_default=True,
+              help="Bind host (use 0.0.0.0 to expose; default loopback only).")
+@click.option("--port", type=int, default=7860, show_default=True)
+@click.option("--share", is_flag=True, default=False,
+              help="Create a Gradio share-link (public tunnel — be careful).")
+def webui_cmd(host: str, port: int, share: bool) -> None:
+    """Launch the Gradio Web UI (v0.4 — opt-in via [webui] extra)."""
+    try:
+        from skills.youtube_transcribe.webui.app import launch
+    except ImportError as e:
+        console.print(
+            "[red]Web UI requires the `webui` extra:[/red]\n"
+            "  uv sync --extra webui\n"
+            "(or `pip install youtube-transcribe[webui]`)"
+        )
+        console.print(f"  Detail: {e}", style="dim")
+        sys.exit(2)
+    launch(server_name=host, server_port=port, share=share)
+
+
+__all__ = ["cli", "transcribe_cmd", "batch_cmd", "config", "webui_cmd"]
 
 
 if __name__ == "__main__":
