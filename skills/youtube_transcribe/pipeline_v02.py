@@ -11,6 +11,7 @@ from typing import Any, Literal
 import skills.youtube_transcribe.config as _config_mod
 from skills.youtube_transcribe.backends.base import TranscriptionResult
 from skills.youtube_transcribe.detection.base import DetectionWindow
+from skills.youtube_transcribe.detection.llm_classify import find_visual_moments_via_llm
 from skills.youtube_transcribe.detection.matcher import match_segment
 from skills.youtube_transcribe.detection.scene import find_scene_boundaries
 from skills.youtube_transcribe.detection.triggers import load_triggers, TriggerConfig
@@ -32,8 +33,16 @@ def find_detection_windows(
     video_path: Path | None,
     triggers: TriggerConfig,
     detect_method: str,
+    *,
+    api_key: str | None = None,
 ) -> list[DetectionWindow]:
-    """Build list of windows from triggers + (optionally) scene boundaries."""
+    """Build list of windows from triggers + scenes + LLM classify (per spec §5).
+
+    Stages activated per detect_method:
+      keywords_only / semantic: triggers only
+      hybrid: triggers + scenes
+      llm_full_pass: triggers + scenes + LLM classifier
+    """
     windows: list[DetectionWindow] = []
 
     # 1. Trigger-based windows from transcript
@@ -64,6 +73,18 @@ def find_detection_windows(
                     weight=1.0,
                     phrase="",
                 ))
+        except Exception:
+            pass
+
+    # 3. LLM-classify pass (only for llm_full_pass)
+    if detect_method == "llm_full_pass" and api_key:
+        try:
+            llm_windows = find_visual_moments_via_llm(
+                result.segments,
+                api_key=api_key,
+                language=result.language_detected or "en",
+            )
+            windows.extend(llm_windows)
         except Exception:
             pass
 
@@ -106,7 +127,7 @@ def apply_v02_stages(
         ) if triggers_path or no_default_triggers else load_triggers()
         detect_method = cfg.get("detect_method", "keywords_only")
         windows = find_detection_windows(
-            result, video_path, triggers, detect_method
+            result, video_path, triggers, detect_method, api_key=api_key,
         )
         windows = merge_overlapping_windows(windows, max_gap=1.0)
 
