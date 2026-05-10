@@ -3,6 +3,23 @@
 All notable changes to youtube-transcribe will be documented here.
 The format is loosely based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.4.1] — 2026-05-11
+
+### Added
+
+- **`--correct-asr` CLI flag** for both `transcribe` and `batch`
+  sub-commands. Auto-enables `--check-quality` (correction triggers
+  off the quality recommendation). Honored by `--no-quality-check`
+  if user explicitly overrides.
+- **`--correct-asr-backend gemini|claude|openai`** picks the LLM
+  provider for ASR correction.
+- **Rich Live progress bar in batch_cmd.** Spinner + progress bar +
+  `ok=N fail=N` counters + elapsed time. Auto-disabled with
+  `--verbose` or when only one video is being processed.
+
+### Tests
+- 484 unit tests green (was 480 in v0.4.0; +4 CLI ASR flag tests).
+
 ## [0.4.0] — 2026-05-11
 
 Multimodal alternatives + post-processing + Instagram + Web UI.

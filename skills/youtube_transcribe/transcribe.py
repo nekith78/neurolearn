@@ -133,6 +133,11 @@ def cli() -> None:
               help="External triggers TOML.")
 @click.option("--no-default-triggers", is_flag=True, default=False,
               help="Disable built-in triggers, use only user file.")
+@click.option("--correct-asr", "correct_asr_opt", is_flag=True, default=None,
+              help="Run LLM-based correction on low-quality transcripts (opt-in).")
+@click.option("--correct-asr-backend", "correct_asr_backend_opt",
+              type=click.Choice(["gemini", "claude", "openai"]), default=None,
+              help="LLM provider for ASR correction (default: gemini).")
 def transcribe_cmd(audio_or_url: str, **opts) -> None:
     """Transcribe a YouTube URL, supported video URL, or local audio/video file."""
     if not CONFIG_PATH.exists():
@@ -192,6 +197,13 @@ def transcribe_cmd(audio_or_url: str, **opts) -> None:
         cli_overrides["quality_check"] = True
     if opts.get("no_quality_check") is True:
         cli_overrides["quality_check"] = False
+    if opts.get("correct_asr_opt") is True:
+        cli_overrides["correct_asr"] = True
+        # ASR correction requires quality check (it triggers off the
+        # report's recommendation). Auto-enable so the flag works alone.
+        cli_overrides.setdefault("quality_check", True)
+    if opts.get("correct_asr_backend_opt"):
+        cli_overrides["correct_asr_backend"] = opts["correct_asr_backend_opt"]
 
     preset_name = opts.get("preset") or "smart"
     if preset_name not in list_preset_names():
@@ -492,6 +504,11 @@ def _infer_source_type(targets: list[ResolvedTarget], from_file: Path | None) ->
 @click.option("--search", "search_opt", default=None,
               help="YouTube search query — fetch top --limit results via yt-dlp "
                    "(no API key needed).")
+@click.option("--correct-asr", "correct_asr_opt", is_flag=True, default=None,
+              help="Run LLM-based correction on low-quality transcripts (opt-in).")
+@click.option("--correct-asr-backend", "correct_asr_backend_opt",
+              type=click.Choice(["gemini", "claude", "openai"]), default=None,
+              help="LLM provider for ASR correction (default: gemini).")
 def batch_cmd(
     inputs: tuple[str, ...],
     from_file: Path | None,
@@ -534,6 +551,11 @@ def batch_cmd(
         cli_overrides["quality_check"] = True
     if opts.get("no_quality_check") is True:
         cli_overrides["quality_check"] = False
+    if opts.get("correct_asr_opt") is True:
+        cli_overrides["correct_asr"] = True
+        cli_overrides.setdefault("quality_check", True)
+    if opts.get("correct_asr_backend_opt"):
+        cli_overrides["correct_asr_backend"] = opts["correct_asr_backend_opt"]
 
     preset_name = opts.get("preset") or "smart"
     if preset_name not in list_preset_names():
@@ -752,23 +774,70 @@ def batch_cmd(
             continue
         pending.append((i, target))
 
+    from rich.progress import (
+        Progress, SpinnerColumn, BarColumn, TextColumn,
+        TimeElapsedColumn, TaskProgressColumn,
+    )
+    use_progress = not opts.get("verbose") and len(pending) > 1
+    progress_cm = (
+        Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            BarColumn(),
+            TaskProgressColumn(),
+            TextColumn("· ok={task.fields[ok]} fail={task.fields[fail]}"),
+            TimeElapsedColumn(),
+            console=console, transient=False,
+        )
+        if use_progress
+        else None
+    )
+
     if workers == 1:
         # Serial path (default; preserves fail-fast).
-        for i, target in pending:
-            kind, payload = _process_one(i, target)
-            if kind == "failed":
-                failures.append(payload)
-                if fail_fast:
-                    console.print(f"[red]Ошибка #{i}: {payload.error_text}[/red]")
-                    sys.exit(4)
-            else:
-                _write_outputs_and_record(i, target, payload)
+        if progress_cm is None:
+            for i, target in pending:
+                kind, payload = _process_one(i, target)
+                if kind == "failed":
+                    failures.append(payload)
+                    if fail_fast:
+                        console.print(f"[red]Ошибка #{i}: {payload.error_text}[/red]")
+                        sys.exit(4)
+                else:
+                    _write_outputs_and_record(i, target, payload)
+        else:
+            with progress_cm as progress:
+                task = progress.add_task(
+                    "Transcribing", total=len(pending), ok=0, fail=0,
+                )
+                for i, target in pending:
+                    progress.update(
+                        task,
+                        description=f"#{i} {(target.title or 'video')[:40]}",
+                    )
+                    kind, payload = _process_one(i, target)
+                    if kind == "failed":
+                        failures.append(payload)
+                        progress.update(task, advance=1, fail=len(failures))
+                        if fail_fast:
+                            console.print(f"[red]Ошибка #{i}: {payload.error_text}[/red]")
+                            sys.exit(4)
+                    else:
+                        _write_outputs_and_record(i, target, payload)
+                        progress.update(task, advance=1, ok=len(statuses))
     else:
         # Parallel path. fail_fast already validated incompatible above.
         from concurrent.futures import ThreadPoolExecutor, as_completed
         console.print(
-            f"[dim]Running with {workers} parallel workers — output may "
-            f"interleave; fail-fast disabled.[/dim]"
+            f"[dim]Running with {workers} parallel workers — fail-fast disabled.[/dim]"
+        )
+        progress_obj = progress_cm.__enter__() if progress_cm else None
+        task_id = (
+            progress_obj.add_task(
+                "Transcribing", total=len(pending), ok=0, fail=0,
+            )
+            if progress_obj is not None
+            else None
         )
         with ThreadPoolExecutor(max_workers=workers) as pool:
             future_to_target = {
@@ -784,11 +853,19 @@ def batch_cmd(
                         index=i, url=target.url, stage="backend",
                         error_text=f"unexpected: {e}", hint=None,
                     ))
+                    if progress_obj is not None:
+                        progress_obj.update(task_id, advance=1, fail=len(failures))
                     continue
                 if kind == "failed":
                     failures.append(payload)
+                    if progress_obj is not None:
+                        progress_obj.update(task_id, advance=1, fail=len(failures))
                 else:
                     _write_outputs_and_record(i, target, payload)
+                    if progress_obj is not None:
+                        progress_obj.update(task_id, advance=1, ok=len(statuses))
+        if progress_cm is not None:
+            progress_cm.__exit__(None, None, None)
 
     meta = BatchMeta(
         batch_name=name,
