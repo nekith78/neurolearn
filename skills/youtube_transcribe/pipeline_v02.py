@@ -115,6 +115,38 @@ def apply_v02_stages(
         report = checker.check(result.segments, result.language_detected or "en", source=source)
         result.quality = report
 
+        # === ASR correction (opt-in, only on bad transcripts) ===
+        if (
+            cfg.get("correct_asr")
+            and report.recommendation != "use_as_is"
+            and result.segments
+        ):
+            from skills.youtube_transcribe.quality.asr_corrector import (
+                correct_transcript_via_llm,
+            )
+            corrector_backend = cfg.get("correct_asr_backend", "gemini")
+            corrector_key = {
+                "gemini": "gemini",
+                "claude": "anthropic",
+                "openai": "openai",
+            }.get(corrector_backend)
+            corrector_api_key = (
+                _config_mod.get_api_key(corrector_key) if corrector_key else None
+            )
+            if corrector_api_key:
+                corrected = correct_transcript_via_llm(
+                    result.segments,
+                    result.language_detected or "en",
+                    api_key=corrector_api_key,
+                    backend=corrector_backend,
+                )
+                if corrected is not result.segments:
+                    result.segments = corrected
+                    # Reflect that text was post-processed in the quality breakdown
+                    new_breakdown = dict(report.breakdown)
+                    new_breakdown["asr_corrected"] = corrector_backend
+                    object.__setattr__(report, "breakdown", new_breakdown)
+
     # === Visual detection + annotation ===
     vision_backend_name = cfg.get("vision_backend", "off")
     if vision_backend_name in ("gemini", "claude", "openai") and video_path is not None:

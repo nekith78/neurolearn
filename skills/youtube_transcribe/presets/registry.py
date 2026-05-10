@@ -95,6 +95,25 @@ REGISTRY: list[OptionField] = [
         description="OCR на keyframes (требует extra `ocr` + системный tesseract).",
         section="output",
     ),
+    # === ASR correction (v0.4) ===
+    OptionField(
+        key="correct_asr", type=bool, default=False,
+        choices=None,
+        description=(
+            "Post-process transcript through a cheap LLM to fix garbled "
+            "words. Triggered only when quality.recommendation != 'use_as_is'."
+        ),
+        section="smart",
+    ),
+    OptionField(
+        key="correct_asr_backend", type=str, default="gemini",
+        choices=["gemini", "claude", "openai"],
+        description=(
+            "LLM provider for ASR correction. Defaults to gemini-2.5-flash; "
+            "claude uses haiku-4-5; openai uses gpt-4o-mini."
+        ),
+        section="smart",
+    ),
 ]
 
 
