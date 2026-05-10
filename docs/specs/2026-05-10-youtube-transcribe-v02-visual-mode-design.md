@@ -286,15 +286,18 @@ def assess_transcript_quality(segments, language, source) -> QualityReport:
     if boh > 0.1: flags.append("boilerplate_hallucinations")
 
     rec = "use_as_is" if score >= 0.6 else (
-        "fallback_recommended" if score >= 0.3 else "skip"
+        "fallback_recommended" if score >= 0.3 else "low_quality"
     )
     return QualityReport(score, breakdown, flags, rec)
 ```
 
-### Где запускается
+### Где запускается и что меняет
 
-- **Smart-режим (обязательно):** auto-subs прогоняются через checker. Если `recommendation != "use_as_is"` → fallback к `presets.smart.fallback_backend`.
-- **Любой режим (опционально):** флаг `--check-quality` или `[output] check_transcript_quality = true`. Запись в `manifest.json`, печать в логе. Не меняет поведение.
+Quality check — **диагностический инструмент для выбора источника транскрипта**, а не gate для дропа видео. Финальный output идёт в combined.md **всегда**, независимо от score.
+
+- **Smart-режим (только на источнике субтитров):** auto-subs прогоняются через checker. Если `recommendation != "use_as_is"` → fallback к `presets.smart.fallback_backend` (whisper-local). Полученный whisper-output записывается **как есть, без повторной проверки**.
+- **Финальный output (любой режим, опционально):** флаг `--check-quality` или `[output] check_transcript_quality = true`. Записывает score+flags в `manifest.json` и в combined.md как warning, **не меняет what was written**.
+- **`recommendation == "low_quality"`:** не failure. Видео попадает в combined.md с пометкой `⚠ Quality: low (score=0.32, flags=[looped, high_oov])`. В `errors.log` НЕ идёт. Failure — это только когда транскрипт пустой / download упал / API недоступен.
 
 ### Threshold-конфиг
 
@@ -667,39 +670,36 @@ REGISTRY: list[OptionField] = [
 # === ECO ===
 # Минимум cost. Пользователь сам выбирает transcribe_backend в wizard
 # (whisper-local оффлайн / groq free / gemini free / subtitles only).
-# Без visual mode.
+# Без visual mode, без OCR.
 [presets.eco]
 transcribe_backend = "subtitles"
 fallback_backend = "whisper-local"  # перекрывается выбором в wizard
 vision_backend = "off"
 detect_method = "keywords_only"
-ocr_enabled = false
 quality_check = false                # экономим CPU
 
 # === SMART ===
 # Дефолт. Subtitles → quality check → fallback → опц. visuals.
+# Visual mode включён, но silent fallback на off если нет GEMINI_API_KEY.
 [presets.smart]
 transcribe_backend = "subtitles"
 fallback_backend = "whisper-local"
 quality_check = true
 subtitle_quality_threshold = 0.6
-vision_backend = "gemini"
+vision_backend = "gemini"            # silent fallback to "off" if no API key
 detect_method = "hybrid"
 frames_per_window = 3
 max_windows_per_video = 20
-ocr_enabled = false
 
 # === STANDARD ===
-# Visual mode на всех видео без quality-fallback (whisper-local сразу).
-# Подходит когда у пользователя нет YouTube ключа на subtitles или хочет
-# консистентного качества.
+# Visual mode на всех видео, whisper-local сразу без try-subtitles-first.
+# Подходит когда хочется консистентного качества транскрипта.
 [presets.standard]
 transcribe_backend = "whisper-local"
 vision_backend = "gemini"
 detect_method = "hybrid"
 frames_per_window = 3
 max_windows_per_video = 30
-ocr_enabled = true
 
 # === PREMIUM ===
 # Максимальное качество. LLM-full-pass detection, perplexity quality check,
@@ -711,9 +711,11 @@ vision_backend = "gemini"
 detect_method = "llm_full_pass"
 frames_per_window = 5
 max_windows_per_video = 50
-ocr_enabled = true
 quality_check = true
 quality_perplexity = true
+
+# OCR (--ocr флаг) НЕ включён ни в один preset. Это отдельная функция,
+# активируется явным флагом или [output] ocr = true в config.
 ```
 
 ### CLI и override-приоритет
@@ -878,26 +880,106 @@ v0.1.x → v0.2 — пользователь:
 
 ---
 
-## 15. Открытые вопросы (требуют user-review)
+## 15. Решения по открытым вопросам (закрыто)
 
-1. **Дефолт smart-преcета**: visual on (с silent fallback для пользователей без Gemini) или off с явным opt-in `--with-visuals`? Текущий выбор: silent fallback. Альтернатива — off, и пусть юзеры вызывают visual явно.
-2. **Built-in triggers**: только EN universal (≈25 фраз) или + raw (≈10 фраз непереводимого мемного типа "this is fine")? Текущий выбор: EN + raw, можно отключить `--no-default-triggers`.
-3. **OCR в standard преcете**: on по умолчанию или off? Включение требует системного `tesseract` или 60MB easyocr download. Текущий выбор: on в standard, off в smart/eco, on в premium.
-4. **Frames бюджет в combined.md**: вырезать ли совсем frames-секцию для видео где `score < 0.6` чтобы не засорять combined.md мусорными скриншотами? Текущий выбор: показываем все, помечая importance.
-5. **Quality threshold для batch failure**: если `recommendation == "skip"` — это считается failure (попадает в `errors.log`) или ok (попадает в combined.md с warning)? Текущий выбор: warning, не failure. Failure только если транскрипт пустой.
+1. **Дефолт smart-преcета**: visual on с silent fallback. Если у пользователя есть `GEMINI_API_KEY` → visual mode работает. Если нет — тихо отключается с info-сообщением. Не блокирует основной pipeline.
+2. **Built-in triggers**: только EN universal (≈25 фраз). Raw НЕ включён по умолчанию — пользователь добавляет сам через `triggers add --raw "..."` если нужен. Меньше навязывания, чище дефолт.
+3. **OCR**: отдельная функция через флаг `--ocr` (или `[output] ocr = true`). **Off везде**, не зашит ни в один preset. Решает пользователь когда захочет.
+4. **Скриншоты для видео с плохим транскриптом**: показываем всегда. Картинки реальные даже если текст мусор — могут пригодиться. Помечаем importance в каждом visual moment.
+5. **Quality `low_quality` recommendation**: warning в combined.md, **НЕ failure**. Видео не дропается, не идёт в `errors.log`. Failure — только при технических ошибках (пустой транскрипт, упавший download, мёртвый API).
+
+Quality check — диагностический инструмент для выбора источника (subtitles vs whisper), а не фильтр результатов. Финальный output идёт в файлы всегда.
 
 ---
 
-## 16. Объём работы (оценка)
+## 16. Triggers CLI tool
+
+Чтобы пользователь не редактировал TOML руками — встроенный CLI для управления `triggers.toml`. Парсит фразы через `;` или `,`, кладёт в нужную секцию, валидирует, дедупит, atomic save.
+
+### Команды
+
+```
+youtube-transcribe triggers init [--force]
+  Создаёт ~/.youtube-transcribe/triggers.toml с пустыми секциями и
+  комментариями-подсказками над каждой. --force перезаписывает существующий.
+
+youtube-transcribe triggers add --universal "look here; pay attention; demo time"
+  Парсит phrases по ;/, чистит пробелы, добавляет в [triggers.universal].phrases.
+  Дубликаты игнорируются (печать "already exists").
+
+youtube-transcribe triggers add --raw "this is fine; TODO; FIXME"
+  В [triggers.raw].phrases. Точное совпадение, любой язык.
+
+youtube-transcribe triggers add --soft --lang ru "смотри сюда; вот тут код"
+  В [triggers.languages.ru].soft. Совпадение по леммам.
+
+youtube-transcribe triggers add --strict --lang ru "баг; PR; коммит"
+  В [triggers.languages.ru].strict. Точное совпадение в указанном языке.
+
+youtube-transcribe triggers add --category code "function; class; method"
+  В [triggers.categories.code].phrases. Боост по умолчанию 1.5
+  (можно задать --boost 2.0 при создании новой категории).
+
+youtube-transcribe triggers list [--section <name>]
+  Печатает все секции и фразы в форматированной таблице (Rich).
+  --section фильтрует.
+
+youtube-transcribe triggers remove --universal "phrase"
+youtube-transcribe triggers remove --strict --lang ru "phrase"
+  Удаляет конкретную фразу из секции. Печатает что удалили.
+
+youtube-transcribe triggers reset --universal
+youtube-transcribe triggers reset --all
+  Сбрасывает указанную секцию (или весь файл) к built-in defaults.
+
+youtube-transcribe triggers edit
+  Открывает triggers.toml в $EDITOR (default — vi на Unix, notepad на Windows).
+  После выхода парсит TOML — если синтаксическая ошибка, восстанавливает backup
+  и печатает строку с ошибкой.
+
+youtube-transcribe triggers test "Привет, смотри сюда — это важно"
+  Прогоняет фразу через matcher, печатает какие триггеры сработали и через
+  какой метод. Полезно для отладки своих кастомных фраз.
+```
+
+### Реализация
+
+- Click sub-group в `transcribe.py` (как `config` уже есть в v0.1).
+- Парсер фраз: `re.split(r"[;,]", input_str)` → strip → отбрасываем пустые.
+- Валидация: фраза не короче 2 символов и не длиннее 200. Нельзя добавить пустую.
+- Сохранение: atomic write через `os.replace` (как `config.toml` в v0.1).
+- Comments preservation: используем `tomlkit` вместо `tomli_w` для CLI-тула, чтобы пользовательские комментарии в `triggers.toml` не терялись при редактировании. (`tomli_w` пишет голый TOML без комментариев.) Новая зависимость, ~50KB.
+- Dедуп: case-sensitive по умолчанию (раз пользователь так написал — значит хотел), флаг `--ignore-case` для case-insensitive дедупа.
+
+### Конфликты и валидация
+
+Tool печатает warning при подозрительных конфликтах:
+- Фраза в `raw` (любой язык) уже есть в `universal` → warning «raw сильнее, universal не сработает».
+- Фраза в `languages.<lang>.strict` дублирует `languages.<lang>.soft` → warning «strict победит soft на этом языке».
+- Очень короткая universal-фраза (1 слово, < 4 буквы) → warning «короткая фраза в universal даст много false-positives через embeddings, рассмотри strict».
+
+Это не блокирует операцию, просто советует.
+
+### Где живёт built-in default
+
+`skills/youtube_transcribe/detection/data/triggers_default.toml` — read-only, поставляется с пакетом. Read-merged при загрузке (не копируется в `~/.youtube-transcribe/triggers.toml`). Юзерский файл — **только override и дополнения**, чтобы при `triggers reset` мы могли откатиться к built-in без потери информации.
+
+При `triggers add` если юзерский файл не существует — создаём его автоматически (не нужно отдельного `init`).
+
+---
+
+## 17. Объём работы (оценка)
 
 - **Quality check**: 4-5 файлов, ~600 LOC + ~400 LOC тестов. 1.5 дня.
-- **Triggers**: 3-4 файла, ~500 LOC + multilingual encoder integration + ~300 LOC тестов. 1 день.
+- **Triggers (matcher + загрузка + embedder)**: 3-4 файла, ~500 LOC + multilingual encoder integration + ~300 LOC тестов. 1 день.
+- **Triggers CLI tool (init/add/list/remove/reset/edit/test)**: 2 файла, ~350 LOC + ~250 LOC тестов. 0.5 дня.
 - **Detection (windows + scene + frame-diff)**: 4 файла, ~400 LOC + ~250 LOC тестов. 1 день.
 - **Vision backend (Gemini)**: 3 файла, ~350 LOC + ~250 LOC тестов с mock-клиентом. 1 день.
 - **Presets registry + CLI rewiring**: 2 файла, ~400 LOC + ~200 LOC тестов. 0.5 дня.
 - **Output (embedded screenshots, extended combined.md)**: правка существующего `output_writer.py`, ~200 LOC + 100 LOC тестов. 0.5 дня.
+- **OCR (опц. флаг `--ocr`)**: 1 файл, ~150 LOC + ~100 LOC тестов с моком pytesseract. 0.5 дня.
 - **Migration + backward compat**: 1 файл, ~150 LOC + ~150 LOC тестов. 0.5 дня.
 - **Документация (README, SKILL.md, CHANGELOG)**: 0.5 дня.
 - **Real validation на Mac** (как в v0.1.2): 0.5-1 день.
 
-Итого **~6-7 рабочих дней** до v0.2 release-candidate. Это укладывается в наши прошлые темпы (v0.1 ушёл день).
+Итого **~7-8 рабочих дней** до v0.2 release-candidate.
