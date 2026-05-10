@@ -138,10 +138,45 @@ def _from_toml_dict(d: dict) -> Config:
     )
 
 
+def migrate_v01_to_v02(path: Path = CONFIG_PATH) -> None:
+    """Migrate v0.1.x config.toml to v0.2 format.
+
+    Preserves user's existing settings as `[presets.custom_legacy]` and
+    sets `default_preset = "custom_legacy"` so behavior remains identical.
+
+    No-op if file doesn't exist or already has `default_preset` key.
+    """
+    if not path.exists():
+        return
+
+    raw = tomllib.loads(path.read_text(encoding="utf-8"))
+    if "default_preset" in raw:
+        return  # already v0.2
+
+    # Build legacy preset from v0.1 fields
+    legacy: dict = {}
+    if "default_backend" in raw:
+        legacy["transcribe_backend"] = raw["default_backend"]
+    if "fallback_backend" in raw:
+        legacy["fallback_backend"] = raw["fallback_backend"]
+    # Preserve nested whisper-local, gemini, etc. by appending v0.2 sections
+
+    new_text = path.read_text(encoding="utf-8")
+    new_text = 'default_preset = "custom_legacy"\n\n' + new_text
+    new_text += "\n[presets.custom_legacy]\n"
+    for k, v in legacy.items():
+        new_text += f'{k} = "{v}"\n'
+
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(new_text, encoding="utf-8")
+    os.replace(tmp, path)
+
+
 def load_config(path: Path = CONFIG_PATH) -> Config:
     if not path.exists():
         return DEFAULT_CONFIG
     try:
+        migrate_v01_to_v02(path)   # ← auto-upgrade on load
         raw = tomllib.loads(path.read_text(encoding="utf-8"))
     except tomllib.TOMLDecodeError as e:
         raise ValueError(
