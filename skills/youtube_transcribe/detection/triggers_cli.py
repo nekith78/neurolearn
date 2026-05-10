@@ -230,3 +230,80 @@ def cmd_list(filter_section: str | None):
             _add_section(f"strict:{lang}", lcfg.strict)
 
     console.print(table)
+
+
+import shutil
+import subprocess
+
+
+@triggers_cli.command("reset")
+@click.option("--universal", "section", flag_value="universal")
+@click.option("--raw", "section", flag_value="raw")
+@click.option("--all", "section", flag_value="all")
+def cmd_reset(section: str | None):
+    path = _user_path()
+    if not path.exists():
+        click.echo("Nothing to reset.")
+        return
+    if section == "all":
+        path.unlink()
+        click.echo(f"Removed {path}")
+        return
+    doc = _load_doc(path)
+    if section == "universal":
+        if "triggers" in doc and "universal" in doc["triggers"]:
+            doc["triggers"]["universal"]["phrases"] = tomlkit.array()
+        click.echo("Cleared [triggers.universal].")
+    elif section == "raw":
+        if "triggers" in doc and "raw" in doc["triggers"]:
+            doc["triggers"]["raw"]["phrases"] = tomlkit.array()
+        click.echo("Cleared [triggers.raw].")
+    else:
+        click.echo("Use --universal, --raw, or --all.", err=True)
+        raise click.exceptions.Exit(1)
+    _atomic_write(path, doc)
+
+
+@triggers_cli.command("edit")
+def cmd_edit():
+    path = _user_path()
+    if not path.exists():
+        click.echo(f"{path} doesn't exist. Run `triggers init` first.", err=True)
+        raise click.exceptions.Exit(1)
+
+    backup = path.with_suffix(path.suffix + ".bak")
+    shutil.copy(path, backup)
+
+    editor = os.environ.get("EDITOR", "vi")
+    try:
+        subprocess.run([editor, str(path)], check=False)
+        # Validate after edit
+        from skills.youtube_transcribe.detection.triggers import _load_toml
+        try:
+            _load_toml(path)
+        except Exception as e:
+            click.echo(f"Invalid TOML after edit: {e}", err=True)
+            click.echo(f"Restoring backup from {backup}")
+            shutil.copy(backup, path)
+            raise click.exceptions.Exit(1)
+    finally:
+        if backup.exists():
+            backup.unlink()
+    click.echo("OK.")
+
+
+@triggers_cli.command("test")
+@click.argument("text")
+def cmd_test(text: str):
+    """Run text through matcher and report which trigger fired."""
+    from skills.youtube_transcribe.detection.matcher import match_segment
+    from skills.youtube_transcribe.detection.triggers import load_triggers
+
+    path = _user_path()
+    cfg = load_triggers(user_path=path if path.exists() else None)
+    m = match_segment(text, cfg)
+    if m is None:
+        click.echo("No trigger matched.")
+        return
+    click.echo(f"Matched: phrase='{m.phrase}', reason={m.reason}, "
+               f"score={m.score:.3f}, weight={m.weight}")
