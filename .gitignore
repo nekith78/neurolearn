@@ -34,6 +34,7 @@ test-output*/
 *.txt
 !docs/**/*.md
 !README*
+!skills/**/data/*.txt
 
 # uv lock — intentionally not committed (cross-platform skill, let users resolve)
 uv.lock
