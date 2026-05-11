@@ -10,6 +10,7 @@ from pathlib import Path
 import click
 from rich.console import Console
 
+from skills.youtube_transcribe import __version__
 from skills.youtube_transcribe.backends.base import BackendError, BackendNotConfigured
 from skills.youtube_transcribe.backends.factory import build_backend
 from skills.youtube_transcribe.config import (
@@ -89,7 +90,7 @@ class _BareURLGroup(click.Group):
 
 
 @click.group(cls=_BareURLGroup)
-@click.version_option()
+@click.version_option(version=__version__, prog_name="youtube-transcribe")
 def cli() -> None:
     """youtube-transcribe — transcribe YouTube and local media via 8 backends.
 
