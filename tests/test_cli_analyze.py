@@ -306,3 +306,125 @@ def test_analyze_select_mutex_with_all(tmp_path: Path):
     ], catch_exceptions=False)
     assert res.exit_code == 2
     assert "взаимоисключ" in res.output.lower() or "mutex" in res.output.lower() or "exclusive" in res.output.lower()
+
+
+def test_analyze_append_to_creates_new(tmp_path: Path):
+    f = tmp_path / "t.txt"
+    f.write_text("[00:00:00.000 --> 00:00:01.000] hi\n", encoding="utf-8")
+    target = tmp_path / "combined.md"
+
+    with patch(
+        "skills.youtube_transcribe.analyze.runner.run_analysis",
+        return_value="FIRST",
+    ):
+        runner = CliRunner()
+        res = runner.invoke(cli, [
+            "analyze", str(f),
+            "--prompt", "P", "--backend", "ollama",
+            "--append-to", str(target),
+        ], catch_exceptions=False)
+
+    assert res.exit_code == 0
+    assert target.exists()
+    txt = target.read_text(encoding="utf-8")
+    assert txt.startswith("# Combined analyses")
+    assert "FIRST" in txt
+
+
+def test_analyze_append_to_existing(tmp_path: Path):
+    f = tmp_path / "t.txt"
+    f.write_text("[00:00:00.000 --> 00:00:01.000] hi\n", encoding="utf-8")
+    target = tmp_path / "combined.md"
+    target.write_text("# Combined analyses\n\n## Analysis — 2026-05-10 00:00\n\nOLD\n",
+                      encoding="utf-8")
+
+    with patch(
+        "skills.youtube_transcribe.analyze.runner.run_analysis",
+        return_value="NEW",
+    ):
+        runner = CliRunner()
+        res = runner.invoke(cli, [
+            "analyze", str(f),
+            "--prompt", "P", "--backend", "ollama",
+            "--append-to", str(target),
+        ], catch_exceptions=False)
+
+    assert res.exit_code == 0
+    txt = target.read_text(encoding="utf-8")
+    assert "OLD" in txt
+    assert "NEW" in txt
+    assert txt.count("## Analysis — ") == 2
+
+
+def test_analyze_explicit_output_path(tmp_path: Path):
+    f = tmp_path / "t.txt"
+    f.write_text("[00:00:00.000 --> 00:00:01.000] hi\n", encoding="utf-8")
+    custom = tmp_path / "my-analysis.md"
+
+    with patch(
+        "skills.youtube_transcribe.analyze.runner.run_analysis",
+        return_value="HELLO",
+    ):
+        runner = CliRunner()
+        res = runner.invoke(cli, [
+            "analyze", str(f),
+            "--prompt", "P", "--backend", "ollama",
+            "--output", str(custom),
+        ], catch_exceptions=False)
+
+    assert res.exit_code == 0
+    assert custom.exists()
+    assert "HELLO" in custom.read_text(encoding="utf-8")
+
+
+def test_analyze_no_stdout_suppresses_response(tmp_path: Path):
+    f = tmp_path / "t.txt"
+    f.write_text("[00:00:00.000 --> 00:00:01.000] hi\n", encoding="utf-8")
+
+    with patch(
+        "skills.youtube_transcribe.analyze.runner.run_analysis",
+        return_value="VERY UNIQUE STRING ZZ",
+    ):
+        runner = CliRunner()
+        res = runner.invoke(cli, [
+            "analyze", str(f),
+            "--prompt", "P", "--backend", "ollama",
+            "--no-stdout",
+        ], catch_exceptions=False)
+
+    assert res.exit_code == 0
+    assert "VERY UNIQUE STRING ZZ" not in res.output
+    # But the file should still contain it.
+    out = list(tmp_path.glob("t.analysis-*.md"))
+    assert "VERY UNIQUE STRING ZZ" in out[0].read_text(encoding="utf-8")
+
+
+def test_analyze_batch_folder_writes_inside(tmp_path: Path):
+    batch = tmp_path / "batch_x"
+    batch.mkdir()
+    (batch / "v.txt").write_text(
+        "[00:00:00.000 --> 00:00:01.000] hi\n", encoding="utf-8")
+    (batch / "manifest.json").write_text(json.dumps({
+        "batch_name": "batch_x", "created_at": "x",
+        "stats": {"total": 1, "ok": 1, "failed": 0},
+        "videos": [{
+            "index": 1, "url": None, "video_id": None, "title": "X",
+            "upload_date": None, "duration_sec": None, "channel": None,
+            "language_detected": None,
+            "files": {"txt": "v.txt"}, "status": "ok",
+        }],
+    }), encoding="utf-8")
+
+    with patch(
+        "skills.youtube_transcribe.analyze.runner.run_analysis",
+        return_value="OK",
+    ):
+        runner = CliRunner()
+        res = runner.invoke(cli, [
+            "analyze", str(batch),
+            "--prompt", "P", "--backend", "ollama", "--all",
+        ], catch_exceptions=False)
+
+    assert res.exit_code == 0
+    files = list(batch.glob("analysis-*.md"))
+    assert len(files) == 1
