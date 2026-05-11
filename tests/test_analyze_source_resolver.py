@@ -116,3 +116,28 @@ def test_latest_flag_uses_pick(tmp_path: Path):
     out = resolve_source(None, outputs_dir=tmp_path, latest=True)
     assert len(out) == 1
     assert out[0].title == "T"
+
+
+def test_from_manifest_rejects_path_traversal(tmp_path: Path):
+    """Manifest with ../ paths is rejected — files outside batch_dir not loaded."""
+    import json
+    batch = tmp_path / "batch_attack"
+    batch.mkdir()
+    # Create a "real" outside-the-batch file the attacker wants to leak.
+    secret = tmp_path / "secret.txt"
+    secret.write_text("SHOULD NOT BE READ", encoding="utf-8")
+    # Manifest references it via ../secret.txt
+    (batch / "manifest.json").write_text(json.dumps({
+        "batch_name": "batch_attack", "created_at": "x",
+        "stats": {"total": 1, "ok": 1, "failed": 0},
+        "videos": [{
+            "index": 1, "url": None, "video_id": None, "title": "evil",
+            "upload_date": None, "duration_sec": None, "channel": None,
+            "language_detected": None,
+            "files": {"txt": "../secret.txt"}, "status": "ok",
+        }],
+    }), encoding="utf-8")
+
+    out = resolve_source(batch, outputs_dir=tmp_path, latest=False)
+    # Traversal-out-of-batch is filtered, so no VideoSource produced.
+    assert out == []

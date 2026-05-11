@@ -87,6 +87,13 @@ def _from_manifest(batch_dir: Path, manifest: Path) -> list[VideoSource]:
         if not rel:
             continue
         path = batch_dir / rel
+        # Defend against hand-crafted manifests with "../" traversal: ensure
+        # the resolved path stays inside batch_dir.
+        try:
+            if not path.resolve().is_relative_to(batch_dir.resolve()):
+                continue
+        except (OSError, ValueError):
+            continue
         if not path.exists():
             continue
         out.append(VideoSource(
