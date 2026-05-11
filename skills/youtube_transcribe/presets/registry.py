@@ -163,22 +163,6 @@ REGISTRY: list[OptionField] = [
         description="LLM provider for translation (same options as correct_asr).",
         section="output",
     ),
-    # === Summary (v0.5.1) ===
-    OptionField(
-        key="summarize", type=bool, default=False,
-        choices=None,
-        description=(
-            "Generate Markdown summary alongside transcript "
-            "(TL;DR + key points + quotes). Single cheap LLM call."
-        ),
-        section="output",
-    ),
-    OptionField(
-        key="summarize_backend", type=str, default="gemini",
-        choices=["gemini", "claude", "openai", "ollama"],
-        description="LLM provider for summary.",
-        section="output",
-    ),
     # === Custom vision prompt (v0.5.1) ===
     OptionField(
         key="vision_prompt_path", type=str, default="",

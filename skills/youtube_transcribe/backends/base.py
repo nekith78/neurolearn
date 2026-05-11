@@ -26,8 +26,6 @@ class TranscriptionResult:
     # === v0.2 ===
     quality: object | None = None                           # QualityReport | None
     visual_segments: list = field(default_factory=list)     # list[VisualSegment]
-    # === v0.5.1 ===
-    summary: str = ""                                       # Markdown auto-summary
 
 
 @runtime_checkable

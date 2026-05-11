@@ -322,7 +322,6 @@ def write_json(
     duration_sec: float | None = None,
     quality: object | None = None,
     visual_segments: list | None = None,
-    summary: str = "",
 ) -> None:
     """Machine-readable JSON dump of a single transcript.
 
@@ -333,8 +332,7 @@ def write_json(
         "duration_sec": 123.4,
         "segments": [{"start": 0.0, "end": 5.5, "text": "..."}, ...],
         "quality": {...} | null,
-        "visual_segments": [{...}, ...] | [],
-        "summary": "## TL;DR\\n..." | "",
+        "visual_segments": [{...}, ...] | []
       }
     """
     segs = list(segments)
@@ -369,24 +367,9 @@ def write_json(
         ]
     else:
         payload["visual_segments"] = []
-    payload["summary"] = summary or ""
 
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(_json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
-
-
-def write_vtt(segments: Iterable[Segment], path: Path) -> None:
-    """WebVTT format for web players (HTML5 <track>).
-
-    Same timestamps as SRT (HH:MM:SS.mmm) but `.` decimal and a header.
-    """
-    parts: list[str] = ["WEBVTT", ""]
-    for s in segments:
-        parts.append(f"{_format_timestamp_dotted(s.start)} --> {_format_timestamp_dotted(s.end)}")
-        parts.append(s.text.strip())
-        parts.append("")
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text("\n".join(parts), encoding="utf-8")
 
 
 def write_visual_md(

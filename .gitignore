@@ -39,3 +39,4 @@ test-output*/
 # uv lock — intentionally not committed (cross-platform skill, let users resolve)
 uv.lock
 .python-version
+graphify-out/

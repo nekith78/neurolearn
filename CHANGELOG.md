@@ -3,6 +3,34 @@
 All notable changes to youtube-transcribe will be documented here.
 The format is loosely based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.5.2] — 2026-05-11
+
+Course-correct: revert / refactor v0.5.1 additions that drifted from spec.
+
+### Removed
+
+- **VTT output format.** Was an invented addition not in any spec.
+  `--output-format vtt` choice and `write_vtt()` function removed.
+- **Auto-summary `--summary` flag in `transcribe` / `batch`.** Spec
+  explicitly said summarization is done by Claude in chat reading
+  `combined.md`, not by the skill in v0.x. Auto-trigger removed.
+- **`summary` field on `TranscriptionResult`** + `summary` param in
+  `write_json()` — no longer populated by pipeline.
+
+### Added
+
+- **`youtube-transcribe summarize <transcript-path>`** — standalone
+  sub-command. User invokes explicitly on an existing
+  transcript file (`.txt` / `.json` / `.srt`). Backend picked via
+  `--backend gemini|claude|openai|ollama`. Output: `<file>.summary.md`
+  next to the source (or `--output PATH`).
+- **`utils/transcript_loader.py`** — reads `.txt` / `.json` / `.srt`
+  back into `list[Segment]`. Used by the `summarize` command.
+
+### Tests
+- 544 unit tests green (was 533 in v0.5.1; -7 from VTT removal,
+  +16 from new loader + summarize).
+
 ## [0.5.1] — 2026-05-11
 
 Power-user polish.

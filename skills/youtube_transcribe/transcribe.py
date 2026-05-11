@@ -147,13 +147,8 @@ def cli() -> None:
 @click.option("--translate-backend", "translate_backend_opt",
               type=click.Choice(["gemini", "claude", "openai", "ollama"]), default=None,
               help="LLM provider for translation (default: gemini).")
-@click.option("--summary", "summarize_opt", is_flag=True, default=None,
-              help="Generate Markdown summary alongside transcript.")
-@click.option("--summary-backend", "summarize_backend_opt",
-              type=click.Choice(["gemini", "claude", "openai", "ollama"]), default=None,
-              help="LLM provider for summary (default: gemini).")
 @click.option("--output-format", "output_format_opt",
-              type=click.Choice(["all", "txt", "srt", "vtt", "json"]),
+              type=click.Choice(["all", "txt", "srt", "json"]),
               default=None, multiple=True,
               help="Output format(s). Repeat for multiple. Default: txt+srt.")
 @click.option("--vision-prompt", "vision_prompt_path_opt",
@@ -232,10 +227,6 @@ def transcribe_cmd(audio_or_url: str, **opts) -> None:
         cli_overrides["translate_to"] = opts["translate_to_opt"]
     if opts.get("translate_backend_opt"):
         cli_overrides["translate_backend"] = opts["translate_backend_opt"]
-    if opts.get("summarize_opt") is True:
-        cli_overrides["summarize"] = True
-    if opts.get("summarize_backend_opt"):
-        cli_overrides["summarize_backend"] = opts["summarize_backend_opt"]
     if opts.get("vision_prompt_path_opt"):
         cli_overrides["vision_prompt_path"] = opts["vision_prompt_path_opt"]
 
@@ -318,9 +309,7 @@ def transcribe_cmd(audio_or_url: str, **opts) -> None:
     base_name = sanitize_filename(_derive_basename(target))
     txt_path = output_dir / f"{base_name}.txt"
     srt_path = output_dir / f"{base_name}.srt"
-    vtt_path = output_dir / f"{base_name}.vtt"
     json_path = output_dir / f"{base_name}.json"
-    summary_path = output_dir / f"{base_name}.summary.md"
 
     timestamps = cfg.timestamps if opts.get("timestamps") is None else opts["timestamps"]
     write_srt_flag = cfg.srt if opts.get("srt") is None else opts["srt"]
@@ -329,7 +318,6 @@ def transcribe_cmd(audio_or_url: str, **opts) -> None:
     # If no --output-format given, fall back to legacy txt+srt behavior.
     write_txt = (not formats) or ("all" in formats) or ("txt" in formats)
     write_srt_pick = (not formats and write_srt_flag) or ("all" in formats) or ("srt" in formats)
-    write_vtt_pick = ("all" in formats) or ("vtt" in formats)
     write_json_pick = ("all" in formats) or ("json" in formats)
 
     if write_txt:
@@ -339,12 +327,6 @@ def transcribe_cmd(audio_or_url: str, **opts) -> None:
             write_txt_plain(result.segments, txt_path)
     if write_srt_pick:
         write_srt(result.segments, srt_path)
-    if write_vtt_pick:
-        from skills.youtube_transcribe.utils.output_writer import write_vtt
-        write_vtt(result.segments, vtt_path)
-    _summary_text = getattr(result, "summary", "")
-    if not isinstance(_summary_text, str):
-        _summary_text = ""
     if write_json_pick:
         from skills.youtube_transcribe.utils.output_writer import write_json
         write_json(
@@ -354,10 +336,7 @@ def transcribe_cmd(audio_or_url: str, **opts) -> None:
             duration_sec=getattr(result, "duration_seconds", None),
             quality=getattr(result, "quality", None),
             visual_segments=list(getattr(result, "visual_segments", []) or []),
-            summary=_summary_text,
         )
-    if _summary_text:
-        summary_path.write_text(_summary_text, encoding="utf-8")
 
     # === v0.2: write .visual.md if visual stage produced any segments ===
     visual_path: Path | None = None
@@ -379,15 +358,11 @@ def transcribe_cmd(audio_or_url: str, **opts) -> None:
         console.print(f"  [bold]{txt_path}[/bold]")
     if write_srt_pick:
         console.print(f"  [bold]{srt_path}[/bold]")
-    if write_vtt_pick:
-        console.print(f"  [bold]{vtt_path}[/bold]")
     if write_json_pick:
         console.print(f"  [bold]{json_path}[/bold]")
     if visual_path is not None:
         console.print(f"  [bold]{visual_path}[/bold] "
                       f"({len(visual_segments)} visual moments)")
-    if _summary_text:
-        console.print(f"  [bold]{summary_path}[/bold] (summary)")
 
 
 def _derive_basename(target: ResolvedTarget) -> str:
@@ -589,13 +564,8 @@ def _infer_source_type(targets: list[ResolvedTarget], from_file: Path | None) ->
 @click.option("--translate-backend", "translate_backend_opt",
               type=click.Choice(["gemini", "claude", "openai", "ollama"]), default=None,
               help="LLM provider for translation (default: gemini).")
-@click.option("--summary", "summarize_opt", is_flag=True, default=None,
-              help="Generate Markdown summary alongside transcript.")
-@click.option("--summary-backend", "summarize_backend_opt",
-              type=click.Choice(["gemini", "claude", "openai", "ollama"]), default=None,
-              help="LLM provider for summary (default: gemini).")
 @click.option("--output-format", "output_format_opt",
-              type=click.Choice(["all", "txt", "srt", "vtt", "json"]),
+              type=click.Choice(["all", "txt", "srt", "json"]),
               default=None, multiple=True,
               help="Output format(s). Repeat for multiple. Default: txt+srt.")
 @click.option("--vision-prompt", "vision_prompt_path_opt",
@@ -655,10 +625,6 @@ def batch_cmd(
         cli_overrides["translate_to"] = opts["translate_to_opt"]
     if opts.get("translate_backend_opt"):
         cli_overrides["translate_backend"] = opts["translate_backend_opt"]
-    if opts.get("summarize_opt") is True:
-        cli_overrides["summarize"] = True
-    if opts.get("summarize_backend_opt"):
-        cli_overrides["summarize_backend"] = opts["summarize_backend_opt"]
     if opts.get("vision_prompt_path_opt"):
         cli_overrides["vision_prompt_path"] = opts["vision_prompt_path_opt"]
 
@@ -1147,7 +1113,100 @@ def webui_cmd(host: str, port: int, share: bool) -> None:
     launch(server_name=host, server_port=port, share=share)
 
 
-__all__ = ["cli", "transcribe_cmd", "batch_cmd", "config", "webui_cmd"]
+@cli.command(name="summarize")
+@click.argument("transcript_path", type=click.Path(exists=True, path_type=Path))
+@click.option("--backend", "backend_opt",
+              type=click.Choice(["gemini", "claude", "openai", "ollama"]),
+              default="gemini", show_default=True,
+              help="LLM provider for summarization.")
+@click.option("--language", "language_opt", default=None,
+              help="Target language for the summary (default: same as transcript).")
+@click.option("--output", "output_opt", type=click.Path(path_type=Path),
+              default=None,
+              help="Where to write the summary. Default: <transcript>.summary.md "
+                   "next to the source.")
+@click.option("--ollama-model", "ollama_model_opt", default=None,
+              help="Ollama model tag (default: from config / llama3.2:3b).")
+@click.option("--ollama-host", "ollama_host_opt", default=None,
+              help="Ollama HTTP host (default: http://localhost:11434).")
+def summarize_cmd(
+    transcript_path: Path,
+    backend_opt: str,
+    language_opt: str | None,
+    output_opt: Path | None,
+    ollama_model_opt: str | None,
+    ollama_host_opt: str | None,
+) -> None:
+    """Summarize an existing transcript (.txt / .json / .srt) via LLM.
+
+    Single call to gemini / claude / openai / ollama. Writes a Markdown
+    file with TL;DR + key points + notable quotes (with timestamps where
+    available).
+    """
+    from skills.youtube_transcribe.quality.summarizer import summarize_transcript
+    from skills.youtube_transcribe.utils.transcript_loader import (
+        load_transcript_segments,
+    )
+
+    try:
+        segments, detected_lang = load_transcript_segments(transcript_path)
+    except Exception as e:
+        console.print(f"[red]Не удалось прочитать транскрипт:[/red] {e}")
+        sys.exit(2)
+    if not segments:
+        console.print("[yellow]Транскрипт пустой — нечего суммаризировать.[/yellow]")
+        sys.exit(0)
+
+    if backend_opt == "ollama":
+        api_key = None
+    else:
+        key_lookup = {
+            "gemini": "gemini",
+            "claude": "anthropic",
+            "openai": "openai",
+        }[backend_opt]
+        api_key = get_api_key(key_lookup)
+        if not api_key:
+            console.print(
+                f"[red]Нет ключа для backend={backend_opt}[/red]. "
+                f"Установи через `youtube-transcribe config set-key {key_lookup}` "
+                f"или используй --backend ollama (локально)."
+            )
+            sys.exit(3)
+
+    language = language_opt or detected_lang or "en"
+
+    summary_md = summarize_transcript(
+        segments,
+        language=language,
+        api_key=api_key,
+        backend=backend_opt,
+        ollama_model=ollama_model_opt or "llama3.2:3b",
+        ollama_host=ollama_host_opt or "http://localhost:11434",
+    )
+    if not summary_md:
+        console.print(
+            f"[red]LLM не вернул ответ.[/red] Возможно, нет сети, истекла "
+            f"квота, или `ollama serve` не запущен."
+        )
+        sys.exit(4)
+
+    out_path = (
+        output_opt
+        if output_opt is not None
+        else transcript_path.with_suffix(transcript_path.suffix + ".summary.md")
+    )
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text(summary_md, encoding="utf-8")
+
+    console.print(f"[green]✓[/green] summary via {backend_opt}")
+    console.print(f"  [bold]{out_path}[/bold]")
+
+
+__all__ = [
+    "cli", "transcribe_cmd", "batch_cmd", "config",
+    "webui_cmd", "summarize_cmd",
+]
 
 
 if __name__ == "__main__":

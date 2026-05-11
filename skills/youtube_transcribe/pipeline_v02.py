@@ -302,34 +302,4 @@ def apply_v02_stages(
                     new_visuals.append(vs)
             result.visual_segments = new_visuals
 
-    # === Auto-summary (opt-in, runs last on final segments) ===
-    if cfg.get("summarize") and result.segments:
-        from skills.youtube_transcribe.quality.summarizer import summarize_transcript
-        sum_backend = cfg.get("summarize_backend", "gemini")
-        if sum_backend == "ollama":
-            sum_api_key = None
-            sum_can_run = True
-        else:
-            sum_key = {
-                "gemini": "gemini",
-                "claude": "anthropic",
-                "openai": "openai",
-            }.get(sum_backend)
-            sum_api_key = _config_mod.get_api_key(sum_key) if sum_key else None
-            sum_can_run = sum_api_key is not None
-        if sum_can_run:
-            try:
-                summary_md = summarize_transcript(
-                    result.segments,
-                    language=result.language_detected or "en",
-                    api_key=sum_api_key,
-                    backend=sum_backend,
-                    ollama_model=cfg.get("ollama_model", "llama3.2:3b"),
-                    ollama_host=cfg.get("ollama_host", "http://localhost:11434"),
-                )
-                if summary_md:
-                    object.__setattr__(result, "summary", summary_md)
-            except Exception:
-                pass
-
     return result

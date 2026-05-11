@@ -1,58 +1,13 @@
-"""Tests for new output formats (VTT + JSON) added in v0.5.1."""
+"""Tests for JSON output format (v0.5.1)."""
 import json
-from pathlib import Path
 from unittest.mock import MagicMock
 
-from skills.youtube_transcribe.utils.output_writer import (
-    Segment, write_json, write_vtt,
-)
+from skills.youtube_transcribe.utils.output_writer import Segment, write_json
 
 
 def _s(start, end, text):
     return Segment(start=start, end=end, text=text)
 
-
-# === VTT ===
-
-def test_vtt_has_header(tmp_path):
-    out = tmp_path / "x.vtt"
-    write_vtt([_s(0.0, 5.5, "hello")], out)
-    content = out.read_text(encoding="utf-8")
-    assert content.startswith("WEBVTT")
-
-
-def test_vtt_format_uses_dotted_seconds(tmp_path):
-    """VTT uses HH:MM:SS.mmm (dot decimal); SRT uses comma. Make sure dot here."""
-    out = tmp_path / "x.vtt"
-    write_vtt([_s(1.25, 7.5, "hi")], out)
-    content = out.read_text(encoding="utf-8")
-    # Should contain "00:00:01.250 --> 00:00:07.500"
-    assert "00:00:01.250" in content
-    assert "-->" in content
-    # No comma decimals
-    assert "00:00:01,250" not in content
-
-
-def test_vtt_multiple_segments(tmp_path):
-    segs = [
-        _s(0.0, 2.0, "first"),
-        _s(2.0, 4.0, "second"),
-    ]
-    out = tmp_path / "x.vtt"
-    write_vtt(segs, out)
-    content = out.read_text(encoding="utf-8")
-    assert "first" in content
-    assert "second" in content
-
-
-def test_vtt_empty(tmp_path):
-    out = tmp_path / "x.vtt"
-    write_vtt([], out)
-    content = out.read_text(encoding="utf-8")
-    assert content.startswith("WEBVTT")
-
-
-# === JSON ===
 
 def test_json_basic(tmp_path):
     out = tmp_path / "x.json"
@@ -103,13 +58,6 @@ def test_json_includes_visual_segments(tmp_path):
     data = json.loads(out.read_text(encoding="utf-8"))
     assert len(data["visual_segments"]) == 1
     assert data["visual_segments"][0]["importance"] == "high"
-
-
-def test_json_includes_summary(tmp_path):
-    out = tmp_path / "x.json"
-    write_json([_s(0, 5, "x")], out, summary="## TL;DR\nA summary.")
-    data = json.loads(out.read_text(encoding="utf-8"))
-    assert data["summary"] == "## TL;DR\nA summary."
 
 
 def test_json_non_ascii_preserved(tmp_path):
