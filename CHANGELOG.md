@@ -3,6 +3,27 @@
 All notable changes to youtube-transcribe will be documented here.
 The format is loosely based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.6.0] — 2026-05-12
+
+### Added
+- `youtube-transcribe analyze [SOURCE]` — free-form LLM analysis over
+  one or more existing transcripts. Supports `--prompt`/`--prompt-file`,
+  `--backend gemini|claude|openai|ollama`, `--latest`, `--all`,
+  `--select "1,3,5-7"`, `--append-to <md>`, `--output <path>`,
+  `--no-stdout`, `--max-chars`.
+- Interactive `questionary` checkbox picker for video selection when
+  SOURCE is a folder and no `--all`/`--select`/`--latest` is given.
+- `batch --then-analyze --prompt "..."` runs analyze on the produced
+  batch folder immediately after the batch completes.
+
+### Changed
+- `summarize` now routes through `analyze.runner` internally (same
+  hardcoded TL;DR + key points + notable quotes template; same exit
+  codes; same output file format). No user-visible behavior change.
+
+### Dependencies
+- New: `questionary>=2.0` (powers the analyze picker).
+
 ## [0.5.2] — 2026-05-11
 
 Course-correct: revert / refactor v0.5.1 additions that drifted from spec.

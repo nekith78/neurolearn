@@ -224,6 +224,54 @@ youtube-transcribe batch --search "transformer architecture" \
 
 ---
 
+## Analyze — free-form LLM analysis over transcripts (v0.6)
+
+The skill produces transcripts; analysis is an explicit second step you
+trigger when you want it. `analyze` packages one or more existing
+transcripts together with your own free-form prompt and sends them to
+the LLM of your choice.
+
+```bash
+# Analyze a single transcript
+youtube-transcribe analyze ./transcripts/x.txt \
+  --prompt "Extract the main argument and counter-examples." \
+  --backend gemini
+
+# Analyze the most recent batch (skips picker)
+youtube-transcribe analyze --latest \
+  --prompt-file my-prompt.md --backend claude
+
+# Pick a subset of videos in a folder interactively
+youtube-transcribe analyze ./transcripts/batch_2026-05-11_claude/ \
+  --prompt "Compare how each speaker frames the problem." \
+  --backend openai
+
+# Append a new analysis block to an existing combined.md
+youtube-transcribe analyze --latest \
+  --prompt "Now extract every URL mentioned." \
+  --append-to ./transcripts/batch_X/notes.md
+
+# Local LLM, no API keys
+youtube-transcribe analyze ./transcripts/x.json \
+  --prompt "Summarize for a 12-year-old." \
+  --backend ollama --ollama-model llama3.2:3b
+```
+
+Output is written to `<batch>/analysis-YYYY-MM-DD-HHMM.md` (or rendered
+next to the source file for single-file mode), and the response is also
+printed to stdout so it's visible inline when invoked from Claude Code.
+
+`batch --then-analyze` chains a batch with an immediate analyze pass:
+
+```bash
+youtube-transcribe batch https://www.youtube.com/@channel --limit 5 \
+  --backend smart \
+  --then-analyze --prompt "Bullet the main takeaways from each video." \
+  --analyze-backend gemini
+```
+
+---
+
 ## Hardware guide
 
 Выбери подходящий бэкенд исходя из железа:
