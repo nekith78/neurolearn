@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns:yt="http://www.youtube.com/xml/schemas/2015"
+      xmlns="http://www.w3.org/2005/Atom">
+  <yt:channelId>UC_abc123</yt:channelId>
+  <title>Sample Channel</title>
+  <link rel="alternate" href="https://www.youtube.com/channel/UC_abc123"/>
+  <entry>
+    <id>yt:video:vid111</id>
+    <yt:videoId>vid111</yt:videoId>
+    <yt:channelId>UC_abc123</yt:channelId>
+    <title>First video — newest</title>
+    <link rel="alternate" href="https://www.youtube.com/watch?v=vid111"/>
+    <published>2026-05-12T14:00:00+00:00</published>
+    <updated>2026-05-12T14:00:00+00:00</updated>
+  </entry>
+  <entry>
+    <id>yt:video:vid222</id>
+    <yt:videoId>vid222</yt:videoId>
+    <yt:channelId>UC_abc123</yt:channelId>
+    <title>Second video — older</title>
+    <link rel="alternate" href="https://www.youtube.com/watch?v=vid222"/>
+    <published>2026-05-10T09:30:00+00:00</published>
+    <updated>2026-05-10T09:30:00+00:00</updated>
+  </entry>
+  <entry>
+    <id>yt:video:vid333</id>
+    <yt:videoId>vid333</yt:videoId>
+    <yt:channelId>UC_abc123</yt:channelId>
+    <title>Third — oldest</title>
+    <link rel="alternate" href="https://www.youtube.com/watch?v=vid333"/>
+    <published>2026-04-30T08:00:00+00:00</published>
+    <updated>2026-04-30T08:00:00+00:00</updated>
+  </entry>
+</feed>
