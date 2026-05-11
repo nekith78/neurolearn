@@ -1,19 +1,14 @@
-"""LLM-based auto-summary of transcripts (v0.5.1).
+"""LLM-based summary of transcripts.
 
-Single LLM call, generates a structured Markdown summary:
-- 1-paragraph TL;DR
-- Bullet list of key points
-- Notable quotes with timestamps
-
-Same backend switch as ASR correction / translation: gemini / claude /
-openai / ollama. Cheap text-only call.
+Thin wrapper over analyze.runner with a hardcoded structured
+TL;DR + key points + notable quotes prompt template. Kept as a
+separate entry point for backwards compatibility with v0.5 callers
+and the existing `youtube-transcribe summarize` CLI.
 """
 from __future__ import annotations
 
-from skills.youtube_transcribe.quality.asr_corrector import (
-    _call_claude, _call_gemini, _call_ollama, _call_openai,
-)
 from skills.youtube_transcribe.utils.output_writer import Segment
+from skills.youtube_transcribe.analyze import runner as analyze_runner
 
 
 _SUMMARY_PROMPT = """\
@@ -73,7 +68,7 @@ def summarize_transcript(
     ollama_model: str = "llama3.2:3b",
     ollama_host: str = "http://localhost:11434",
 ) -> str:
-    """Returns Markdown summary or empty string on failure."""
+    """Return Markdown summary or empty string on failure."""
     if not segments:
         return ""
 
@@ -81,16 +76,13 @@ def summarize_transcript(
         language=language or "en",
         transcript_text=_format_transcript_for_summary(segments),
     )
-
     try:
-        if backend == "gemini":
-            return _call_gemini(prompt, api_key or "")
-        if backend == "claude":
-            return _call_claude(prompt, api_key or "")
-        if backend == "openai":
-            return _call_openai(prompt, api_key or "")
-        if backend == "ollama":
-            return _call_ollama(prompt, model=ollama_model, host=ollama_host)
+        return analyze_runner.run_analysis(
+            prompt,
+            backend=backend,
+            api_key=api_key,
+            ollama_model=ollama_model,
+            ollama_host=ollama_host,
+        )
     except Exception:
         return ""
-    return ""
