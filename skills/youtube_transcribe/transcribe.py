@@ -483,6 +483,101 @@ def _infer_source_type(targets: list[ResolvedTarget], from_file: Path | None) ->
 
 
 # ---------------------------------------------------------------------------
+# Task 13 (v0.6) — post-batch analyze hook
+# ---------------------------------------------------------------------------
+
+def _run_then_analyze(
+    *,
+    batch_folder: Path,
+    prompt_inline: str | None,
+    prompt_file: Path | None,
+    backend: str,
+) -> None:
+    """Post-batch hook for `batch --then-analyze`.
+
+    Resolves transcripts from `batch_folder/manifest.json`, builds a prompt
+    from `prompt_inline` or `prompt_file`, calls the LLM, writes
+    `analysis-*.md` inside `batch_folder`. In TTY mode an interactive
+    picker is shown; in non-TTY all videos are used. No-op (with a warning)
+    on missing transcripts or empty LLM response. Calls `sys.exit(4)` only
+    on missing API key — other failures degrade gracefully so the batch
+    itself stays reported as successful.
+    """
+    from datetime import datetime
+    from skills.youtube_transcribe.analyze.source_resolver import resolve_source
+    from skills.youtube_transcribe.analyze.prompt_builder import build_prompt
+    from skills.youtube_transcribe.analyze import runner as analyze_runner
+    from skills.youtube_transcribe.analyze.output_writer import (
+        analysis_filename, write_analysis,
+    )
+
+    user_prompt = (
+        prompt_inline if prompt_inline is not None
+        else prompt_file.read_text(encoding="utf-8")
+    )
+
+    if backend == "ollama":
+        api_key: str | None = None
+    else:
+        key_lookup = {
+            "gemini": "gemini", "claude": "anthropic", "openai": "openai",
+        }[backend]
+        api_key = get_api_key(key_lookup)
+        if not api_key:
+            console.print(
+                f"[red]--then-analyze: нет ключа для backend={backend}[/red]."
+            )
+            sys.exit(4)
+
+    try:
+        videos = resolve_source(
+            batch_folder, outputs_dir=batch_folder.parent, latest=False,
+        )
+    except FileNotFoundError as e:
+        console.print(f"[red]{e}[/red]")
+        return
+    if not videos:
+        console.print(
+            "[yellow]Batch не содержит транскриптов — analyze пропущен.[/yellow]"
+        )
+        return
+
+    if sys.stdin.isatty():
+        from skills.youtube_transcribe.analyze.picker import (
+            pick_videos, PickerCancelled,
+        )
+        try:
+            chosen = pick_videos(videos)
+        except PickerCancelled:
+            console.print("[yellow]analyze отменён.[/yellow]")
+            return
+    else:
+        chosen = videos
+    if not chosen:
+        console.print("[yellow]Пустой выбор — analyze пропущен.[/yellow]")
+        return
+
+    full_prompt = build_prompt(user_prompt, chosen)
+    response = analyze_runner.run_analysis(
+        full_prompt, backend=backend, api_key=api_key,
+    )
+    if not response.strip():
+        console.print("[red]LLM не вернул ответ (then-analyze).[/red]")
+        return
+
+    now = datetime.now()
+    out_path = batch_folder / analysis_filename(now)
+    target = write_analysis(
+        out_path=out_path, body=response, user_prompt=user_prompt,
+        backend_label=backend, videos=chosen, total_videos=len(videos),
+        now=now,
+    )
+    click.echo(response)
+    console.print(f"[green]✓[/green] then-analyze via {backend}")
+    console.print(f"  [bold]{target}[/bold]")
+
+
+# ---------------------------------------------------------------------------
 # Task 20B — batch sub-command
 # ---------------------------------------------------------------------------
 
@@ -582,6 +677,17 @@ def _infer_source_type(targets: list[ResolvedTarget], from_file: Path | None) ->
               type=click.Path(exists=True), default=None,
               help="Custom vision prompt template (placeholders {language}, "
                    "{transcript_snippet}, {start_sec}, {end_sec}).")
+@click.option("--then-analyze", "then_analyze", is_flag=True, default=False,
+              help="After batch completes, run `analyze` on the produced folder.")
+@click.option("--prompt", "analyze_prompt", default=None,
+              help="Prompt for --then-analyze (verbatim).")
+@click.option("--prompt-file", "analyze_prompt_file",
+              type=click.Path(exists=True, path_type=Path), default=None,
+              help="Read --then-analyze prompt from file.")
+@click.option("--analyze-backend", "analyze_backend",
+              type=click.Choice(["gemini", "claude", "openai", "ollama"]),
+              default="gemini", show_default=True,
+              help="LLM backend for --then-analyze.")
 def batch_cmd(
     inputs: tuple[str, ...],
     from_file: Path | None,
@@ -592,6 +698,18 @@ def batch_cmd(
     **opts,
 ) -> None:
     """Batch-транскрибация: пачка URL, канал/плейлист, или --from-file."""
+    # === v0.6: extract analyze-related options before anything else ===
+    then_analyze = opts.pop("then_analyze", False)
+    analyze_prompt = opts.pop("analyze_prompt", None)
+    analyze_prompt_file = opts.pop("analyze_prompt_file", None)
+    analyze_backend = opts.pop("analyze_backend", "gemini")
+
+    if then_analyze and not (analyze_prompt or analyze_prompt_file):
+        console.print(
+            "[red]--then-analyze требует --prompt или --prompt-file.[/red]"
+        )
+        sys.exit(2)
+
     if not CONFIG_PATH.exists():
         run_wizard()
 
@@ -992,6 +1110,15 @@ def batch_cmd(
         '\n  [dim]Next:[/dim] ask Claude → '
         '"прочти combined.md и сделай заметку по теме"\n'
     )
+
+    # === v0.6: post-batch analyze hook ===
+    if then_analyze and batch_dir.exists():
+        _run_then_analyze(
+            batch_folder=batch_dir,
+            prompt_inline=analyze_prompt,
+            prompt_file=analyze_prompt_file,
+            backend=analyze_backend,
+        )
 
 
 # ---------------------------------------------------------------------------
