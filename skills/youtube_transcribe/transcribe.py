@@ -579,237 +579,31 @@ def _run_then_analyze(
 
 
 # ---------------------------------------------------------------------------
-# Task 20B — batch sub-command
+# Task 13 (v0.7) — core batch pipeline, extracted from batch_cmd
 # ---------------------------------------------------------------------------
 
-@cli.command(name="batch")
-@click.argument("inputs", nargs=-1)
-@click.option("--from-file", "from_file", type=click.Path(path_type=Path),
-              default=None, help="Файл со списком URL (1 на строку, # — комментарий).")
-@click.option("--limit", type=int, default=10, show_default=True,
-              help="Сколько видео взять из канала/плейлиста.")
-@click.option("--batch-name", default=None,
-              help="Имя batch-папки (default: batch_<ts>_<auto-slug>).")
-@click.option("--no-combined", is_flag=True, help="Не создавать combined.md.")
-@click.option("--fail-fast", is_flag=True,
-              help="Остановиться на первой ошибке (default: continue-on-error).")
-@click.option("--backend", type=click.Choice(BACKEND_CHOICES), default=None)
-@click.option("--whisper-model",
-              type=click.Choice(["turbo", "large", "medium", "small", "distil"]),
-              default=None)
-@click.option("--gemini-model", default=None)
-@click.option("--groq-model", default=None)
-@click.option("--deepgram-model", default=None)
-@click.option("--assemblyai-model", default=None)
-@click.option("--language", default=None)
-@click.option("--output-dir", default=None)
-@click.option("--timestamps/--no-timestamps", default=None)
-@click.option("--srt/--no-srt", default=None)
-@click.option("--keep-audio/--delete-audio", default=None)
-@click.option("--cookies-from-browser", "cookies_browser", default=None,
-              type=click.Choice(["", "chrome", "firefox", "edge", "safari"]))
-@click.option("--no-fast-path", is_flag=True)
-@click.option("--device", default=None)
-@click.option("--compute-type", default=None)
-@click.option("--beam-size", type=int, default=None)
-@click.option("--vad/--no-vad", default=None)
-@click.option("--verbose", is_flag=True)
-@click.option("--with-visuals", is_flag=True, help="Shortcut for --vision-backend=gemini.")
-@click.option("--vision-backend", "vision_backend_opt",
-              type=click.Choice(["off", "gemini"]), default=None,
-              help="Visual mode backend. off = audio only.")
-@click.option("--detect-method", "detect_method_opt",
-              type=click.Choice(["keywords_only", "semantic", "hybrid", "llm_full_pass"]),
-              default=None, help="How to find visual moments.")
-@click.option("--frames-per-window", "frames_per_window_opt", type=int, default=None)
-@click.option("--max-windows", "max_windows_opt", type=int, default=None)
-@click.option("--ocr", "ocr_opt", is_flag=True, default=None,
-              help="Run OCR on keyframes (--ocr opt-in).")
-@click.option("--check-quality", is_flag=True, default=None,
-              help="Force quality check + write to manifest.")
-@click.option("--no-quality-check", is_flag=True, default=None,
-              help="Skip quality check even in smart preset.")
-@click.option("--preset", default=None,
-              help="Preset name (eco/smart/standard/premium).")
-@click.option("--config", "config_path", type=click.Path(exists=True), default=None,
-              help="External config TOML.")
-@click.option("--triggers", "triggers_path", type=click.Path(exists=True), default=None,
-              help="External triggers TOML.")
-@click.option("--no-default-triggers", is_flag=True, default=False,
-              help="Disable built-in triggers.")
-# === v0.3 channel filters ===
-@click.option("--since", "since_opt", default=None,
-              help="Filter videos uploaded on or after YYYY-MM-DD.")
-@click.option("--until", "until_opt", default=None,
-              help="Filter videos uploaded on or before YYYY-MM-DD.")
-@click.option("--min-duration", "min_duration_opt", type=int, default=None,
-              help="Minimum video duration in seconds.")
-@click.option("--max-duration", "max_duration_opt", type=int, default=None,
-              help="Maximum video duration in seconds.")
-@click.option("--no-shorts", "no_shorts_opt", is_flag=True, default=False,
-              help="Skip YouTube Shorts (videos <= 60s).")
-@click.option("--skip-existing", "skip_existing_opt", is_flag=True, default=False,
-              help="Skip videos already transcribed (any *_<video_id>.txt under output-dir).")
-@click.option("--workers", "workers_opt", type=int, default=1, show_default=True,
-              help="Parallel workers for batch (cloud backends only — whisper-local "
-                   "and rate-limited APIs may not benefit).")
-@click.option("--search", "search_opt", default=None,
-              help="YouTube search query — fetch top --limit results via yt-dlp "
-                   "(no API key needed).")
-@click.option("--correct-asr", "correct_asr_opt", is_flag=True, default=None,
-              help="Run LLM-based correction on low-quality transcripts (opt-in).")
-@click.option("--correct-asr-backend", "correct_asr_backend_opt",
-              type=click.Choice(["gemini", "claude", "openai", "ollama"]), default=None,
-              help="LLM provider for ASR correction (default: gemini; "
-                   "ollama=local llama via `ollama serve`).")
-@click.option("--diarize", "diarize_opt", is_flag=True, default=None,
-              help="Run speaker diarization via pyannote.audio "
-                   "(needs HF_TOKEN + `[diarization]` extra).")
-@click.option("--translate-to", "translate_to_opt", default=None,
-              help="Translate transcript to language (ISO code or name).")
-@click.option("--translate-backend", "translate_backend_opt",
-              type=click.Choice(["gemini", "claude", "openai", "ollama"]), default=None,
-              help="LLM provider for translation (default: gemini).")
-@click.option("--output-format", "output_format_opt",
-              type=click.Choice(["all", "txt", "srt", "json"]),
-              default=None, multiple=True,
-              help="Output format(s). Repeat for multiple. Default: txt+srt.")
-@click.option("--vision-prompt", "vision_prompt_path_opt",
-              type=click.Path(exists=True), default=None,
-              help="Custom vision prompt template (placeholders {language}, "
-                   "{transcript_snippet}, {start_sec}, {end_sec}).")
-@click.option("--then-analyze", "then_analyze", is_flag=True, default=False,
-              help="After batch completes, run `analyze` on the produced folder.")
-@click.option("--prompt", "analyze_prompt", default=None,
-              help="Prompt for --then-analyze (verbatim).")
-@click.option("--prompt-file", "analyze_prompt_file",
-              type=click.Path(exists=True, path_type=Path), default=None,
-              help="Read --then-analyze prompt from file.")
-@click.option("--analyze-backend", "analyze_backend",
-              type=click.Choice(["gemini", "claude", "openai", "ollama"]),
-              default="gemini", show_default=True,
-              help="LLM backend for --then-analyze.")
-def batch_cmd(
-    inputs: tuple[str, ...],
-    from_file: Path | None,
-    limit: int,
-    batch_name: str | None,
-    no_combined: bool,
-    fail_fast: bool,
-    **opts,
-) -> None:
-    """Batch-транскрибация: пачка URL, канал/плейлист, или --from-file."""
-    # === v0.6: extract analyze-related options before anything else ===
-    then_analyze = opts.pop("then_analyze", False)
-    analyze_prompt = opts.pop("analyze_prompt", None)
-    analyze_prompt_file = opts.pop("analyze_prompt_file", None)
-    analyze_backend = opts.pop("analyze_backend", "gemini")
+def _run_batch_pipeline(
+    *,
+    targets,           # list[ResolvedTarget] — already resolved
+    cfg,               # Config from load_config()
+    opts,              # dict — flat dict of all options (replaces opts.get(...))
+) -> Path | None:
+    """Core batch pipeline. Returns Path to batch folder or None.
 
-    if then_analyze and not (analyze_prompt or analyze_prompt_file):
-        console.print(
-            "[red]--then-analyze требует --prompt или --prompt-file.[/red]"
-        )
-        sys.exit(2)
+    All v0.6 batch_cmd side-effects (combined.md, manifest.json,
+    errors.log, videos/, final console summary) preserved byte-for-byte.
+    """
+    if not targets:
+        return None
 
-    if not CONFIG_PATH.exists():
-        run_wizard()
-
-    cfg = load_config(CONFIG_PATH)
-    cfg = _override_config(cfg, opts)
-    if opts.get("no_fast_path"):
-        cfg.fast_path_enabled = False
-
-    # === v0.2 preset / config / overrides resolution (once per batch) ===
     from skills.youtube_transcribe.pipeline_v02 import apply_v02_stages
-    from skills.youtube_transcribe.presets.loader import (
-        list_preset_names,
-        resolve_with_env_checks,
-    )
 
-    cli_overrides: dict = {}
-    if opts.get("vision_backend_opt") is not None:
-        cli_overrides["vision_backend"] = opts["vision_backend_opt"]
-    if opts.get("with_visuals"):
-        cli_overrides["vision_backend"] = "gemini"
-    if opts.get("detect_method_opt") is not None:
-        cli_overrides["detect_method"] = opts["detect_method_opt"]
-    if opts.get("frames_per_window_opt") is not None:
-        cli_overrides["frames_per_window"] = opts["frames_per_window_opt"]
-    if opts.get("max_windows_opt") is not None:
-        cli_overrides["max_windows_per_video"] = opts["max_windows_opt"]
-    if opts.get("ocr_opt") is True:
-        cli_overrides["ocr"] = True
-    if opts.get("check_quality") is True:
-        cli_overrides["quality_check"] = True
-    if opts.get("no_quality_check") is True:
-        cli_overrides["quality_check"] = False
-    if opts.get("correct_asr_opt") is True:
-        cli_overrides["correct_asr"] = True
-        cli_overrides.setdefault("quality_check", True)
-    if opts.get("correct_asr_backend_opt"):
-        cli_overrides["correct_asr_backend"] = opts["correct_asr_backend_opt"]
-    if opts.get("diarize_opt") is True:
-        cli_overrides["diarize"] = True
-    if opts.get("translate_to_opt"):
-        cli_overrides["translate_to"] = opts["translate_to_opt"]
-    if opts.get("translate_backend_opt"):
-        cli_overrides["translate_backend"] = opts["translate_backend_opt"]
-    if opts.get("vision_prompt_path_opt"):
-        cli_overrides["vision_prompt_path"] = opts["vision_prompt_path_opt"]
-
-    preset_name = opts.get("preset") or "smart"
-    if preset_name not in list_preset_names():
-        console.print(f"[red]Unknown preset: {preset_name}[/red]. Known: {list_preset_names()}")
-        sys.exit(2)
-
-    config_path_opt = opts.get("config_path")
-    cfg_v02, info_msgs = resolve_with_env_checks(
-        preset_name,
-        external_config_path=Path(config_path_opt) if config_path_opt else None,
-        cli_overrides=cli_overrides,
-    )
-    for msg in info_msgs:
-        console.print(msg, style="dim")
-
-    # === v0.3 channel filters ===
-    from datetime import date as _date_cls
-
-    def _parse_date(s: str | None, flag_name: str):
-        if s is None:
-            return None
-        try:
-            return _date_cls.fromisoformat(s)
-        except ValueError:
-            console.print(
-                f"[red]--{flag_name} expects YYYY-MM-DD format, got '{s}'[/red]"
-            )
-            sys.exit(2)
-
-    filters = ResolverFilters(
-        limit=limit,
-        since=_parse_date(opts.get("since_opt"), "since"),
-        until=_parse_date(opts.get("until_opt"), "until"),
-        min_duration_sec=opts.get("min_duration_opt"),
-        max_duration_sec=opts.get("max_duration_opt"),
-        include_shorts=not opts.get("no_shorts_opt", False),
-        search_query=opts.get("search_opt"),
-    )
-    targets, resolve_failures = resolve(list(inputs), from_file, filters)
-
-    # Convert resolve failures into BatchFailure entries (stage="resolve")
-    initial_failures: list[BatchFailure] = []
-    for rf in resolve_failures:
-        initial_failures.append(BatchFailure(
-            index=len(initial_failures) + 1,
-            url=rf.url,
-            stage="resolve",
-            error_text=rf.error,
-            hint=_diagnose_failure_hint("resolve", rf.error),
-        ))
-
-    if not targets and not initial_failures:
-        console.print("[yellow]Нет ни одного видео по этому входу.[/yellow]")
-        sys.exit(0)
+    from_file = opts.get("from_file")
+    batch_name = opts.get("batch_name")
+    no_combined = bool(opts.get("no_combined", False))
+    fail_fast = bool(opts.get("fail_fast", False))
+    initial_failures: list[BatchFailure] = list(opts.get("initial_failures") or [])
+    cfg_v02 = opts.get("cfg_v02") or {}
 
     output_root = Path(opts.get("output_dir") or cfg.output_dir).expanduser()
     name = batch_name or _auto_batch_name(targets, from_file)
@@ -1112,8 +906,257 @@ def batch_cmd(
         '"прочти combined.md и сделай заметку по теме"\n'
     )
 
+    return batch_dir
+
+
+# ---------------------------------------------------------------------------
+# Task 20B — batch sub-command
+# ---------------------------------------------------------------------------
+
+@cli.command(name="batch")
+@click.argument("inputs", nargs=-1)
+@click.option("--from-file", "from_file", type=click.Path(path_type=Path),
+              default=None, help="Файл со списком URL (1 на строку, # — комментарий).")
+@click.option("--limit", type=int, default=10, show_default=True,
+              help="Сколько видео взять из канала/плейлиста.")
+@click.option("--batch-name", default=None,
+              help="Имя batch-папки (default: batch_<ts>_<auto-slug>).")
+@click.option("--no-combined", is_flag=True, help="Не создавать combined.md.")
+@click.option("--fail-fast", is_flag=True,
+              help="Остановиться на первой ошибке (default: continue-on-error).")
+@click.option("--backend", type=click.Choice(BACKEND_CHOICES), default=None)
+@click.option("--whisper-model",
+              type=click.Choice(["turbo", "large", "medium", "small", "distil"]),
+              default=None)
+@click.option("--gemini-model", default=None)
+@click.option("--groq-model", default=None)
+@click.option("--deepgram-model", default=None)
+@click.option("--assemblyai-model", default=None)
+@click.option("--language", default=None)
+@click.option("--output-dir", default=None)
+@click.option("--timestamps/--no-timestamps", default=None)
+@click.option("--srt/--no-srt", default=None)
+@click.option("--keep-audio/--delete-audio", default=None)
+@click.option("--cookies-from-browser", "cookies_browser", default=None,
+              type=click.Choice(["", "chrome", "firefox", "edge", "safari"]))
+@click.option("--no-fast-path", is_flag=True)
+@click.option("--device", default=None)
+@click.option("--compute-type", default=None)
+@click.option("--beam-size", type=int, default=None)
+@click.option("--vad/--no-vad", default=None)
+@click.option("--verbose", is_flag=True)
+@click.option("--with-visuals", is_flag=True, help="Shortcut for --vision-backend=gemini.")
+@click.option("--vision-backend", "vision_backend_opt",
+              type=click.Choice(["off", "gemini"]), default=None,
+              help="Visual mode backend. off = audio only.")
+@click.option("--detect-method", "detect_method_opt",
+              type=click.Choice(["keywords_only", "semantic", "hybrid", "llm_full_pass"]),
+              default=None, help="How to find visual moments.")
+@click.option("--frames-per-window", "frames_per_window_opt", type=int, default=None)
+@click.option("--max-windows", "max_windows_opt", type=int, default=None)
+@click.option("--ocr", "ocr_opt", is_flag=True, default=None,
+              help="Run OCR on keyframes (--ocr opt-in).")
+@click.option("--check-quality", is_flag=True, default=None,
+              help="Force quality check + write to manifest.")
+@click.option("--no-quality-check", is_flag=True, default=None,
+              help="Skip quality check even in smart preset.")
+@click.option("--preset", default=None,
+              help="Preset name (eco/smart/standard/premium).")
+@click.option("--config", "config_path", type=click.Path(exists=True), default=None,
+              help="External config TOML.")
+@click.option("--triggers", "triggers_path", type=click.Path(exists=True), default=None,
+              help="External triggers TOML.")
+@click.option("--no-default-triggers", is_flag=True, default=False,
+              help="Disable built-in triggers.")
+# === v0.3 channel filters ===
+@click.option("--since", "since_opt", default=None,
+              help="Filter videos uploaded on or after YYYY-MM-DD.")
+@click.option("--until", "until_opt", default=None,
+              help="Filter videos uploaded on or before YYYY-MM-DD.")
+@click.option("--min-duration", "min_duration_opt", type=int, default=None,
+              help="Minimum video duration in seconds.")
+@click.option("--max-duration", "max_duration_opt", type=int, default=None,
+              help="Maximum video duration in seconds.")
+@click.option("--no-shorts", "no_shorts_opt", is_flag=True, default=False,
+              help="Skip YouTube Shorts (videos <= 60s).")
+@click.option("--skip-existing", "skip_existing_opt", is_flag=True, default=False,
+              help="Skip videos already transcribed (any *_<video_id>.txt under output-dir).")
+@click.option("--workers", "workers_opt", type=int, default=1, show_default=True,
+              help="Parallel workers for batch (cloud backends only — whisper-local "
+                   "and rate-limited APIs may not benefit).")
+@click.option("--search", "search_opt", default=None,
+              help="YouTube search query — fetch top --limit results via yt-dlp "
+                   "(no API key needed).")
+@click.option("--correct-asr", "correct_asr_opt", is_flag=True, default=None,
+              help="Run LLM-based correction on low-quality transcripts (opt-in).")
+@click.option("--correct-asr-backend", "correct_asr_backend_opt",
+              type=click.Choice(["gemini", "claude", "openai", "ollama"]), default=None,
+              help="LLM provider for ASR correction (default: gemini; "
+                   "ollama=local llama via `ollama serve`).")
+@click.option("--diarize", "diarize_opt", is_flag=True, default=None,
+              help="Run speaker diarization via pyannote.audio "
+                   "(needs HF_TOKEN + `[diarization]` extra).")
+@click.option("--translate-to", "translate_to_opt", default=None,
+              help="Translate transcript to language (ISO code or name).")
+@click.option("--translate-backend", "translate_backend_opt",
+              type=click.Choice(["gemini", "claude", "openai", "ollama"]), default=None,
+              help="LLM provider for translation (default: gemini).")
+@click.option("--output-format", "output_format_opt",
+              type=click.Choice(["all", "txt", "srt", "json"]),
+              default=None, multiple=True,
+              help="Output format(s). Repeat for multiple. Default: txt+srt.")
+@click.option("--vision-prompt", "vision_prompt_path_opt",
+              type=click.Path(exists=True), default=None,
+              help="Custom vision prompt template (placeholders {language}, "
+                   "{transcript_snippet}, {start_sec}, {end_sec}).")
+@click.option("--then-analyze", "then_analyze", is_flag=True, default=False,
+              help="After batch completes, run `analyze` on the produced folder.")
+@click.option("--prompt", "analyze_prompt", default=None,
+              help="Prompt for --then-analyze (verbatim).")
+@click.option("--prompt-file", "analyze_prompt_file",
+              type=click.Path(exists=True, path_type=Path), default=None,
+              help="Read --then-analyze prompt from file.")
+@click.option("--analyze-backend", "analyze_backend",
+              type=click.Choice(["gemini", "claude", "openai", "ollama"]),
+              default="gemini", show_default=True,
+              help="LLM backend for --then-analyze.")
+def batch_cmd(
+    inputs: tuple[str, ...],
+    from_file: Path | None,
+    limit: int,
+    batch_name: str | None,
+    no_combined: bool,
+    fail_fast: bool,
+    **opts,
+) -> None:
+    """Batch-транскрибация: пачка URL, канал/плейлист, или --from-file."""
+    # === v0.6: extract analyze-related options before anything else ===
+    then_analyze = opts.pop("then_analyze", False)
+    analyze_prompt = opts.pop("analyze_prompt", None)
+    analyze_prompt_file = opts.pop("analyze_prompt_file", None)
+    analyze_backend = opts.pop("analyze_backend", "gemini")
+
+    if then_analyze and not (analyze_prompt or analyze_prompt_file):
+        console.print(
+            "[red]--then-analyze требует --prompt или --prompt-file.[/red]"
+        )
+        sys.exit(2)
+
+    if not CONFIG_PATH.exists():
+        run_wizard()
+
+    cfg = load_config(CONFIG_PATH)
+    cfg = _override_config(cfg, opts)
+    if opts.get("no_fast_path"):
+        cfg.fast_path_enabled = False
+
+    # === v0.2 preset / config / overrides resolution (once per batch) ===
+    from skills.youtube_transcribe.presets.loader import (
+        list_preset_names,
+        resolve_with_env_checks,
+    )
+
+    cli_overrides: dict = {}
+    if opts.get("vision_backend_opt") is not None:
+        cli_overrides["vision_backend"] = opts["vision_backend_opt"]
+    if opts.get("with_visuals"):
+        cli_overrides["vision_backend"] = "gemini"
+    if opts.get("detect_method_opt") is not None:
+        cli_overrides["detect_method"] = opts["detect_method_opt"]
+    if opts.get("frames_per_window_opt") is not None:
+        cli_overrides["frames_per_window"] = opts["frames_per_window_opt"]
+    if opts.get("max_windows_opt") is not None:
+        cli_overrides["max_windows_per_video"] = opts["max_windows_opt"]
+    if opts.get("ocr_opt") is True:
+        cli_overrides["ocr"] = True
+    if opts.get("check_quality") is True:
+        cli_overrides["quality_check"] = True
+    if opts.get("no_quality_check") is True:
+        cli_overrides["quality_check"] = False
+    if opts.get("correct_asr_opt") is True:
+        cli_overrides["correct_asr"] = True
+        cli_overrides.setdefault("quality_check", True)
+    if opts.get("correct_asr_backend_opt"):
+        cli_overrides["correct_asr_backend"] = opts["correct_asr_backend_opt"]
+    if opts.get("diarize_opt") is True:
+        cli_overrides["diarize"] = True
+    if opts.get("translate_to_opt"):
+        cli_overrides["translate_to"] = opts["translate_to_opt"]
+    if opts.get("translate_backend_opt"):
+        cli_overrides["translate_backend"] = opts["translate_backend_opt"]
+    if opts.get("vision_prompt_path_opt"):
+        cli_overrides["vision_prompt_path"] = opts["vision_prompt_path_opt"]
+
+    preset_name = opts.get("preset") or "smart"
+    if preset_name not in list_preset_names():
+        console.print(f"[red]Unknown preset: {preset_name}[/red]. Known: {list_preset_names()}")
+        sys.exit(2)
+
+    config_path_opt = opts.get("config_path")
+    cfg_v02, info_msgs = resolve_with_env_checks(
+        preset_name,
+        external_config_path=Path(config_path_opt) if config_path_opt else None,
+        cli_overrides=cli_overrides,
+    )
+    for msg in info_msgs:
+        console.print(msg, style="dim")
+
+    # === v0.3 channel filters ===
+    from datetime import date as _date_cls
+
+    def _parse_date(s: str | None, flag_name: str):
+        if s is None:
+            return None
+        try:
+            return _date_cls.fromisoformat(s)
+        except ValueError:
+            console.print(
+                f"[red]--{flag_name} expects YYYY-MM-DD format, got '{s}'[/red]"
+            )
+            sys.exit(2)
+
+    filters = ResolverFilters(
+        limit=limit,
+        since=_parse_date(opts.get("since_opt"), "since"),
+        until=_parse_date(opts.get("until_opt"), "until"),
+        min_duration_sec=opts.get("min_duration_opt"),
+        max_duration_sec=opts.get("max_duration_opt"),
+        include_shorts=not opts.get("no_shorts_opt", False),
+        search_query=opts.get("search_opt"),
+    )
+    targets, resolve_failures = resolve(list(inputs), from_file, filters)
+
+    # Convert resolve failures into BatchFailure entries (stage="resolve")
+    initial_failures: list[BatchFailure] = []
+    for rf in resolve_failures:
+        initial_failures.append(BatchFailure(
+            index=len(initial_failures) + 1,
+            url=rf.url,
+            stage="resolve",
+            error_text=rf.error,
+            hint=_diagnose_failure_hint("resolve", rf.error),
+        ))
+
+    if not targets and not initial_failures:
+        console.print("[yellow]Нет ни одного видео по этому входу.[/yellow]")
+        sys.exit(0)
+
+    # Delegate the post-resolution pipeline (download → transcribe → write outputs
+    # → final summary) to the reusable module-level function. v0.7 callers
+    # (research, subscribes) drive the same function directly without Click.
+    pipeline_opts = {
+        **opts,
+        "from_file": from_file,
+        "batch_name": batch_name,
+        "no_combined": no_combined,
+        "fail_fast": fail_fast,
+        "initial_failures": initial_failures,
+        "cfg_v02": cfg_v02,
+    }
+    batch_dir = _run_batch_pipeline(targets=targets, cfg=cfg, opts=pipeline_opts)
+
     # === v0.6: post-batch analyze hook ===
-    if then_analyze and batch_dir.exists():
+    if then_analyze and batch_dir is not None and batch_dir.exists():
         _run_then_analyze(
             batch_folder=batch_dir,
             prompt_inline=analyze_prompt,
