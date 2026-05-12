@@ -177,3 +177,145 @@ def test_pipeline_in_subscribes_uses_rss(tmp_path: Path):
         )
     # search_multi_language NOT called when in_subscribes=True
     mock_search.assert_not_called()
+
+
+def test_pipeline_status_partial_when_analyze_produced_no_file(tmp_path: Path):
+    """If _run_then_analyze runs but didn't create analysis-*.md →
+    history status='partial'."""
+    from skills.youtube_transcribe.research.pipeline import run_research
+
+    batch_dir = tmp_path / "no_analysis_batch"
+    batch_dir.mkdir()
+    # NOTE: don't create analysis-*.md inside → simulates LLM failure
+
+    captured = {}
+
+    def fake_append(**kwargs):
+        captured.update(kwargs)
+
+    with patch(
+        "skills.youtube_transcribe.research.pipeline.build_queries_per_language",
+        return_value={"en": "x"},
+    ), patch(
+        "skills.youtube_transcribe.research.pipeline.search_multi_language",
+        return_value=[_candidate()],
+    ), patch(
+        "skills.youtube_transcribe.research.pipeline._run_batch_pipeline",
+        return_value=batch_dir,
+    ), patch(
+        "skills.youtube_transcribe.research.pipeline._run_then_analyze",
+    ), patch(
+        "skills.youtube_transcribe.research.pipeline._stdin_is_tty",
+        return_value=False,
+    ), patch(
+        "skills.youtube_transcribe.research.pipeline._append_history",
+        side_effect=fake_append,
+    ), patch(
+        "skills.youtube_transcribe.research.pipeline._load_default_cfg",
+    ):
+        run_research(
+            query="x", queries_by_language=None,
+            languages=["en"], days=30, since=None, until=None, limit=10,
+            match=None, filter_text=None, in_subscribes=False, group=None,
+            yes=True, no_analyze=False,            # ← analyze ON
+            prompt="please", prompt_file=None,
+            analyze_backend="gemini", filter_backend="gemini",
+            translate_backend="gemini",
+            ollama_model="llama3.2:3b", ollama_host="http://localhost:11434",
+            no_stdout=False, output_dir=str(tmp_path),
+            batch_name="x", api_keys={}, batch_opts={},
+        )
+
+    assert captured.get("status") == "partial"
+
+
+def test_pipeline_status_failed_when_batch_returned_none(tmp_path: Path):
+    """If _run_batch_pipeline returns None → status='failed'."""
+    from skills.youtube_transcribe.research.pipeline import run_research
+
+    captured = {}
+
+    def fake_append(**kwargs):
+        captured.update(kwargs)
+
+    with patch(
+        "skills.youtube_transcribe.research.pipeline.build_queries_per_language",
+        return_value={"en": "x"},
+    ), patch(
+        "skills.youtube_transcribe.research.pipeline.search_multi_language",
+        return_value=[_candidate()],
+    ), patch(
+        "skills.youtube_transcribe.research.pipeline._run_batch_pipeline",
+        return_value=None,                          # ← transcribe failed
+    ), patch(
+        "skills.youtube_transcribe.research.pipeline._stdin_is_tty",
+        return_value=False,
+    ), patch(
+        "skills.youtube_transcribe.research.pipeline._append_history",
+        side_effect=fake_append,
+    ), patch(
+        "skills.youtube_transcribe.research.pipeline._load_default_cfg",
+    ):
+        run_research(
+            query="x", queries_by_language=None,
+            languages=["en"], days=30, since=None, until=None, limit=10,
+            match=None, filter_text=None, in_subscribes=False, group=None,
+            yes=True, no_analyze=True,
+            prompt=None, prompt_file=None,
+            analyze_backend="gemini", filter_backend="gemini",
+            translate_backend="gemini",
+            ollama_model="llama3.2:3b", ollama_host="http://localhost:11434",
+            no_stdout=False, output_dir=str(tmp_path),
+            batch_name="x", api_keys={}, batch_opts={},
+        )
+
+    assert captured.get("status") == "failed"
+
+
+def test_pipeline_status_ok_on_happy_path(tmp_path: Path):
+    """Successful analyze (analysis-*.md present) → status='ok'."""
+    from skills.youtube_transcribe.research.pipeline import run_research
+
+    batch_dir = tmp_path / "good_batch"
+    batch_dir.mkdir()
+    (batch_dir / "analysis-2026-05-12-1400.md").write_text("ok", encoding="utf-8")
+
+    captured = {}
+
+    def fake_append(**kwargs):
+        captured.update(kwargs)
+
+    with patch(
+        "skills.youtube_transcribe.research.pipeline.build_queries_per_language",
+        return_value={"en": "x"},
+    ), patch(
+        "skills.youtube_transcribe.research.pipeline.search_multi_language",
+        return_value=[_candidate()],
+    ), patch(
+        "skills.youtube_transcribe.research.pipeline._run_batch_pipeline",
+        return_value=batch_dir,
+    ), patch(
+        "skills.youtube_transcribe.research.pipeline._run_then_analyze",
+    ), patch(
+        "skills.youtube_transcribe.research.pipeline._stdin_is_tty",
+        return_value=False,
+    ), patch(
+        "skills.youtube_transcribe.research.pipeline._append_history",
+        side_effect=fake_append,
+    ), patch(
+        "skills.youtube_transcribe.research.pipeline._load_default_cfg",
+    ):
+        run_research(
+            query="x", queries_by_language=None,
+            languages=["en"], days=30, since=None, until=None, limit=10,
+            match=None, filter_text=None, in_subscribes=False, group=None,
+            yes=True, no_analyze=False,
+            prompt="please", prompt_file=None,
+            analyze_backend="gemini", filter_backend="gemini",
+            translate_backend="gemini",
+            ollama_model="llama3.2:3b", ollama_host="http://localhost:11434",
+            no_stdout=False, output_dir=str(tmp_path),
+            batch_name="x", api_keys={}, batch_opts={},
+        )
+
+    assert captured.get("status") == "ok"

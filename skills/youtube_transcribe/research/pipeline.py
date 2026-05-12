@@ -143,13 +143,30 @@ def run_research(
     batch_dir = _run_batch_pipeline(targets=targets, cfg=cfg, opts=opts)
 
     # 8. Analyze (unless --no-analyze)
+    analyze_attempted = False
+    analyze_produced = False
     if not no_analyze and batch_dir is not None and batch_dir.exists():
+        analyze_attempted = True
         _run_then_analyze(
             batch_folder=batch_dir,
             prompt_inline=prompt,
             prompt_file=prompt_file,
             backend=analyze_backend,
         )
+        # _run_then_analyze swallows errors and returns silently.
+        # Detect success by the presence of an analysis-*.md artefact.
+        analyze_produced = any(batch_dir.glob("analysis-*.md"))
+
+    # Status semantics:
+    #   batch_dir is None       → "failed"  (transcription stage produced nothing)
+    #   analyze attempted but no analysis-*.md → "partial"
+    #   otherwise                              → "ok"
+    if batch_dir is None:
+        status = "failed"
+    elif analyze_attempted and not analyze_produced:
+        status = "partial"
+    else:
+        status = "ok"
 
     # 9. History entry
     _append_history(
@@ -159,6 +176,7 @@ def run_research(
         videos_found=len(candidates),
         prompt=prompt or (prompt_file.read_text() if prompt_file else None),
         analyze_backend=None if no_analyze else analyze_backend,
+        status=status,
     )
 
     return batch_dir
@@ -251,7 +269,7 @@ def _load_default_cfg():
 
 def _append_history(
     *, type_: str, query, group, languages, output,
-    videos_found, prompt, analyze_backend,
+    videos_found, prompt, analyze_backend, status: str = "ok",
 ) -> None:
     p = Path.home() / ".youtube-transcribe" / "history.toml"
     run_id = (
@@ -265,6 +283,6 @@ def _append_history(
         output=output, videos_found=videos_found,
         analyze_backend=analyze_backend,
         analyze_prompt_preview=((prompt or "")[:200]) if prompt else None,
-        status="ok", languages=languages or [],
+        status=status, languages=languages or [],
     )
     append_run(p, entry)

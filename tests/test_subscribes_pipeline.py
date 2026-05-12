@@ -133,6 +133,107 @@ def test_override_days_skips_state_update(tmp_path: Path):
     mock_state.assert_not_called()
 
 
+def test_no_rss_uses_yt_dlp_fallback(tmp_path: Path):
+    """--no-rss flag routes per-channel fetch through yt-dlp, not RSS."""
+    from skills.youtube_transcribe.subscribes.pipeline import (
+        run_subscribes_update, _ChannelVideo,
+    )
+    sub_path = tmp_path / "subscribes.toml"
+    ch = _channel(last_id="oldvid", last_pub="2026-05-10T00:00:00+00:00")
+    fake_yt_dlp_entries = [
+        _ChannelVideo(
+            video_id="yt1", url="https://www.youtube.com/watch?v=yt1",
+            title="Long video", duration_sec=900,
+            published=datetime(2026, 5, 12, tzinfo=timezone.utc),
+        ),
+    ]
+
+    with patch(
+        "skills.youtube_transcribe.subscribes.pipeline.load_subscribes",
+        return_value=[ch],
+    ), patch(
+        "skills.youtube_transcribe.subscribes.pipeline.fetch_rss",
+    ) as mock_rss, patch(
+        "skills.youtube_transcribe.subscribes.pipeline._fetch_via_yt_dlp",
+        return_value=fake_yt_dlp_entries,
+    ) as mock_yt, patch(
+        "skills.youtube_transcribe.subscribes.pipeline._run_batch_pipeline",
+        return_value=tmp_path / "out",
+    ), patch(
+        "skills.youtube_transcribe.subscribes.pipeline._stdin_is_tty",
+        return_value=False,
+    ), patch(
+        "skills.youtube_transcribe.subscribes.pipeline._append_history",
+    ):
+        run_subscribes_update(
+            subscribes_path=sub_path,
+            group=None, days=None, since=None, until=None,
+            match=None, filter_text=None,
+            no_rss=True,  # ← force yt-dlp path
+            yes=True, no_analyze=True,
+            prompt=None, prompt_file=None,
+            analyze_backend="gemini", filter_backend="gemini",
+            ollama_model="llama3.2:3b", ollama_host="http://localhost:11434",
+            no_stdout=False, output_dir=str(tmp_path),
+            api_keys={}, batch_opts={},
+        )
+    # RSS not called when --no-rss is set
+    mock_rss.assert_not_called()
+    # yt-dlp called instead, with the channel URL
+    mock_yt.assert_called_once()
+
+
+def test_no_rss_returns_duration(tmp_path: Path):
+    """When --no-rss is used, candidates carry duration_sec from yt-dlp."""
+    from skills.youtube_transcribe.subscribes.pipeline import (
+        run_subscribes_update, _ChannelVideo,
+    )
+    sub_path = tmp_path / "subscribes.toml"
+    ch = _channel(last_id="oldvid", last_pub="2026-05-10T00:00:00+00:00")
+    fake_yt_dlp_entries = [
+        _ChannelVideo(
+            video_id="yt1", url="u", title="T", duration_sec=720,
+            published=datetime(2026, 5, 12, tzinfo=timezone.utc),
+        ),
+    ]
+
+    captured_targets = {}
+
+    def capture_batch(*, targets, **kw):
+        captured_targets["targets"] = list(targets)
+        return tmp_path / "out"
+
+    with patch(
+        "skills.youtube_transcribe.subscribes.pipeline.load_subscribes",
+        return_value=[ch],
+    ), patch(
+        "skills.youtube_transcribe.subscribes.pipeline._fetch_via_yt_dlp",
+        return_value=fake_yt_dlp_entries,
+    ), patch(
+        "skills.youtube_transcribe.subscribes.pipeline._run_batch_pipeline",
+        side_effect=capture_batch,
+    ), patch(
+        "skills.youtube_transcribe.subscribes.pipeline._stdin_is_tty",
+        return_value=False,
+    ), patch(
+        "skills.youtube_transcribe.subscribes.pipeline._append_history",
+    ):
+        run_subscribes_update(
+            subscribes_path=sub_path,
+            group=None, days=None, since=None, until=None,
+            match=None, filter_text=None,
+            no_rss=True, yes=True, no_analyze=True,
+            prompt=None, prompt_file=None,
+            analyze_backend="gemini", filter_backend="gemini",
+            ollama_model="llama3.2:3b", ollama_host="http://localhost:11434",
+            no_stdout=False, output_dir=str(tmp_path),
+            api_keys={}, batch_opts={},
+        )
+    targets = captured_targets["targets"]
+    assert len(targets) == 1
+    assert targets[0].duration_sec == 720
+
+
 def test_group_filters_channels(tmp_path: Path):
     """--group ai-research should only fetch RSS for matching channels."""
     from skills.youtube_transcribe.subscribes.pipeline import run_subscribes_update

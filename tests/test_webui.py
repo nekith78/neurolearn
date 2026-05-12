@@ -6,8 +6,23 @@ sub-command exists.
 """
 import pytest
 
-# Skip the whole module if gradio isn't installed
-gradio = pytest.importorskip("gradio")
+# Skip the whole module if gradio isn't fully installed.
+# `importorskip` alone misses the case where a leftover empty
+# `gradio/` directory creates a Python namespace package — the import
+# succeeds but `gradio.Blocks` doesn't exist. Check for a real attribute.
+try:
+    import gradio  # noqa: F401
+    if not hasattr(gradio, "Blocks"):
+        pytest.skip(
+            "gradio package present but incomplete "
+            "(install via `uv sync --extra webui`)",
+            allow_module_level=True,
+        )
+except ImportError:
+    pytest.skip(
+        "gradio not installed (install via `uv sync --extra webui`)",
+        allow_module_level=True,
+    )
 
 
 def test_build_ui_returns_blocks():

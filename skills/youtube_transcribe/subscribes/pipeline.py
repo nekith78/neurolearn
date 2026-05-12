@@ -12,6 +12,7 @@ First-run for channels without state: requires explicit --days or
 from __future__ import annotations
 
 import uuid
+from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from pathlib import Path
 
@@ -44,7 +45,53 @@ class SubscribesError(Exception):
     """Pipeline-level error (e.g. missing initial state)."""
 
 
+@dataclass
+class _ChannelVideo:
+    """Unified shape for entries from RSS or yt-dlp channel scrape."""
+    video_id: str
+    url: str
+    title: str
+    duration_sec: int | None  # None on RSS path; populated by yt-dlp path
+    published: datetime
+
+
 _console = Console()
+
+
+def _fetch_via_yt_dlp(channel_url: str, *, limit: int = 30) -> list[_ChannelVideo]:
+    """yt-dlp fallback for `--no-rss`. Returns entries with `duration_sec`
+    populated (RSS path leaves it None).
+
+    Slower than RSS (~1-3s per channel vs ~100ms) but the only way to
+    get duration metadata, which is needed when downstream code filters
+    by --min-duration / --max-duration.
+    """
+    try:
+        from skills.youtube_transcribe.utils.downloader import (
+            expand_channel_or_playlist,
+        )
+        entries = expand_channel_or_playlist(channel_url, limit=limit)
+    except Exception as e:
+        _console.print(
+            f"[yellow]yt-dlp fetch failed for {channel_url}: {e}[/yellow]"
+        )
+        return []
+
+    out: list[_ChannelVideo] = []
+    for e in entries:
+        if e.upload_date is None:
+            # Without a date we can't apply the date window — skip.
+            continue
+        # ChannelEntry.upload_date is a date; lift to datetime at UTC midnight
+        # so it's comparable with RSS-path published datetimes.
+        pub = datetime.combine(
+            e.upload_date, datetime.min.time(), tzinfo=timezone.utc,
+        )
+        out.append(_ChannelVideo(
+            video_id=e.video_id, url=e.url, title=e.title or "",
+            duration_sec=e.duration_sec, published=pub,
+        ))
+    return out
 
 
 def run_subscribes_update(
@@ -99,12 +146,18 @@ def run_subscribes_update(
         if not ch.channel_id:
             continue
 
+        # Source: RSS (default, fast, no duration) or yt-dlp (slow but
+        # returns duration_sec — required for duration filters).
         if no_rss:
-            _console.print(f"[yellow]--no-rss not yet implemented for "
-                           f"{ch.handle}; skipping.[/yellow]")
-            continue
-
-        entries = fetch_rss(ch.channel_id)
+            entries = _fetch_via_yt_dlp(ch.url)
+        else:
+            entries = [
+                _ChannelVideo(
+                    video_id=e.video_id, url=e.url, title=e.title,
+                    duration_sec=None, published=e.published,
+                )
+                for e in fetch_rss(ch.channel_id)
+            ]
         if not entries:
             continue
 
@@ -113,7 +166,7 @@ def run_subscribes_update(
         else:
             cutoff = _parse_iso(ch.last_seen_published) if ch.last_seen_published else None
             if cutoff is not None:
-                entries = entries_after(entries, cutoff)
+                entries = [e for e in entries if e.published > cutoff]
 
         if not entries:
             continue
@@ -122,7 +175,7 @@ def run_subscribes_update(
             candidates.append(SearchCandidate(
                 video_id=e.video_id, url=e.url, title=e.title,
                 channel=ch.handle or ch.url,
-                duration_sec=None,
+                duration_sec=e.duration_sec,
                 upload_date=e.published.date(),
                 source_language="(subscribes)",
             ))
@@ -186,23 +239,35 @@ def run_subscribes_update(
     }
     batch_dir = _run_batch_pipeline(targets=targets, cfg=cfg, opts=opts)
 
+    analyze_attempted = False
+    analyze_produced = False
     if not no_analyze and batch_dir is not None and batch_dir.exists():
+        analyze_attempted = True
         _run_then_analyze(
             batch_folder=batch_dir,
             prompt_inline=prompt, prompt_file=prompt_file,
             backend=analyze_backend,
         )
+        analyze_produced = any(batch_dir.glob("analysis-*.md"))
 
     # State update (only if NOT override and we actually ran successfully)
     if not is_override and batch_dir is not None:
         for chan_id, vid, pub in state_updates:
             update_last_seen(subscribes_path, chan_id, vid, pub)
 
+    if batch_dir is None:
+        status = "failed"
+    elif analyze_attempted and not analyze_produced:
+        status = "partial"
+    else:
+        status = "ok"
+
     _append_history(
         group=group, output=str(batch_dir) if batch_dir else "",
         videos_found=len(candidates),
         prompt=prompt or (prompt_file.read_text() if prompt_file else None),
         analyze_backend=None if no_analyze else analyze_backend,
+        status=status,
     )
 
     return batch_dir
@@ -240,7 +305,10 @@ def _backend_to_key(backend: str) -> str:
             "openai": "openai", "ollama": "ollama"}[backend]
 
 
-def _append_history(*, group, output, videos_found, prompt, analyze_backend) -> None:
+def _append_history(
+    *, group, output, videos_found, prompt, analyze_backend,
+    status: str = "ok",
+) -> None:
     p = Path.home() / ".youtube-transcribe" / "history.toml"
     run_id = (
         f"subscribes_{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}"
@@ -253,6 +321,6 @@ def _append_history(*, group, output, videos_found, prompt, analyze_backend) -> 
         output=output, videos_found=videos_found,
         analyze_backend=analyze_backend,
         analyze_prompt_preview=((prompt or "")[:200]) if prompt else None,
-        status="ok",
+        status=status,
     )
     append_run(p, entry)
