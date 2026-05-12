@@ -272,6 +272,81 @@ youtube-transcribe batch https://www.youtube.com/@channel --limit 5 \
 
 ---
 
+## Research a topic (v0.7)
+
+Discover and analyze new videos on a topic in one command. YouTube
+ranking decides relevance, you decide period + analysis angle.
+
+```bash
+# Default — last 30 days, ru+en search, top 20 results
+yt-tr research "Claude новинки" \
+  --prompt "Сделай конспект ключевых идей" \
+  --analyze-backend gemini
+
+# Narrower: 7 days, single language, fewer videos
+yt-tr research "AI agents 2026" \
+  --days 7 --languages en --limit 10 \
+  --prompt "Compare design choices"
+
+# Historical: specific window
+yt-tr research "LangChain release" \
+  --since 2024-06-01 --until 2024-08-31 \
+  --prompt "Что нового"
+
+# Substring + LLM filter combo
+yt-tr research "machine learning" \
+  --match "tutorial" --filter "обучающие для новичков" \
+  --prompt "Что общего, что уникального"
+
+# Just transcripts, no analyze
+yt-tr research "новинки 2026" --no-analyze
+
+# Cross-pollination: only from my subscribed channels
+yt-tr research "Claude" --in-subscribes --group ai-research \
+  --days 14 --prompt "Свежие фишки"
+```
+
+## Subscribes — channels you follow (v0.7)
+
+```bash
+# Add channels
+yt-tr subscribes add https://www.youtube.com/@AnthropicAI --group ai
+yt-tr subscribes add https://www.youtube.com/@lexfridman --group philosophy
+
+# List (optionally by group)
+yt-tr subscribes list
+yt-tr subscribes list --group ai
+
+# Edit subscribes.toml manually (cross-OS $EDITOR)
+yt-tr subscribes edit
+
+# Remove
+yt-tr subscribes remove @AnthropicAI
+
+# Update: incremental (stateful per channel)
+yt-tr subscribes update --prompt "Что обсуждалось"
+
+# Update: force window
+yt-tr subscribes update --days 7 --group ai \
+  --filter "только про новые модели" \
+  --prompt "Сравни подходы"
+
+# Generate scheduler snippet (no automatic install)
+yt-tr subscribes schedule install --every 1h --prompt "Твой обычный prompt"
+# → prints launchd/cron/systemd/Task Scheduler snippet + install instructions
+
+# View past runs
+yt-tr history list
+yt-tr history list --type research --last 5
+yt-tr history show <run-id>
+```
+
+The `subscribes` store lives at `~/.youtube-transcribe/subscribes.toml`
+and is safe to hand-edit; CLI mutations preserve your comments via
+`tomlkit`.
+
+---
+
 ## Hardware guide
 
 Выбери подходящий бэкенд исходя из железа:

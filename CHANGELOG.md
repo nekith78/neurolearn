@@ -3,6 +3,44 @@
 All notable changes to youtube-transcribe will be documented here.
 The format is loosely based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.7.0] — 2026-05-12
+
+### Added
+- `research "query"` — broad topic discovery: multi-language YouTube
+  search (LLM-translates query into each `--languages`), date window
+  (`--days N` or `--since/--until`), substring `--match` and LLM
+  `--filter` pre-screens, optional TTY checkpoint, batch transcribe,
+  optional analyze. Also supports `--in-subscribes` to source from
+  your subscribed channels instead of global search.
+- `subscribes` command group (`add`/`remove`/`list`/`edit`/`update`)
+  for tracking favourite channels. Stateful incremental updates
+  (`last_seen_video_id` per channel in subscribes.toml). Override
+  with `--days`/`--since`/`--until` runs ad-hoc without disturbing
+  state. RSS-first discovery (~10× faster than yt-dlp scraping);
+  `--no-rss` forces yt-dlp fallback (not yet implemented in v0.7).
+- `subscribes schedule install --every <interval>` — generates cron /
+  launchd / systemd / Windows Task Scheduler snippet + install
+  instructions. Does NOT install automatically.
+- `history list` / `history show` — persistent log of research and
+  subscribes runs in `~/.youtube-transcribe/history.toml`.
+- Web UI tab builders — `build_research_tab(gr)` and
+  `build_subscribes_tab(gr)`. (Default `build_ui()` still ships the
+  v0.5 transcribe form; call the new builders from your custom
+  Gradio Blocks if needed.)
+- Channel groups in subscribes.toml (`group = "ai-research"`).
+  `subscribes list --group X` and `subscribes update --group X`.
+
+### Changed
+- `batch_cmd` refactored: post-args-resolution core extracted as
+  `_run_batch_pipeline(targets, cfg, opts)` so research/subscribes
+  pipelines reuse it without duplication. External behavior of
+  `youtube-transcribe batch` preserved byte-for-byte (all 614 v0.6
+  tests stay green).
+
+### Dependencies
+- No new runtime dependencies. RSS via stdlib `xml.etree.ElementTree`
+  + `urllib.request`. Everything else already in v0.2/v0.6 deps.
+
 ## [0.6.0] — 2026-05-12
 
 ### Added
