@@ -1,0 +1,259 @@
+"""Research command orchestration — search → filter → transcribe → analyze."""
+from __future__ import annotations
+
+import sys
+import uuid
+from datetime import date, datetime, timezone
+from pathlib import Path
+
+from rich.console import Console
+
+from skills.youtube_transcribe.research.translator import (
+    build_queries_per_language,
+)
+from skills.youtube_transcribe.research.source import (
+    SearchCandidate, search_multi_language,
+)
+from skills.youtube_transcribe.shared.date_filter import (
+    parse_window, in_window, DateWindow,
+)
+from skills.youtube_transcribe.shared.match import match_titles
+from skills.youtube_transcribe.shared.llm_screen import screen_candidates
+from skills.youtube_transcribe.subscribes.store import load_subscribes
+from skills.youtube_transcribe.subscribes.group import filter_by_group
+from skills.youtube_transcribe.subscribes.rss import fetch_rss
+from skills.youtube_transcribe.history.store import (
+    RunEntry, append_run,
+)
+from skills.youtube_transcribe.transcribe import (
+    _run_batch_pipeline, _run_then_analyze, _stdin_is_tty,
+)
+from skills.youtube_transcribe.utils.resolver import ResolvedTarget
+
+_console = Console()
+
+
+def run_research(
+    *,
+    query: str | None,
+    queries_by_language: dict[str, str] | None,
+    languages: list[str],
+    days: int | None,
+    since: date | None,
+    until: date | None,
+    limit: int,
+    match: str | None,
+    filter_text: str | None,
+    in_subscribes: bool,
+    group: str | None,
+    yes: bool,
+    no_analyze: bool,
+    prompt: str | None,
+    prompt_file: Path | None,
+    analyze_backend: str,
+    filter_backend: str,
+    translate_backend: str,
+    ollama_model: str,
+    ollama_host: str,
+    no_stdout: bool,
+    output_dir: str,
+    batch_name: str,
+    api_keys: dict[str, str | None],
+    batch_opts: dict,
+) -> Path | None:
+    """Run the full research pipeline. Returns batch folder Path or None."""
+
+    # 1. Build per-language queries (or use explicit ones).
+    if queries_by_language:
+        queries = queries_by_language
+        languages_used = list(queries.keys())
+    elif query:
+        queries = build_queries_per_language(
+            query, languages=languages,
+            backend=translate_backend,
+            api_key=api_keys.get(_backend_to_key(translate_backend)),
+            ollama_model=ollama_model, ollama_host=ollama_host,
+        )
+        languages_used = list(languages)
+    else:
+        queries = {}
+        languages_used = []
+
+    # 2. Source: search OR cross-pollination from subscribes
+    candidates: list = []
+    if in_subscribes:
+        candidates = _fetch_from_subscribes(group, limit)
+    else:
+        candidates = search_multi_language(queries, limit=limit)
+
+    if not candidates:
+        _console.print("[yellow]Кандидаты не найдены.[/yellow]")
+        return None
+
+    # 3. Date filter
+    window = parse_window(
+        days=days, since=since, until=until, now=date.today(),
+    )
+    if window is not None:
+        candidates = _filter_by_window(candidates, window)
+        if not candidates:
+            _console.print(
+                "[yellow]После фильтра по дате осталось 0.[/yellow]"
+            )
+            return None
+
+    # 4. substring --match
+    if match:
+        candidates = match_titles(candidates, match)
+        if not candidates:
+            _console.print(f"[yellow]После --match '{match}' осталось 0.[/yellow]")
+            return None
+
+    # 5. LLM --filter
+    if filter_text:
+        candidates = screen_candidates(
+            candidates, filter_text,
+            backend=filter_backend,
+            api_key=api_keys.get(_backend_to_key(filter_backend)),
+            ollama_model=ollama_model, ollama_host=ollama_host,
+        )
+        if not candidates:
+            _console.print("[yellow]LLM filter оставил 0.[/yellow]")
+            return None
+
+    # 6. TTY checkpoint
+    if not yes and _stdin_is_tty():
+        candidates = _tty_checkpoint(candidates)
+        if not candidates:
+            _console.print("[yellow]Отменено.[/yellow]")
+            return None
+
+    # 7. Convert to ResolvedTarget and run batch_pipeline
+    targets = [_to_resolved_target(c) for c in candidates]
+    cfg = _load_default_cfg()
+    opts = {
+        "output_dir": output_dir,
+        "batch_name": batch_name,
+        "no_combined": batch_opts.get("no_combined", False),
+        "fail_fast": batch_opts.get("fail_fast", False),
+        **batch_opts,
+    }
+    batch_dir = _run_batch_pipeline(targets=targets, cfg=cfg, opts=opts)
+
+    # 8. Analyze (unless --no-analyze)
+    if not no_analyze and batch_dir is not None and batch_dir.exists():
+        _run_then_analyze(
+            batch_folder=batch_dir,
+            prompt_inline=prompt,
+            prompt_file=prompt_file,
+            backend=analyze_backend,
+        )
+
+    # 9. History entry
+    _append_history(
+        type_="research", query=query, group=group,
+        languages=languages_used,
+        output=str(batch_dir) if batch_dir else "",
+        videos_found=len(candidates),
+        prompt=prompt or (prompt_file.read_text() if prompt_file else None),
+        analyze_backend=None if no_analyze else analyze_backend,
+    )
+
+    return batch_dir
+
+
+def _fetch_from_subscribes(group: str | None, limit: int) -> list:
+    """Pull latest videos from subscribes channels (via RSS)."""
+    sub_path = Path.home() / ".youtube-transcribe" / "subscribes.toml"
+    channels = load_subscribes(sub_path)
+    channels = filter_by_group(channels, group)
+    out = []
+    for ch in channels:
+        if not ch.channel_id:
+            continue
+        entries = fetch_rss(ch.channel_id)
+        for e in entries[:limit]:
+            out.append(_rss_to_candidate(e, channel_title=ch.handle or ch.url))
+    return out
+
+
+def _rss_to_candidate(entry, *, channel_title: str):
+    return SearchCandidate(
+        video_id=entry.video_id, url=entry.url, title=entry.title,
+        channel=channel_title, duration_sec=None,
+        upload_date=entry.published.date() if entry.published else None,
+        source_language="(subscribes)",
+    )
+
+
+def _filter_by_window(candidates: list, window: DateWindow) -> list:
+    out = []
+    for c in candidates:
+        d = getattr(c, "upload_date", None)
+        if d is None:
+            continue  # without date, exclude (defensive)
+        if in_window(d, window):
+            out.append(c)
+    return out
+
+
+def _tty_checkpoint(candidates: list) -> list:
+    """Show interactive checkbox picker; return chosen subset."""
+    try:
+        import questionary
+    except ImportError:
+        return list(candidates)
+    choices = []
+    for i, c in enumerate(candidates, start=1):
+        title = (c.title or "—")[:60]
+        date_str = c.upload_date.isoformat() if getattr(c, "upload_date", None) else "—"
+        label = f"{date_str}  {title}  [{getattr(c, 'channel', '?')}]"
+        choices.append(questionary.Choice(title=label, value=i - 1, checked=True))
+    answer = questionary.checkbox(
+        "Выбери видео для analyze (Space=toggle, Enter=ok):",
+        choices=choices,
+    ).ask()
+    if answer is None:
+        return []
+    return [candidates[i] for i in answer]
+
+
+def _to_resolved_target(c) -> ResolvedTarget:
+    return ResolvedTarget(
+        url=c.url, video_id=c.video_id, title=c.title,
+        channel=getattr(c, "channel", None),
+        duration_sec=getattr(c, "duration_sec", None),
+        upload_date=getattr(c, "upload_date", None),
+        source="search",
+    )
+
+
+def _backend_to_key(backend: str) -> str:
+    return {"gemini": "gemini", "claude": "anthropic",
+            "openai": "openai", "ollama": "ollama"}[backend]
+
+
+def _load_default_cfg():
+    from skills.youtube_transcribe.config import load_config, CONFIG_PATH
+    return load_config(CONFIG_PATH)
+
+
+def _append_history(
+    *, type_: str, query, group, languages, output,
+    videos_found, prompt, analyze_backend,
+) -> None:
+    p = Path.home() / ".youtube-transcribe" / "history.toml"
+    run_id = (
+        f"{type_}_{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}"
+        f"_{uuid.uuid4().hex[:6]}"
+    )
+    entry = RunEntry(
+        id=run_id, type=type_,
+        timestamp=datetime.now(timezone.utc).isoformat(),
+        query=query, group=group,
+        output=output, videos_found=videos_found,
+        analyze_backend=analyze_backend,
+        analyze_prompt_preview=((prompt or "")[:200]) if prompt else None,
+        status="ok", languages=languages or [],
+    )
+    append_run(p, entry)
