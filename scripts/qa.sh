@@ -93,12 +93,11 @@ phase5_1() {
   require_key "GEMINI_API_KEY" || return 1
 
   rm -rf "$QA_DIR/r-en"
-  # Wider window (90d) + an actively-uploaded topic — "Claude AI features"
-  # with 30d sometimes returns 3 popular but old videos that get filtered
-  # out, leaving an empty pipeline. 90d ensures we have something fresh
-  # enough to actually run analyze on.
-  $YT research "AI agents tutorial 2026" \
-    --languages en --days 90 --limit 3 \
+  # 365d + a broad evergreen topic so YouTube definitely returns something
+  # under the cutoff. Narrower windows (30/90d) on niche/popular topics
+  # often yield only classic videos that get filtered out.
+  $YT research "AI agents" \
+    --languages en --days 365 --limit 5 \
     --backend subtitles \
     --prompt "Bullet-point the main concepts mentioned across videos." \
     --analyze-backend gemini \

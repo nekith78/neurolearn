@@ -86,7 +86,15 @@ def run_research(
     if in_subscribes:
         candidates = _fetch_from_subscribes(group, limit)
     else:
-        candidates = search_multi_language(queries, limit=limit)
+        # Translate the date window into a "days hint" so source.py can pick
+        # YouTube's built-in SP filter. `--since A` without `--until` →
+        # treat as "days from A to today".
+        days_hint: int | None = days
+        if days_hint is None and since is not None:
+            days_hint = max((date.today() - since).days, 1)
+        candidates = search_multi_language(
+            queries, limit=limit, days=days_hint,
+        )
 
     if not candidates:
         _console.print("[yellow]Кандидаты не найдены.[/yellow]")
@@ -207,11 +215,25 @@ def _rss_to_candidate(entry, *, channel_title: str):
 
 
 def _filter_by_window(candidates: list, window: DateWindow) -> list:
+    """Apply a date window. Candidates without a known date are kept.
+
+    Source semantics:
+    - Search with exact SP preset (e.g. --days 30) → YouTube guarantees
+      the window server-side; candidates arrive with upload_date=None
+      because we used flat extract. Keeping them here is correct — they
+      ARE in the window by construction.
+    - Search with non-exact days (e.g. --days 14, 90) → source.py used
+      full extract, so upload_date is populated and this function drops
+      candidates outside the precise window.
+    - Subscribes (RSS / yt-dlp channel scrape) → upload_date is always
+      present, behaves like the second case.
+    """
     out = []
     for c in candidates:
         d = getattr(c, "upload_date", None)
         if d is None:
-            continue  # without date, exclude (defensive)
+            out.append(c)
+            continue
         if in_window(d, window):
             out.append(c)
     return out
