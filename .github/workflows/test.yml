@@ -32,6 +32,15 @@ jobs:
         run: uv sync --extra dev
 
       - name: Run unit tests (e2e smoke skipped without RUN_E2E_SMOKE)
+        env:
+          # macOS-14 runners are M-series with limited GPU memory.
+          # sentence-transformers loads the multilingual MiniLM model on MPS
+          # by default; on a constrained runner that can OOM. Disable the
+          # upper-limit watermark and allow CPU fallback for unsupported ops.
+          PYTORCH_MPS_HIGH_WATERMARK_RATIO: "0.0"
+          PYTORCH_ENABLE_MPS_FALLBACK: "1"
+          # Avoid tokenizers fork warnings on parallel runs.
+          TOKENIZERS_PARALLELISM: "false"
         run: uv run pytest -q --tb=short
 
       # E2E smoke is intentionally NOT run in CI by default — it hits real YouTube
