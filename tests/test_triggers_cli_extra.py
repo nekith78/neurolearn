@@ -1,5 +1,6 @@
 """Tests for triggers reset/edit/test commands."""
 import os
+import sys
 
 import pytest
 from click.testing import CliRunner
@@ -42,6 +43,15 @@ def test_test_command_shows_match(tmp_user_path):
     assert "raw" in res.output.lower() or "todo" in res.output.lower()
 
 
+@pytest.mark.skipif(
+    sys.platform == "darwin" and os.environ.get("CI") in ("true", "1"),
+    reason=(
+        "GitHub macos-14 runners are M-series with constrained MPS VRAM. "
+        "Loading paraphrase-multilingual-MiniLM via sentence-transformers "
+        "hits 'MPS backend out of memory' even with watermark disabled. "
+        "Test passes locally on developer Macs and on Linux/Windows CI."
+    ),
+)
 def test_test_no_match_reports(tmp_user_path):
     runner = CliRunner()
     runner.invoke(triggers_cli, ["init"])
