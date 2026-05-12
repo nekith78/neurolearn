@@ -229,6 +229,230 @@ def build_ui():
     return demo
 
 
+# === v0.7: Research + Subscribes tabs ===
+
+
+def build_research_tab(gr):
+    """Add a Research tab to an enclosing gr.Blocks() context."""
+    with gr.Tab("Research"):
+        gr.Markdown("# Research a topic\n"
+                    "Search + filter + transcribe + analyze in one pass.")
+        query = gr.Textbox(label="Query", placeholder="Claude новинки за неделю")
+        with gr.Row():
+            languages = gr.Textbox(label="Languages (CSV)", value="ru,en")
+            days = gr.Number(label="Days", value=30, precision=0)
+            limit = gr.Number(label="Limit", value=20, precision=0)
+        match_text = gr.Textbox(label="--match (substring)", value="")
+        filter_text = gr.Textbox(label="--filter (LLM)", value="")
+        backend = gr.Dropdown(
+            label="Transcription backend",
+            choices=["smart", "subtitles", "whisper-local",
+                      "gemini", "groq", "openai", "deepgram", "assemblyai"],
+            value="smart",
+        )
+        with gr.Row():
+            analyze_backend = gr.Dropdown(
+                label="Analyze LLM",
+                choices=["gemini", "claude", "openai", "ollama"],
+                value="gemini",
+            )
+            filter_backend = gr.Dropdown(
+                label="Filter LLM",
+                choices=["gemini", "claude", "openai", "ollama"],
+                value="gemini",
+            )
+        prompt = gr.Textbox(label="Analyze prompt", lines=4)
+        no_analyze = gr.Checkbox(label="Skip analyze (just transcribe)",
+                                  value=False)
+        submit = gr.Button("Run research", variant="primary")
+        output = gr.Textbox(label="Output path", interactive=False, lines=2)
+
+        submit.click(
+            fn=_handle_research_submit,
+            inputs=[query, languages, days, limit,
+                    match_text, filter_text,
+                    no_analyze, gr.State(True),
+                    prompt, analyze_backend, filter_backend, backend],
+            outputs=[output],
+        )
+
+
+def _handle_research_submit(
+    query, languages_csv, days, limit, match_text, filter_text,
+    no_analyze, yes, prompt, analyze_backend, filter_backend, backend,
+):
+    """Webui callback — delegate to research.pipeline.run_research."""
+    from skills.youtube_transcribe.research.pipeline import run_research
+    from skills.youtube_transcribe.config import (
+        get_api_key, load_config, CONFIG_PATH,
+    )
+    import time as _time
+
+    cfg = load_config(CONFIG_PATH) if CONFIG_PATH.exists() else None
+    languages = [s.strip() for s in (languages_csv or "ru,en").split(",")]
+    api_keys = {
+        "gemini": get_api_key("gemini"),
+        "anthropic": get_api_key("anthropic"),
+        "openai": get_api_key("openai"),
+        "ollama": None,
+    }
+    batch_opts = {"backend": backend} if backend else {}
+    try:
+        result = run_research(
+            query=query or None,
+            queries_by_language=None,
+            languages=languages,
+            days=int(days) if days else 30,
+            since=None, until=None,
+            limit=int(limit) if limit else 20,
+            match=match_text or None,
+            filter_text=filter_text or None,
+            in_subscribes=False, group=None,
+            yes=bool(yes), no_analyze=bool(no_analyze),
+            prompt=prompt or None, prompt_file=None,
+            analyze_backend=analyze_backend,
+            filter_backend=filter_backend,
+            translate_backend=analyze_backend,
+            ollama_model="llama3.2:3b",
+            ollama_host="http://localhost:11434",
+            no_stdout=True,
+            output_dir=cfg.output_dir if cfg else "./transcripts",
+            batch_name=f"webui_research_{int(_time.time())}",
+            api_keys=api_keys,
+            batch_opts=batch_opts,
+        )
+        return f"✓ Result: {result}" if result else "Nothing produced"
+    except Exception as e:
+        return f"Error: {e}"
+
+
+def build_subscribes_tab(gr):
+    """Add a Subscribes tab to an enclosing gr.Blocks() context."""
+    with gr.Tab("Subscribes"):
+        gr.Markdown("# Subscribes\nManage and update your channel list.")
+        with gr.Row():
+            url_input = gr.Textbox(label="Channel URL or @handle",
+                                    placeholder="https://www.youtube.com/@AnthropicAI")
+            group_input = gr.Textbox(label="Group (optional)")
+            add_btn = gr.Button("Add channel")
+        list_output = gr.Textbox(label="Channels", lines=10, interactive=False)
+        refresh_btn = gr.Button("Refresh list")
+
+        gr.Markdown("---\n## Run update")
+        with gr.Row():
+            update_group = gr.Textbox(label="--group (filter, optional)")
+            update_days = gr.Number(label="--days (override)", value=0, precision=0)
+        update_prompt = gr.Textbox(label="Analyze prompt", lines=3)
+        update_no_analyze = gr.Checkbox(label="--no-analyze", value=False)
+        update_backend = gr.Dropdown(
+            label="Transcription backend",
+            choices=["smart", "subtitles", "whisper-local", "gemini"],
+            value="smart",
+        )
+        update_analyze_backend = gr.Dropdown(
+            label="Analyze LLM",
+            choices=["gemini", "claude", "openai", "ollama"],
+            value="gemini",
+        )
+        update_btn = gr.Button("Run subscribes update", variant="primary")
+        update_output = gr.Textbox(label="Result", interactive=False, lines=2)
+
+        add_btn.click(
+            fn=_handle_subscribes_add,
+            inputs=[url_input, group_input],
+            outputs=[list_output],
+        )
+        refresh_btn.click(
+            fn=_handle_subscribes_list,
+            outputs=[list_output],
+        )
+        update_btn.click(
+            fn=_handle_subscribes_update,
+            inputs=[update_group, update_days, update_no_analyze,
+                    gr.State(True),
+                    update_prompt, update_analyze_backend, update_backend],
+            outputs=[update_output],
+        )
+
+
+def _handle_subscribes_add(channel_url, group):
+    from datetime import date
+    from skills.youtube_transcribe.subscribes.cli import (
+        SUBSCRIBES_PATH, resolve_channel, add_channel,
+    )
+    from skills.youtube_transcribe.subscribes.store import Channel
+    if not channel_url:
+        return "Empty URL"
+    try:
+        resolved = resolve_channel(channel_url)
+    except ValueError as e:
+        return f"Resolution failed: {e}"
+    add_channel(SUBSCRIBES_PATH, Channel(
+        url=resolved.url, handle=resolved.handle,
+        channel_id=resolved.channel_id,
+        group=group or None,
+        added=date.today().isoformat(),
+    ))
+    return _handle_subscribes_list()
+
+
+def _handle_subscribes_list():
+    from skills.youtube_transcribe.subscribes.cli import SUBSCRIBES_PATH
+    from skills.youtube_transcribe.subscribes.store import load_subscribes
+    chans = load_subscribes(SUBSCRIBES_PATH)
+    if not chans:
+        return "(no channels)"
+    lines = []
+    for c in chans:
+        lines.append(
+            f"{c.handle or c.url}  [{c.group or '—'}]  "
+            f"last_seen={c.last_seen_published or '—'}"
+        )
+    return "\n".join(lines)
+
+
+def _handle_subscribes_update(group, days, no_analyze, yes,
+                               prompt, analyze_backend, backend):
+    from skills.youtube_transcribe.subscribes.cli import SUBSCRIBES_PATH
+    from skills.youtube_transcribe.subscribes.pipeline import (
+        run_subscribes_update,
+    )
+    from skills.youtube_transcribe.config import (
+        get_api_key, load_config, CONFIG_PATH,
+    )
+    api_keys = {
+        "gemini": get_api_key("gemini"),
+        "anthropic": get_api_key("anthropic"),
+        "openai": get_api_key("openai"),
+        "ollama": None,
+    }
+    cfg = load_config(CONFIG_PATH) if CONFIG_PATH.exists() else None
+    output_dir = cfg.output_dir if cfg else "./transcripts"
+    batch_opts = {"backend": backend} if backend else {}
+    try:
+        result = run_subscribes_update(
+            subscribes_path=SUBSCRIBES_PATH,
+            group=group or None,
+            days=int(days) if days else None,
+            since=None, until=None,
+            match=None, filter_text=None,
+            no_rss=False, yes=bool(yes),
+            no_analyze=bool(no_analyze),
+            prompt=prompt or None, prompt_file=None,
+            analyze_backend=analyze_backend,
+            filter_backend=analyze_backend,
+            ollama_model="llama3.2:3b",
+            ollama_host="http://localhost:11434",
+            no_stdout=True,
+            output_dir=output_dir,
+            api_keys=api_keys,
+            batch_opts=batch_opts,
+        )
+        return f"✓ Result: {result}" if result else "Nothing produced"
+    except Exception as e:
+        return f"Error: {e}"
+
+
 def launch(server_name: str = "127.0.0.1", server_port: int = 7860, share: bool = False):
     """CLI entry-point. Builds the UI and launches the Gradio server."""
     demo = build_ui()
