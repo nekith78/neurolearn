@@ -1624,8 +1624,8 @@ def analyze_cmd(
               type=click.Choice(["gemini", "claude", "openai", "ollama"]),
               default=None,
               help="LLM for query translation. Defaults to --analyze-backend.")
-@click.option("--days", "days_opt", type=int, default=30, show_default=True,
-              help="Window: last N days.")
+@click.option("--days", "days_opt", type=int, default=None,
+              help="Window: last N days (default 30; mutex with --since/--until).")
 @click.option("--since", "since_opt", default=None,
               help="Window start YYYY-MM-DD.")
 @click.option("--until", "until_opt", default=None,
@@ -1688,9 +1688,17 @@ def research_cmd(
             )
             sys.exit(2)
 
+    if days_opt is not None and (since_opt or until_opt):
+        console.print(
+            "[red]--days и --since/--until взаимоисключающи (mutex).[/red]"
+        )
+        sys.exit(2)
     since_d = _date.fromisoformat(since_opt) if since_opt else None
     until_d = _date.fromisoformat(until_opt) if until_opt else None
-    days_arg = days_opt if (since_d is None and until_d is None) else None
+    if since_d is None and until_d is None:
+        days_arg = days_opt if days_opt is not None else 30
+    else:
+        days_arg = None
 
     languages = [s.strip() for s in languages_csv.split(",") if s.strip()]
     translate_backend = translate_backend_opt or analyze_backend_opt

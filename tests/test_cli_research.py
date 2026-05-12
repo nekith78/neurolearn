@@ -127,6 +127,20 @@ def test_research_in_subscribes_calls_pipeline_with_flag(tmp_path: Path):
     assert kwargs["group"] == "ai-research"
 
 
+def test_research_days_and_since_mutex(tmp_path: Path):
+    """--days + --since on same call → exit 2 (mutex)."""
+    runner = CliRunner()
+    res = runner.invoke(cli, [
+        "research", "x",
+        "--days", "7",
+        "--since", "2024-01-01",
+        "--no-analyze", "--yes",
+        "--backend", "subtitles",
+    ], catch_exceptions=False)
+    assert res.exit_code == 2
+    assert "взаимоисключ" in res.output.lower() or "mutex" in res.output.lower()
+
+
 def test_research_query_lang_override(tmp_path: Path):
     """--query-lang flag passes through to pipeline as source_lang_hint."""
     with patch(
