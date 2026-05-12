@@ -173,8 +173,10 @@ def run_subscribes_update(
         for c in candidates
     ]
     batch_name = f"subscribes_{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}"
-    from skills.youtube_transcribe.config import load_config, CONFIG_PATH
-    cfg = load_config(CONFIG_PATH)
+    from skills.youtube_transcribe.config import (
+        load_config, CONFIG_PATH, DEFAULT_CONFIG,
+    )
+    cfg = load_config(CONFIG_PATH) if CONFIG_PATH.exists() else DEFAULT_CONFIG
     opts = {
         "output_dir": output_dir,
         "batch_name": batch_name,

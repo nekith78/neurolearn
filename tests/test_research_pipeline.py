@@ -17,6 +17,11 @@ def test_pipeline_happy_path_invokes_components(tmp_path: Path):
     """Pipeline: translate → search → date-filter → match → llm-screen → batch → analyze."""
     from skills.youtube_transcribe.research.pipeline import run_research
 
+    # Create the batch dir so .exists() returns True naturally — avoids
+    # global pathlib.Path.exists mock which would break load_config.
+    batch_dir = tmp_path / "batch_dir"
+    batch_dir.mkdir()
+
     with patch(
         "skills.youtube_transcribe.research.pipeline.build_queries_per_language",
         return_value={"en": "Claude features"},
@@ -25,7 +30,7 @@ def test_pipeline_happy_path_invokes_components(tmp_path: Path):
         return_value=[_candidate("v1"), _candidate("v2")],
     ), patch(
         "skills.youtube_transcribe.research.pipeline._run_batch_pipeline",
-        return_value=tmp_path / "batch_dir",
+        return_value=batch_dir,
     ) as mock_batch, patch(
         "skills.youtube_transcribe.research.pipeline._run_then_analyze",
     ) as mock_analyze, patch(
@@ -34,8 +39,7 @@ def test_pipeline_happy_path_invokes_components(tmp_path: Path):
     ), patch(
         "skills.youtube_transcribe.research.pipeline.append_run",
     ), patch(
-        "pathlib.Path.exists",
-        return_value=True,  # make batch_dir.exists() truthy
+        "skills.youtube_transcribe.research.pipeline._load_default_cfg",
     ):
         result = run_research(
             query="Claude features",
@@ -58,7 +62,7 @@ def test_pipeline_happy_path_invokes_components(tmp_path: Path):
             batch_opts={},
         )
 
-    assert result == tmp_path / "batch_dir"
+    assert result == batch_dir
     mock_batch.assert_called_once()
     mock_analyze.assert_called_once()
 
@@ -81,6 +85,8 @@ def test_pipeline_no_analyze_skips_analyze(tmp_path: Path):
         return_value=False,
     ), patch(
         "skills.youtube_transcribe.research.pipeline.append_run",
+    ), patch(
+        "skills.youtube_transcribe.research.pipeline._load_default_cfg",
     ):
         run_research(
             query="x", queries_by_language=None,
@@ -153,6 +159,8 @@ def test_pipeline_in_subscribes_uses_rss(tmp_path: Path):
         return_value=False,
     ), patch(
         "skills.youtube_transcribe.research.pipeline.append_run",
+    ), patch(
+        "skills.youtube_transcribe.research.pipeline._load_default_cfg",
     ):
         run_research(
             query="x", queries_by_language=None,

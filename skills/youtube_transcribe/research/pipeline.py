@@ -236,7 +236,16 @@ def _backend_to_key(backend: str) -> str:
 
 
 def _load_default_cfg():
-    from skills.youtube_transcribe.config import load_config, CONFIG_PATH
+    """Load user config, or return DEFAULT_CONFIG if no file exists.
+
+    Fresh installs (no ~/.youtube-transcribe/config.toml yet) must not
+    crash — they should fall back to library defaults.
+    """
+    from skills.youtube_transcribe.config import (
+        load_config, CONFIG_PATH, DEFAULT_CONFIG,
+    )
+    if not CONFIG_PATH.exists():
+        return DEFAULT_CONFIG
     return load_config(CONFIG_PATH)
 
 
