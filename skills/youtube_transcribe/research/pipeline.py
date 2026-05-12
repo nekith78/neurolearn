@@ -38,6 +38,7 @@ def run_research(
     query: str | None,
     queries_by_language: dict[str, str] | None,
     languages: list[str],
+    source_lang_hint: str | None = None,
     days: int | None,
     since: date | None,
     until: date | None,
@@ -70,6 +71,7 @@ def run_research(
     elif query:
         queries = build_queries_per_language(
             query, languages=languages,
+            source_lang_hint=source_lang_hint,
             backend=translate_backend,
             api_key=api_keys.get(_backend_to_key(translate_backend)),
             ollama_model=ollama_model, ollama_host=ollama_host,

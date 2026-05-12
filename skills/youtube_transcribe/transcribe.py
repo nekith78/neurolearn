@@ -1616,6 +1616,10 @@ def analyze_cmd(
 @click.option("--languages", "languages_csv", default="ru,en",
               show_default=True,
               help="Comma-separated language codes for search.")
+@click.option("--query-lang", "query_lang_opt", default=None,
+              help="Override script-based anchor detection. Tells the "
+                   "translator which language in --languages your query is "
+                   "written in (e.g. --query-lang sr for Serbian-latin).")
 @click.option("--translate-backend", "translate_backend_opt",
               type=click.Choice(["gemini", "claude", "openai", "ollama"]),
               default=None,
@@ -1661,7 +1665,8 @@ def analyze_cmd(
 @click.option("--max-duration", "max_duration_opt", type=int, default=None)
 @click.option("--workers", "workers_opt", type=int, default=1, show_default=True)
 def research_cmd(
-    query, prompt_inline, prompt_file, languages_csv, translate_backend_opt,
+    query, prompt_inline, prompt_file, languages_csv, query_lang_opt,
+    translate_backend_opt,
     days_opt, since_opt, until_opt, limit_opt, match_opt, filter_opt,
     filter_backend_opt, in_subscribes, group_opt, yes, no_analyze,
     analyze_backend_opt, ollama_model_opt, ollama_host_opt, no_stdout_opt,
@@ -1709,6 +1714,7 @@ def research_cmd(
             query=query,
             queries_by_language=None,
             languages=languages,
+            source_lang_hint=query_lang_opt,
             days=days_arg, since=since_d, until=until_d,
             limit=limit_opt,
             match=match_opt, filter_text=filter_opt,

@@ -127,6 +127,39 @@ def test_research_in_subscribes_calls_pipeline_with_flag(tmp_path: Path):
     assert kwargs["group"] == "ai-research"
 
 
+def test_research_query_lang_override(tmp_path: Path):
+    """--query-lang flag passes through to pipeline as source_lang_hint."""
+    with patch(
+        "skills.youtube_transcribe.research.pipeline.run_research",
+        return_value=None,
+    ) as mock_pipe:
+        runner = CliRunner()
+        res = runner.invoke(cli, [
+            "research", "Claude features",
+            "--query-lang", "sr",
+            "--languages", "sr,en",
+            "--no-analyze", "--yes",
+            "--backend", "subtitles",
+        ], catch_exceptions=False)
+    assert res.exit_code == 0
+    assert mock_pipe.call_args.kwargs["source_lang_hint"] == "sr"
+
+
+def test_research_without_query_lang_defaults_to_none(tmp_path: Path):
+    """No --query-lang flag → source_lang_hint=None (auto-detect script)."""
+    with patch(
+        "skills.youtube_transcribe.research.pipeline.run_research",
+        return_value=None,
+    ) as mock_pipe:
+        runner = CliRunner()
+        runner.invoke(cli, [
+            "research", "Клод новинки",
+            "--no-analyze", "--yes",
+            "--backend", "subtitles",
+        ], catch_exceptions=False)
+    assert mock_pipe.call_args.kwargs["source_lang_hint"] is None
+
+
 def test_research_in_subscribes_without_query_works(tmp_path: Path):
     with patch(
         "skills.youtube_transcribe.research.pipeline.run_research",

@@ -3,22 +3,95 @@
 Translates the user's single query to each requested target language
 via the same LLM backend used for analyze/filter. Falls back to the
 original query if the LLM returns nothing useful.
+
+Anchor language detection is **script-based** (Unicode block heuristic),
+not statistical — predictable on short cyrillic strings where
+`langdetect` historically confused ru with mk/uk/bg.
 """
 from __future__ import annotations
 
 from skills.youtube_transcribe.analyze.runner import run_analysis
 
 
-def detect_language(text: str) -> str | None:
-    """Best-effort language detection. Returns ISO 639-1 code or None."""
-    if not text or len(text.strip()) < 3:
+# Language → writing-script mapping. Anything not in cyrillic/cjk/arabic
+# falls back to latin (default for most European languages).
+_CYRILLIC_LANGS = frozenset({"ru", "uk", "bg", "sr", "mk", "be", "kk"})
+_CJK_LANGS = frozenset({"zh", "ja", "ko"})
+_ARABIC_LANGS = frozenset({"ar", "fa", "ur", "he"})
+
+
+def _script_of_language(lang: str) -> str:
+    """Classify ISO language code into a writing script."""
+    if lang in _CYRILLIC_LANGS:
+        return "cyrillic"
+    if lang in _CJK_LANGS:
+        return "cjk"
+    if lang in _ARABIC_LANGS:
+        return "arabic"
+    return "latin"
+
+
+def detect_script(text: str) -> str | None:
+    """Detect the dominant script of `text`.
+
+    Returns one of 'cyrillic' / 'latin' / 'cjk' / 'arabic',
+    or None for empty / unrecognised input.
+
+    Works reliably on strings of any length (2 chars or 2000), unlike
+    statistical language detectors that need longer samples.
+    """
+    if not text:
         return None
-    try:
-        from langdetect import detect, DetectorFactory
-        DetectorFactory.seed = 0  # reproducible
-        return detect(text)
-    except Exception:
+    counts = {"cyrillic": 0, "latin": 0, "cjk": 0, "arabic": 0}
+    for ch in text:
+        if "Ѐ" <= ch <= "ӿ":
+            counts["cyrillic"] += 1
+        elif (
+            "一" <= ch <= "鿿"   # CJK Unified
+            or "぀" <= ch <= "ゟ"  # Hiragana
+            or "゠" <= ch <= "ヿ"  # Katakana
+            or "가" <= ch <= "힯"  # Hangul
+        ):
+            counts["cjk"] += 1
+        elif (
+            "؀" <= ch <= "ۿ"   # Arabic
+            or "֐" <= ch <= "׿"  # Hebrew
+        ):
+            counts["arabic"] += 1
+        elif ch.isalpha() and ch.isascii():
+            counts["latin"] += 1
+    max_count = max(counts.values())
+    if max_count == 0:
         return None
+    # Stable tie-breaker: cyrillic > cjk > arabic > latin
+    # (less ambiguous scripts win; latin is the "default" only when alone)
+    for script in ("cyrillic", "cjk", "arabic", "latin"):
+        if counts[script] == max_count:
+            return script
+    return None
+
+
+def pick_anchor_language(
+    source_lang_hint: str | None,
+    query: str,
+    languages: list[str],
+) -> str:
+    """Decide which language from `languages` is the anchor (no translation).
+
+    Priority:
+    1. Explicit `source_lang_hint` if it appears in `languages`.
+    2. Script-detection: pick first language in `languages` whose script
+       matches the query's dominant script.
+    3. Fallback: first language in `languages`.
+    """
+    if source_lang_hint and source_lang_hint in languages:
+        return source_lang_hint
+    script = detect_script(query)
+    if script is not None:
+        for lang in languages:
+            if _script_of_language(lang) == script:
+                return lang
+    return languages[0]
 
 
 def translate_query(
@@ -64,6 +137,7 @@ def build_queries_per_language(
     query: str,
     *,
     languages: list[str],
+    source_lang_hint: str | None = None,
     backend: str,
     api_key: str | None,
     ollama_model: str = "llama3.2:3b",
@@ -71,15 +145,17 @@ def build_queries_per_language(
 ) -> dict[str, str]:
     """Return {lang_code: query_string} for each language in `languages`.
 
-    The language matching the detected source-language gets the query as-is.
-    If detection fails, the first language in `languages` is treated as the
-    anchor (no translation), others are translated.
+    Anchor selection (see `pick_anchor_language`):
+    - `source_lang_hint` wins if provided and in `languages`.
+    - Else dominant script of `query` picks first matching language.
+    - Else first language in `languages`.
+
+    Anchor gets the query as-is; everything else is translated via LLM.
     """
     if not languages:
         return {}
 
-    detected = detect_language(query)
-    anchor = detected if detected in languages else languages[0]
+    anchor = pick_anchor_language(source_lang_hint, query, languages)
 
     out: dict[str, str] = {}
     for lang in languages:

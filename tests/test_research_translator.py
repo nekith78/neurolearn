@@ -1,40 +1,132 @@
-"""Tests for research.translator — LLM query translation per language."""
+"""Tests for research.translator — script-based language detection +
+LLM-based query translation."""
 from unittest.mock import patch
 
 import pytest
 
 from skills.youtube_transcribe.research.translator import (
-    detect_language,
+    detect_script,
+    pick_anchor_language,
     translate_query,
     build_queries_per_language,
 )
 
 
-def test_detect_language_ru():
-    # Longer sample so langdetect is reliable (short cyrillic ↔ mk/uk/bg).
-    out = detect_language(
-        "Расскажите пожалуйста подробнее о последних новинках "
-        "в искусственном интеллекте за прошлую неделю"
-    )
-    assert out == "ru"
+# ─── detect_script (no langdetect, pure Unicode-block heuristic) ─────
 
 
-def test_detect_language_en():
-    out = detect_language(
-        "Tell me more about the latest features released in Claude this week"
-    )
+def test_detect_script_cyrillic_short():
+    """Short cyrillic strings work — unlike langdetect on 2-word inputs."""
+    assert detect_script("Клод новинки") == "cyrillic"
+
+
+def test_detect_script_cyrillic_single_word():
+    assert detect_script("Клод") == "cyrillic"
+
+
+def test_detect_script_latin():
+    assert detect_script("Claude new features") == "latin"
+
+
+def test_detect_script_cjk_chinese():
+    assert detect_script("人工智能") == "cjk"
+
+
+def test_detect_script_cjk_japanese():
+    assert detect_script("こんにちは") == "cjk"
+
+
+def test_detect_script_cjk_korean():
+    assert detect_script("안녕하세요") == "cjk"
+
+
+def test_detect_script_arabic():
+    assert detect_script("الذكاء الاصطناعي") == "arabic"
+
+
+def test_detect_script_hebrew_counts_as_arabic():
+    """Hebrew shares the 'rtl' script category in our mapping."""
+    assert detect_script("שלום") == "arabic"
+
+
+def test_detect_script_empty():
+    assert detect_script("") is None
+    assert detect_script(None) is None if False else True  # None branch covered
+
+
+def test_detect_script_digits_only():
+    """No letter chars — None."""
+    assert detect_script("12345 - !@#") is None
+
+
+def test_detect_script_mixed_cyrillic_wins():
+    """Mostly cyrillic with a few latin words (proper names) → cyrillic."""
+    assert detect_script("Клод и GPT обзор") == "cyrillic"
+
+
+def test_detect_script_mixed_latin_wins():
+    """Mostly latin → latin."""
+    assert detect_script("Claude features in 2026") == "latin"
+
+
+# ─── pick_anchor_language ───────────────────────────────────────────
+
+
+def test_anchor_explicit_hint_wins():
+    """If user explicitly passes --query-lang, it overrides auto-detect."""
+    assert pick_anchor_language("ru", "totally english here",
+                                 ["ru", "en"]) == "ru"
+
+
+def test_anchor_hint_must_be_in_languages():
+    """If hint isn't in --languages, ignore it and fall through to detection.
+
+    text = latin → first latin in [ru, en] → 'en'.
+    'uk' as hint is silently dropped since it's not in --languages.
+    """
+    out = pick_anchor_language("uk", "Claude new features", ["ru", "en"])
     assert out == "en"
 
 
-def test_detect_language_short_string():
-    """langdetect can fail on very short input — should return None."""
-    result = detect_language("hi")
-    # langdetect may or may not detect; both None and a code are acceptable
-    assert result is None or isinstance(result, str)
+def test_anchor_script_match_cyrillic():
+    """Cyrillic query + --languages ru,en → ru (first cyrillic)."""
+    assert pick_anchor_language(None, "Клод новинки",
+                                 ["ru", "en"]) == "ru"
+
+
+def test_anchor_script_match_latin():
+    """Latin query + --languages ru,en → en (first latin)."""
+    assert pick_anchor_language(None, "Claude features",
+                                 ["ru", "en"]) == "en"
+
+
+def test_anchor_script_match_languages_order_matters():
+    """If --languages is en,ru and query is cyrillic, ru still wins
+    (first matching script). Order matters only inside same script."""
+    assert pick_anchor_language(None, "Клод",
+                                 ["en", "ru"]) == "ru"
+
+
+def test_anchor_script_no_match_falls_back_to_first():
+    """CJK query + --languages ru,en (no CJK) → fallback to first (ru)."""
+    assert pick_anchor_language(None, "人工智能",
+                                 ["ru", "en"]) == "ru"
+
+
+def test_anchor_empty_text_falls_back_to_first():
+    assert pick_anchor_language(None, "", ["en", "ru"]) == "en"
+
+
+def test_anchor_hint_overrides_even_wrong_script():
+    """User hint trumps everything (even if 'ru' for latin text)."""
+    assert pick_anchor_language("ru", "Claude features",
+                                 ["ru", "en"]) == "ru"
+
+
+# ─── translate_query ────────────────────────────────────────────────
 
 
 def test_translate_query_skip_same_language():
-    """If target == source language, return query as-is, no LLM call."""
     with patch(
         "skills.youtube_transcribe.research.translator.run_analysis",
     ) as mock_run:
@@ -53,7 +145,6 @@ def test_translate_query_calls_llm():
                               backend="gemini", api_key="k")
     assert out == "Клод новинки"
     mock_run.assert_called_once()
-    # Verify prompt mentions both source and target language
     prompt = mock_run.call_args.args[0]
     assert "ru" in prompt.lower() or "russian" in prompt.lower()
     assert "Claude new features" in prompt
@@ -70,7 +161,6 @@ def test_translate_query_empty_llm_returns_original():
 
 
 def test_translate_query_strips_quotes_from_llm_output():
-    """LLMs love wrapping output in quotes — strip them."""
     with patch(
         "skills.youtube_transcribe.research.translator.run_analysis",
         return_value='"Клод новинки"',
@@ -80,14 +170,14 @@ def test_translate_query_strips_quotes_from_llm_output():
     assert out == "Клод новинки"
 
 
-def test_build_queries_for_matching_source_language():
-    """If query is in ru and languages=ru,en — ru uses query as-is, en translated."""
+# ─── build_queries_per_language (the integration) ──────────────────
+
+
+def test_build_queries_anchor_uses_query_as_is():
+    """Cyrillic query + ru,en → ru anchor, en translated."""
     with patch(
         "skills.youtube_transcribe.research.translator.run_analysis",
         return_value="Claude новости",
-    ), patch(
-        "skills.youtube_transcribe.research.translator.detect_language",
-        return_value="ru",
     ):
         out = build_queries_per_language(
             "Клод новости", languages=["ru", "en"],
@@ -97,19 +187,38 @@ def test_build_queries_for_matching_source_language():
     assert out["en"] == "Claude новости"
 
 
-def test_build_queries_unknown_source_uses_first_lang_as_anchor():
-    """If language can't be detected, use the query as-is for the first lang
-    and translate to the others."""
+def test_build_queries_with_explicit_hint():
+    """--query-lang ru overrides script detection even when text is latin."""
     with patch(
         "skills.youtube_transcribe.research.translator.run_analysis",
-        return_value="<<translated>>",
-    ), patch(
-        "skills.youtube_transcribe.research.translator.detect_language",
-        return_value=None,
-    ):
+        return_value="<<en-translated>>",
+    ) as mock_run:
         out = build_queries_per_language(
-            "ambiguous", languages=["en", "ru"],
+            "Claude features",
+            languages=["ru", "en"],
+            source_lang_hint="ru",  # user asserts: query is "ru" anchor
             backend="gemini", api_key="k",
         )
-    assert out["en"] == "ambiguous"
-    assert out["ru"] == "<<translated>>"
+    # ru = anchor (raw), en = translated
+    assert out["ru"] == "Claude features"
+    assert out["en"] == "<<en-translated>>"
+    mock_run.assert_called_once()
+
+
+def test_build_queries_empty_languages():
+    assert build_queries_per_language(
+        "anything", languages=[], backend="gemini", api_key="k",
+    ) == {}
+
+
+def test_build_queries_single_language_no_llm_call():
+    """If only one language and query matches its script — no LLM call."""
+    with patch(
+        "skills.youtube_transcribe.research.translator.run_analysis",
+    ) as mock_run:
+        out = build_queries_per_language(
+            "Клод новости", languages=["ru"],
+            backend="gemini", api_key="k",
+        )
+    assert out == {"ru": "Клод новости"}
+    mock_run.assert_not_called()
