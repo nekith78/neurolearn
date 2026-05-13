@@ -85,7 +85,11 @@ uv tool install git+https://github.com/nekith78/youtube-transcribe
 ## Quick start
 
 ```bash
-# Default: offline whisper-local
+# Interactive — run the command, then paste the URL when prompted
+youtube-transcribe transcribe --language en
+# → "Paste URL or file path:"  <paste & Enter>
+
+# Or pass URL inline (good for scripts):
 youtube-transcribe transcribe https://youtu.be/dQw4w9WgXcQ --language en
 
 # Fastest: pull YouTube's own subtitles (no GPU needed)
@@ -175,7 +179,14 @@ youtube-transcribe URL --preset smart --frames-per-window 5
 Прогнать пачку URL, целый канал или плейлист — одной командой. Skill кладёт результат в одну папку (`combined.md` + `manifest.json` + `videos/`), которую дальше Claude в чате читает целиком и делает заметку/сводку.
 
 ```bash
-# Несколько отдельных URL → один batch
+# Interactive — paste URLs one per line, empty line to finish
+youtube-transcribe batch
+# → "Paste URLs (one per line, empty line to finish):"
+#    > https://youtu.be/AAA
+#    > https://youtu.be/BBB
+#    > <Enter>
+
+# Inline (good for scripts):
 youtube-transcribe batch https://youtu.be/AAA https://youtu.be/BBB
 
 # Целый канал (топ-10 свежих видео), быстрый режим через субтитры YouTube
@@ -311,67 +322,77 @@ ranking decides relevance, you decide period + analysis angle.
 > chat-side LLM does the analysis. Force-skip with `--no-analyze`.
 
 ```bash
+# Interactive — run the command, paste the query when asked
+youtube-transcribe research \
+  --prompt "Сделай конспект ключевых идей" \
+  --analyze-backend gemini
+# → "Enter search query:" <type & Enter>
+
 # Default — last 30 days, ru+en search, top 20 results
-yt-tr research "Claude новинки" \
+youtube-transcribe research "Claude новинки" \
   --prompt "Сделай конспект ключевых идей" \
   --analyze-backend gemini
 
 # Narrower: 7 days, single language, fewer videos
-yt-tr research "AI agents 2026" \
+youtube-transcribe research "AI agents 2026" \
   --days 7 --languages en --limit 10 \
   --prompt "Compare design choices"
 
 # Historical: specific window
-yt-tr research "LangChain release" \
+youtube-transcribe research "LangChain release" \
   --since 2024-06-01 --until 2024-08-31 \
   --prompt "Что нового"
 
 # Substring + LLM filter combo
-yt-tr research "machine learning" \
+youtube-transcribe research "machine learning" \
   --match "tutorial" --filter "обучающие для новичков" \
   --prompt "Что общего, что уникального"
 
 # Just transcripts, no analyze
-yt-tr research "новинки 2026" --no-analyze
+youtube-transcribe research "новинки 2026" --no-analyze
 
 # Cross-pollination: only from my subscribed channels
-yt-tr research "Claude" --in-subscribes --group ai-research \
+youtube-transcribe research "Claude" --in-subscribes --group ai-research \
   --days 14 --prompt "Свежие фишки"
 ```
 
 ## Subscribes — channels you follow (v0.7)
 
 ```bash
-# Add channels
-yt-tr subscribes add https://www.youtube.com/@anthropic-ai --group ai
-yt-tr subscribes add https://www.youtube.com/@lexfridman --group philosophy
+# Add a channel — interactive (run, then paste the URL)
+youtube-transcribe subscribes add --group ai
+# → "Paste channel URL:"
+
+# Or inline:
+youtube-transcribe subscribes add https://www.youtube.com/@anthropic-ai --group ai
+youtube-transcribe subscribes add https://www.youtube.com/@lexfridman --group philosophy
 
 # List (optionally by group)
-yt-tr subscribes list
-yt-tr subscribes list --group ai
+youtube-transcribe subscribes list
+youtube-transcribe subscribes list --group ai
 
 # Edit subscribes.toml manually (cross-OS $EDITOR)
-yt-tr subscribes edit
+youtube-transcribe subscribes edit
 
 # Remove
-yt-tr subscribes remove @anthropic-ai
+youtube-transcribe subscribes remove @anthropic-ai
 
 # Update: incremental (stateful per channel)
-yt-tr subscribes update --prompt "Что обсуждалось"
+youtube-transcribe subscribes update --prompt "Что обсуждалось"
 
 # Update: force window
-yt-tr subscribes update --days 7 --group ai \
+youtube-transcribe subscribes update --days 7 --group ai \
   --filter "только про новые модели" \
   --prompt "Сравни подходы"
 
 # Generate scheduler snippet (no automatic install)
-yt-tr subscribes schedule install --every 1h --prompt "Твой обычный prompt"
+youtube-transcribe subscribes schedule install --every 1h --prompt "Твой обычный prompt"
 # → prints launchd/cron/systemd/Task Scheduler snippet + install instructions
 
 # View past runs
-yt-tr history list
-yt-tr history list --type research --last 5
-yt-tr history show <run-id>
+youtube-transcribe history list
+youtube-transcribe history list --type research --last 5
+youtube-transcribe history show <run-id>
 ```
 
 The `subscribes` store lives at `~/.youtube-transcribe/subscribes.toml`

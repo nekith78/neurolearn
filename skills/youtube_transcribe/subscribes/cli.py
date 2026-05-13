@@ -37,11 +37,14 @@ def subscribes_group() -> None:
 
 
 @subscribes_group.command(name="add")
-@click.argument("channel_url")
+@click.argument("channel_url", required=False)
 @click.option("--group", default=None,
               help="Optional group tag (e.g. 'ai-research').")
-def add_cmd(channel_url: str, group: str | None) -> None:
+def add_cmd(channel_url: str | None, group: str | None) -> None:
     """Add a channel by URL. Platform is auto-detected from the URL."""
+    if not channel_url:
+        from skills.youtube_transcribe.shared.prompts import prompt_url_or_die
+        channel_url = prompt_url_or_die("Paste channel URL:")
     try:
         resolved = resolve_channel(channel_url)
     except ValueError as e:

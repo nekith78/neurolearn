@@ -33,10 +33,11 @@ diarization, ASR correction, history log.
 
 ## 2. CLI surface (full)
 
-### `transcribe <URL_or_path> [flags]`
+### `transcribe [<URL_or_path>] [flags]`
 
 Single video. Bare `youtube-transcribe <URL>` (no sub-command) also routes here
-for back-compat.
+for back-compat. Positional URL is **optional**: omit it and the command
+prompts (TTY) — `Paste URL or file path:`. Non-TTY without arg exits 2.
 
 Key flags (full list via `--help`):
 
@@ -55,6 +56,8 @@ Output: `./transcripts/<slug>_<video_id>.txt` and `.srt`.
 ### `batch [<URLs>...] [flags]`
 
 Many inputs. Accepts inline URLs, channel URLs, playlist URLs, or `--from-file`.
+With no URLs, no `--from-file`, and no `--search`, batch prompts (TTY) —
+`Paste URLs (one per line, empty line to finish):`. Non-TTY without input exits 2.
 
 Batch-specific:
 
@@ -83,11 +86,13 @@ Output: `<output-dir>/<batch_name>/`:
 └── errors.log            ← only if at least one video failed
 ```
 
-### `research "<query>" [flags]` (v0.7)
+### `research ["<query>"] [flags]` (v0.7)
 
 Pipeline: translate query per language → search YouTube with built-in `sp=`
 date filter → dedupe by `video_id` → optional substring/LLM filter → optional
-TTY picker → batch transcribe → optional analyze.
+TTY picker → batch transcribe → optional analyze. Positional query is
+**optional**: omit it (and `--in-subscribes`) and the command prompts (TTY) —
+`Enter search query:`. Non-TTY without arg exits 2.
 
 Key flags:
 
@@ -111,7 +116,7 @@ id `r-MMDD-HHMMSS`.
 ### `subscribes` sub-commands (v0.7)
 
 ```
-subscribes add <channel-url> [--group <name>]
+subscribes add [<channel-url>] [--group <name>]   # URL prompted in TTY if omitted
 subscribes remove <handle-or-url>
 subscribes list [--group <name>]
 subscribes edit                                  # opens subscribes.toml in $EDITOR

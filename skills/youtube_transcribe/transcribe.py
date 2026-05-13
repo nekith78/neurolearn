@@ -103,7 +103,7 @@ def cli() -> None:
 
 
 @cli.command(name="transcribe")
-@click.argument("audio_or_url")
+@click.argument("audio_or_url", required=False)
 @click.option("--backend", type=click.Choice(BACKEND_CHOICES), default=None,
               help="Backend to use (overrides config default).")
 @click.option("--whisper-model", type=click.Choice(["turbo", "large", "medium", "small", "distil"]),
@@ -171,8 +171,11 @@ def cli() -> None:
               type=click.Path(exists=True), default=None,
               help="Custom vision prompt template (placeholders {language}, "
                    "{transcript_snippet}, {start_sec}, {end_sec}).")
-def transcribe_cmd(audio_or_url: str, **opts) -> None:
+def transcribe_cmd(audio_or_url: str | None, **opts) -> None:
     """Transcribe a YouTube URL, supported video URL, or local audio/video file."""
+    if not audio_or_url:
+        from skills.youtube_transcribe.shared.prompts import prompt_url_or_die
+        audio_or_url = prompt_url_or_die("Paste URL or file path:")
     if not CONFIG_PATH.exists():
         run_wizard()
 
@@ -1104,6 +1107,15 @@ def batch_cmd(
     **opts,
 ) -> None:
     """Batch-транскрибация: пачка URL, канал/плейлист, или --from-file."""
+    # If no inputs were provided AND no alternative source (--from-file / --search),
+    # prompt for URLs interactively. Lets users paste long URLs without baking them
+    # into the shell command line.
+    if not inputs and not from_file and not opts.get("search_opt"):
+        from skills.youtube_transcribe.shared.prompts import prompt_urls_or_die
+        inputs = tuple(prompt_urls_or_die(
+            "Paste URLs (one per line, empty line to finish):"
+        ))
+
     # === v0.6: extract analyze-related options before anything else ===
     then_analyze = opts.pop("then_analyze", False)
     analyze_prompt = opts.pop("analyze_prompt", None)
@@ -1890,8 +1902,8 @@ def research_cmd(
     from skills.youtube_transcribe.research.pipeline import run_research
 
     if not query and not in_subscribes:
-        console.print("[red]QUERY required (or pass --in-subscribes).[/red]")
-        sys.exit(2)
+        from skills.youtube_transcribe.shared.prompts import prompt_url_or_die
+        query = prompt_url_or_die("Enter search query:")
 
     # Resolve analyze backend BEFORE prompt validation: if it ends up None
     # (user chose "skip" / non-TTY without preference), analyze won't run
