@@ -1340,17 +1340,78 @@ cli.add_command(history_group)
               help="Create a Gradio share-link (public tunnel — be careful).")
 def webui_cmd(host: str, port: int, share: bool) -> None:
     """Launch the Gradio Web UI (v0.4 — opt-in via [webui] extra)."""
-    try:
-        from skills.youtube_transcribe.webui.app import launch
-    except ImportError as e:
-        console.print(
-            "[red]Web UI requires the `webui` extra:[/red]\n"
-            "  uv sync --extra webui\n"
-            "(or `pip install youtube-transcribe[webui]`)"
-        )
-        console.print(f"  Detail: {e}", style="dim")
-        sys.exit(2)
+    _ensure_gradio_installed()
+    from skills.youtube_transcribe.webui.app import launch
     launch(server_name=host, server_port=port, share=share)
+
+
+def _ensure_gradio_installed() -> None:
+    """Verify `gradio` is importable; offer auto-install on missing/broken.
+
+    Variant B (explicit prompt) — gradio pulls ~100 MB across ~30 transitive
+    deps, so we never install silently. In a TTY we ask y/N; in a non-TTY
+    (CI, piped) we print copy-pasteable instructions and exit.
+
+    Catches both pure ImportError (package not installed) AND AttributeError
+    (broken / partial install where `import gradio` succeeds but `gr.Blocks`
+    fails — seen in the wild when an aborted install leaves an empty
+    `gradio/` directory in site-packages).
+    """
+    try:
+        from gradio import Blocks  # noqa: F401
+        return
+    except (ImportError, AttributeError):
+        pass
+
+    if not sys.stdin.isatty():
+        console.print(
+            "[red]Web UI требует gradio (~100 MB), не установлен.[/red]\n"
+            "Установи и запусти снова:\n\n"
+            "  uv pip install 'gradio>=4'\n"
+            "  # или: pip install 'youtube-transcribe[webui]'"
+        )
+        sys.exit(4)
+
+    console.print(
+        "[yellow]Web UI требует gradio (~100 MB) — пока не установлен.[/yellow]"
+    )
+    if not click.confirm("Установить сейчас?", default=False):
+        console.print(
+            "[red]Отменено.[/red] Установи вручную:\n"
+            "  uv pip install 'gradio>=4'"
+        )
+        sys.exit(4)
+
+    import subprocess
+    console.print("[dim]→ python -m pip install 'gradio>=4'[/dim]")
+    try:
+        subprocess.run(
+            [sys.executable, "-m", "pip", "install", "gradio>=4"],
+            check=True,
+        )
+    except subprocess.CalledProcessError as e:
+        console.print(
+            f"[red]pip install не прошёл (exit {e.returncode}).[/red]\n"
+            "Попробуй вручную:\n"
+            "  uv pip install 'gradio>=4'"
+        )
+        sys.exit(4)
+    except FileNotFoundError:
+        console.print(
+            "[red]`python -m pip` недоступен в этом окружении.[/red]\n"
+            "Установи через uv:\n"
+            "  uv pip install 'gradio>=4'"
+        )
+        sys.exit(4)
+
+    try:
+        from gradio import Blocks  # noqa: F401
+    except (ImportError, AttributeError) as e:
+        console.print(
+            f"[red]gradio установлен, но не импортируется: {e}[/red]"
+        )
+        sys.exit(4)
+    console.print("[green]✓ gradio установлен.[/green]")
 
 
 @cli.command(name="summarize")
