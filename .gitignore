@@ -40,3 +40,6 @@ test-output*/
 uv.lock
 .python-version
 graphify-out/
+
+# Claude Code local state (user-specific slash commands, scheduler lock)
+.claude/
