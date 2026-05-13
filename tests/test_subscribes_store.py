@@ -108,6 +108,56 @@ def test_find_channel(tmp_path: Path):
     assert find_channel(p, "@nope") is None
 
 
+def test_legacy_entry_without_platform_defaults_to_youtube(tmp_path: Path):
+    """Pre-v0.8 subscribes.toml entries have no `platform` key. Loader must
+    treat them as YouTube — that's the only platform they could have been
+    written by, and silently breaking existing users is not OK."""
+    p = tmp_path / "sub.toml"
+    p.write_text(
+        "[[channels]]\n"
+        "url = \"https://www.youtube.com/@A\"\n"
+        "handle = \"@A\"\n"
+        "channel_id = \"UC_a\"\n"
+        "added = \"2026-05-12\"\n",
+        encoding="utf-8",
+    )
+    chans = load_subscribes(p)
+    assert chans[0].platform == "youtube"
+
+
+def test_platform_persists_through_save_and_load(tmp_path: Path):
+    p = tmp_path / "sub.toml"
+    channels = [
+        Channel(url="https://www.youtube.com/@yt", handle="@yt",
+                channel_id="UC_a", group=None, added="x",
+                platform="youtube"),
+        Channel(url="https://www.instagram.com/ig/", handle="@ig",
+                channel_id="ig", group=None, added="x",
+                platform="instagram"),
+        Channel(url="https://www.tiktok.com/@tt", handle="@tt",
+                channel_id="@tt", group=None, added="x",
+                platform="tiktok"),
+    ]
+    save_subscribes(p, channels)
+    loaded = load_subscribes(p)
+    assert [c.platform for c in loaded] == ["youtube", "instagram", "tiktok"]
+
+
+def test_unknown_platform_raises(tmp_path: Path):
+    """A typo or future-version platform value should fail loudly on load —
+    silent defaulting could route an IG channel through the YouTube path."""
+    p = tmp_path / "sub.toml"
+    p.write_text(
+        "[[channels]]\n"
+        "url = \"u\"\n"
+        "platform = \"facebook\"\n"
+        "added = \"x\"\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="Unknown platform"):
+        load_subscribes(p)
+
+
 def test_load_with_last_seen_fields(tmp_path: Path):
     p = tmp_path / "sub.toml"
     p.write_text(

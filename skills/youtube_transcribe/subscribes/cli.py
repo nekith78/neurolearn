@@ -74,26 +74,57 @@ def remove_cmd(identifier: str) -> None:
 
 @subscribes_group.command(name="list")
 @click.option("--group", default=None, help="Filter by group.")
-def list_cmd(group: str | None) -> None:
-    """List subscribed channels."""
+@click.option("--platform",
+              type=click.Choice(["youtube", "instagram", "tiktok"]),
+              default=None,
+              help="Show only one platform.")
+def list_cmd(group: str | None, platform: str | None) -> None:
+    """List subscribed channels grouped by platform."""
+    from skills.youtube_transcribe.subscribes.store import PLATFORMS
     channels = load_subscribes(SUBSCRIBES_PATH)
     channels = filter_by_group(channels, group)
+    if platform:
+        channels = [c for c in channels if c.platform == platform]
     if not channels:
         _console.print("[yellow]Нет каналов.[/yellow]")
         return
-    table = Table(show_header=True, header_style="bold")
-    table.add_column("Handle")
-    table.add_column("Group")
-    table.add_column("Channel ID")
-    table.add_column("Last seen")
+
+    # Partition by platform, render one table per group with non-empty rows.
+    by_platform: dict[str, list] = {p: [] for p in PLATFORMS}
     for c in channels:
-        table.add_row(
-            c.handle or "—",
-            c.group or "—",
-            c.channel_id or "—",
-            c.last_seen_published or "—",
+        # Defensive: silently skip any platform we don't know how to render.
+        if c.platform in by_platform:
+            by_platform[c.platform].append(c)
+
+    printed_any = False
+    for plat in PLATFORMS:
+        rows = by_platform[plat]
+        if not rows:
+            continue
+        if printed_any:
+            _console.print()
+        printed_any = True
+        title = {
+            "youtube": "YouTube",
+            "instagram": "Instagram",
+            "tiktok": "TikTok",
+        }[plat]
+        table = Table(
+            title=f"[bold]{title}[/bold]",
+            show_header=True, header_style="bold",
         )
-    _console.print(table)
+        table.add_column("Handle")
+        table.add_column("Group")
+        table.add_column("Channel ID / Username")
+        table.add_column("Last seen")
+        for c in rows:
+            table.add_row(
+                c.handle or "—",
+                c.group or "—",
+                c.channel_id or "—",
+                c.last_seen_published or "—",
+            )
+        _console.print(table)
 
 
 @subscribes_group.command(name="edit")

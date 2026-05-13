@@ -84,6 +84,66 @@ def test_list_shows_channels(tmp_path: Path):
     assert "@B" in res.output
 
 
+def test_list_groups_by_platform(tmp_path: Path):
+    """v0.8 — list prints separate tables for YouTube / Instagram / TikTok."""
+    from skills.youtube_transcribe.subscribes.store import (
+        Channel, add_channel,
+    )
+    sub_path = tmp_path / "subscribes.toml"
+    add_channel(sub_path, Channel(
+        url="https://www.youtube.com/@yt", handle="@yt", channel_id="UC_a",
+        group=None, added="x", platform="youtube",
+    ))
+    add_channel(sub_path, Channel(
+        url="https://www.instagram.com/ig/", handle="@ig", channel_id="ig",
+        group=None, added="x", platform="instagram",
+    ))
+    add_channel(sub_path, Channel(
+        url="https://www.tiktok.com/@tt", handle="@tt", channel_id="@tt",
+        group=None, added="x", platform="tiktok",
+    ))
+    with patch(
+        "skills.youtube_transcribe.subscribes.cli.SUBSCRIBES_PATH",
+        new=sub_path,
+    ):
+        runner = CliRunner()
+        res = runner.invoke(cli, ["subscribes", "list"])
+    assert res.exit_code == 0
+    # All three section titles present.
+    assert "YouTube" in res.output
+    assert "Instagram" in res.output
+    assert "TikTok" in res.output
+    # All three handles present.
+    for h in ("@yt", "@ig", "@tt"):
+        assert h in res.output
+
+
+def test_list_platform_filter(tmp_path: Path):
+    from skills.youtube_transcribe.subscribes.store import (
+        Channel, add_channel,
+    )
+    sub_path = tmp_path / "subscribes.toml"
+    add_channel(sub_path, Channel(
+        url="https://www.youtube.com/@yt", handle="@yt", channel_id="UC_a",
+        group=None, added="x", platform="youtube",
+    ))
+    add_channel(sub_path, Channel(
+        url="https://www.instagram.com/ig/", handle="@ig", channel_id="ig",
+        group=None, added="x", platform="instagram",
+    ))
+    with patch(
+        "skills.youtube_transcribe.subscribes.cli.SUBSCRIBES_PATH",
+        new=sub_path,
+    ):
+        runner = CliRunner()
+        res = runner.invoke(cli, [
+            "subscribes", "list", "--platform", "instagram",
+        ])
+    assert res.exit_code == 0
+    assert "@ig" in res.output
+    assert "@yt" not in res.output
+
+
 def test_list_filter_by_group(tmp_path: Path):
     from skills.youtube_transcribe.subscribes.store import (
         Channel, add_channel,

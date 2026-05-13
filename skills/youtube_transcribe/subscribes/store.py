@@ -9,9 +9,18 @@ from pathlib import Path
 import tomlkit
 
 
+PLATFORMS = ("youtube", "instagram", "tiktok")
+
+
 @dataclass
 class Channel:
-    """One subscribed YouTube channel."""
+    """One subscribed channel across YouTube / Instagram / TikTok.
+
+    `channel_id` is platform-dependent:
+      - YouTube: stable `UC...` resolved once via yt-dlp
+      - Instagram: the username (URL is sole stable identifier)
+      - TikTok: the @handle (e.g. "@duolingo")
+    """
     url: str
     handle: str | None
     channel_id: str | None
@@ -19,6 +28,9 @@ class Channel:
     added: str  # YYYY-MM-DD
     last_seen_video_id: str | None = None
     last_seen_published: str | None = None  # ISO 8601
+    # v0.8: which platform. Records loaded from a pre-v0.8 subscribes.toml
+    # default to "youtube" for backward compat — see _from_dict.
+    platform: str = "youtube"
 
 
 def load_subscribes(path: Path) -> list[Channel]:
@@ -115,10 +127,19 @@ def _to_dict(c: Channel) -> dict:
         "added": c.added,
         "last_seen_video_id": c.last_seen_video_id,
         "last_seen_published": c.last_seen_published,
+        "platform": c.platform,
     }
 
 
 def _from_dict(d: dict) -> Channel:
+    # Pre-v0.8 entries have no `platform` key — treat as YouTube (it was
+    # the only supported platform back then).
+    platform = d.get("platform") or "youtube"
+    if platform not in PLATFORMS:
+        raise ValueError(
+            f"Unknown platform {platform!r}. Expected one of: "
+            f"{', '.join(PLATFORMS)}"
+        )
     return Channel(
         url=d.get("url", ""),
         handle=d.get("handle"),
@@ -127,4 +148,5 @@ def _from_dict(d: dict) -> Channel:
         added=d.get("added", ""),
         last_seen_video_id=d.get("last_seen_video_id"),
         last_seen_published=d.get("last_seen_published"),
+        platform=platform,
     )
