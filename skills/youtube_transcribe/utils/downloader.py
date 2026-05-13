@@ -261,14 +261,16 @@ def parse_yt_date(s: str | None) -> date | None:
 
 
 def _extract_flat(
-    url: str, *, cookies_browser: str | None = None,
+    url: str, *, cookies_file: str | None = None,
 ) -> dict:
     """Тонкая обёртка над yt-dlp YoutubeDL.extract_info(extract_flat=True).
     Изолирована, чтобы тесты могли мокать её точечно через patch.
 
-    `cookies_browser` — optional browser name ("chrome" / "firefox" / etc.)
-    to source cookies from. Required for Instagram (anon → 401), useful for
-    private TikTok accounts.
+    `cookies_file` — optional path to a Netscape-format cookies.txt file.
+    Used for Instagram (anon → 401). The function NEVER uses
+    `cookies-from-browser` — that would pull all of the user's browser
+    cookies into process memory. See the project memory file
+    `feedback_cookies_strict_file_only.md` for the rationale.
     """
     from yt_dlp import YoutubeDL  # импорт локальный — yt-dlp тяжёлый
     from yt_dlp.utils import DownloadError as YtDlpDownloadError
@@ -279,8 +281,8 @@ def _extract_flat(
         "skip_download": True,
         "geo_bypass": True,
     }
-    if cookies_browser:
-        opts["cookiesfrombrowser"] = (cookies_browser,)
+    if cookies_file:
+        opts["cookiefile"] = cookies_file
     try:
         with YoutubeDL(opts) as ydl:
             return ydl.extract_info(url, download=False)
@@ -307,14 +309,16 @@ def probe_input(url_or_path: str) -> tuple[Literal["video", "playlist", "local"]
 
 
 def expand_channel_or_playlist(
-    url: str, limit: int, *, cookies_browser: str | None = None,
+    url: str, limit: int, *, cookies_file: str | None = None,
 ) -> list[ChannelEntry]:
     """Развернуть канал/плейлист в первые N entries. Только метадата, без скачивания.
 
-    `cookies_browser` пробрасывается в yt-dlp для платформ, которым нужна
-    залогиненная сессия (Instagram всегда, TikTok иногда).
+    `cookies_file` (Netscape cookies.txt) пробрасывается в yt-dlp для
+    платформ, которым нужна залогиненная сессия (Instagram всегда,
+    приватные TikTok-аккаунты). См. `_extract_flat` для security-обоснования
+    почему ТОЛЬКО файл, не `cookies-from-browser`.
     """
-    info = _extract_flat(url, cookies_browser=cookies_browser)
+    info = _extract_flat(url, cookies_file=cookies_file)
     entries = info.get("entries") or []
     out: list[ChannelEntry] = []
     for e in entries[:limit]:

@@ -101,7 +101,7 @@ def _fetch_via_yt_dlp(
     channel_url: str,
     *,
     limit: int = 30,
-    cookies_browser: str | None = None,
+    cookies_file: str | None = None,
     accept_missing_dates: bool = False,
 ) -> list[_ChannelVideo]:
     """yt-dlp profile scraper. Returns entries with `duration_sec` populated.
@@ -110,6 +110,12 @@ def _fetch_via_yt_dlp(
       • YouTube `--no-rss` fallback (no RSS, want duration metadata)
       • Instagram (no RSS exists; needs cookies)
       • TikTok (no RSS exists; cookies optional)
+
+    `cookies_file` is the path to a Netscape cookies.txt the user exported
+    themselves. We DELIBERATELY don't accept a `cookies_browser` parameter:
+    `cookies-from-browser` pulls ALL the user's browser cookies into process
+    memory, violating principle of least privilege. See the project memory
+    file `feedback_cookies_strict_file_only.md`.
 
     `accept_missing_dates=True` (set for IG/TikTok): when yt-dlp's flat
     extract returns an entry without `upload_date` — which is the norm
@@ -127,7 +133,7 @@ def _fetch_via_yt_dlp(
     )
     try:
         entries = expand_channel_or_playlist(
-            channel_url, limit=limit, cookies_browser=cookies_browser,
+            channel_url, limit=limit, cookies_file=cookies_file,
         )
     except Exception as e:
         if _looks_like_channel_not_found(str(e)):
@@ -182,8 +188,8 @@ def run_subscribes_update(
     api_keys: dict[str, str | None],
     batch_opts: dict,
     platform: str | None = None,
-    instagram_cookies_browser: str = "",
-    tiktok_cookies_browser: str = "",
+    instagram_cookies_file: str = "",
+    tiktok_cookies_file: str = "",
 ) -> Path | None:
     """Run subscribes update. Returns Path to batch folder or None."""
 
@@ -234,17 +240,19 @@ def run_subscribes_update(
         # `accept_missing_dates=True` for IG/TT — those platforms' flat
         # extracts don't include upload_date, so we synthesize a descending
         # stamp from now() and rely on last_seen_video_id for dedup below.
+        # Cookies come from a user-managed file (see config.toml [instagram]/
+        # [tiktok].cookies_file), NOT from `cookies-from-browser`.
         try:
             if ch.platform == "instagram":
                 entries = _fetch_via_yt_dlp(
                     ch.url,
-                    cookies_browser=instagram_cookies_browser or None,
+                    cookies_file=instagram_cookies_file or None,
                     accept_missing_dates=True,
                 )
             elif ch.platform == "tiktok":
                 entries = _fetch_via_yt_dlp(
                     ch.url,
-                    cookies_browser=tiktok_cookies_browser or None,
+                    cookies_file=tiktok_cookies_file or None,
                     accept_missing_dates=True,
                 )
             elif no_rss:

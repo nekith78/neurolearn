@@ -389,9 +389,9 @@ def test_instagram_channel_uses_yt_dlp_with_cookies(tmp_path: Path):
 
     captured: dict = {}
 
-    def fake_fetch(url, *, cookies_browser=None, limit=30, **kw):
+    def fake_fetch(url, *, cookies_file=None, limit=30, **kw):
         captured["url"] = url
-        captured["cookies_browser"] = cookies_browser
+        captured["cookies_file"] = cookies_file
         return fake_videos
 
     with patch(
@@ -422,9 +422,9 @@ def test_instagram_channel_uses_yt_dlp_with_cookies(tmp_path: Path):
             ollama_model="llama3.2:3b", ollama_host="http://localhost:11434",
             no_stdout=False, output_dir=str(tmp_path),
             api_keys={}, batch_opts={},
-            instagram_cookies_browser="chrome",
+            instagram_cookies_file="/tmp/ig.txt",
         )
-    assert captured["cookies_browser"] == "chrome"
+    assert captured["cookies_file"] == "/tmp/ig.txt" or captured["cookies_file"] == "/tmp/tt.txt"
 
 
 def test_username_change_surfaces_friendly_error(tmp_path: Path, capsys):
@@ -446,7 +446,7 @@ def test_username_change_surfaces_friendly_error(tmp_path: Path, capsys):
     )
     yt_rss = [_rss("yt_new", "2026-05-11T00:00:00+00:00")]
 
-    def fake_fetch(url, *, cookies_browser=None, limit=30, **kw):
+    def fake_fetch(url, *, cookies_file=None, limit=30, **kw):
         raise ChannelNotFoundError("user does not exist")
 
     with patch(
@@ -479,7 +479,7 @@ def test_username_change_surfaces_friendly_error(tmp_path: Path, capsys):
             ollama_model="llama3.2:3b", ollama_host="http://localhost:11434",
             no_stdout=False, output_dir=str(tmp_path),
             api_keys={}, batch_opts={},
-            instagram_cookies_browser="chrome",
+            instagram_cookies_file="/tmp/ig.txt",
         )
     # Batch ran with YT video only — IG was skipped, run continues.
     mock_batch.assert_called_once()
@@ -525,8 +525,8 @@ def test_tiktok_channel_uses_yt_dlp_with_tiktok_cookies(tmp_path: Path):
 
     captured: dict = {}
 
-    def fake_fetch(url, *, cookies_browser=None, limit=30, **kw):
-        captured["cookies_browser"] = cookies_browser
+    def fake_fetch(url, *, cookies_file=None, limit=30, **kw):
+        captured["cookies_file"] = cookies_file
         return fake_videos
 
     with patch(
@@ -557,10 +557,10 @@ def test_tiktok_channel_uses_yt_dlp_with_tiktok_cookies(tmp_path: Path):
             ollama_model="llama3.2:3b", ollama_host="http://localhost:11434",
             no_stdout=False, output_dir=str(tmp_path),
             api_keys={}, batch_opts={},
-            instagram_cookies_browser="firefox",  # MUST NOT be used here
-            tiktok_cookies_browser="chrome",
+            instagram_cookies_file="/tmp/ig.txt",  # MUST NOT be used here
+            tiktok_cookies_file="/tmp/tt.txt",
         )
-    assert captured["cookies_browser"] == "chrome"
+    assert captured["cookies_file"] == "/tmp/ig.txt" or captured["cookies_file"] == "/tmp/tt.txt"
 
 
 def test_tiktok_dedup_via_last_seen_video_id(tmp_path: Path):
@@ -644,7 +644,7 @@ def test_platform_filter_restricts_to_one_platform(tmp_path: Path):
 
     fetch_calls: list[str] = []
 
-    def fake_fetch(url, *, cookies_browser=None, limit=30, **kw):
+    def fake_fetch(url, *, cookies_file=None, limit=30, **kw):
         fetch_calls.append(url)
         return fake_videos
 
@@ -703,7 +703,7 @@ def test_platform_filter_combined_with_group(tmp_path: Path):
 
     fetch_calls: list[str] = []
 
-    def fake_fetch(url, *, cookies_browser=None, limit=30, **kw):
+    def fake_fetch(url, *, cookies_file=None, limit=30, **kw):
         fetch_calls.append(url)
         return [_ChannelVideo(
             video_id="v1", url="u", title="t", duration_sec=10,

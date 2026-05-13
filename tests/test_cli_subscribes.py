@@ -75,7 +75,7 @@ def test_add_instagram_runs_cookies_onboarding(tmp_path: Path):
         return_value=_ig_resolved("https://www.instagram.com/anthropic"),
     ), patch(
         "skills.youtube_transcribe.subscribes.cookies_onboarding"
-        ".resolve_cookies_browser",
+        ".resolve_cookies_file",
         return_value="chrome",
     ) as mock_cookies:
         runner = CliRunner()
@@ -99,7 +99,7 @@ def test_add_tiktok_runs_cookies_onboarding(tmp_path: Path):
         return_value=_tt_resolved("https://www.tiktok.com/@duolingo"),
     ), patch(
         "skills.youtube_transcribe.subscribes.cookies_onboarding"
-        ".resolve_cookies_browser",
+        ".resolve_cookies_file",
         return_value="chrome",
     ) as mock_cookies:
         runner = CliRunner()
@@ -123,7 +123,7 @@ def test_add_youtube_skips_cookies_onboarding(tmp_path: Path):
         return_value=_resolved("https://www.youtube.com/@A"),
     ), patch(
         "skills.youtube_transcribe.subscribes.cookies_onboarding"
-        ".resolve_cookies_browser",
+        ".resolve_cookies_file",
         side_effect=AssertionError("must not call for YouTube"),
     ):
         runner = CliRunner()

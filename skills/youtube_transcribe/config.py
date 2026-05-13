@@ -69,13 +69,18 @@ class Config:
     analyze_backend: str | None = None
 
     # === v0.8+ per-platform cookies for subscribes (IG/TikTok) ===
-    # Browser to source --cookies-from-browser from when scraping the
-    # corresponding platform. Asked on first `subscribes add` for that
-    # platform and persisted. Empty string = try anonymous (works for
-    # TikTok usually, fails on Instagram). Values: "", "chrome",
-    # "firefox", "edge", "safari".
-    instagram_cookies_browser: str = ""
-    tiktok_cookies_browser: str = ""
+    # Path to a Netscape-format cookies.txt file the user explicitly
+    # exported from their browser (e.g. via "Get cookies.txt LOCALLY"
+    # extension). Empty = no cookies, try anonymous (works for TikTok
+    # public videos, fails on Instagram).
+    #
+    # This is deliberately a FILE path, not a browser-name. The skill
+    # NEVER reads cookies directly from the user's browser at runtime
+    # (no `--cookies-from-browser`) — that would pull ALL the user's
+    # browser cookies into process memory. See
+    # ~/.claude/projects/.../feedback_cookies_strict_file_only.md
+    instagram_cookies_file: str = ""
+    tiktok_cookies_file: str = ""
 
 
 DEFAULT_CONFIG = Config()
@@ -127,10 +132,10 @@ def _to_toml_dict(cfg: Config) -> dict:
             "backend": d["analyze_backend"] or "",
         },
         "instagram": {
-            "cookies_browser": d["instagram_cookies_browser"],
+            "cookies_file": d["instagram_cookies_file"],
         },
         "tiktok": {
-            "cookies_browser": d["tiktok_cookies_browser"],
+            "cookies_file": d["tiktok_cookies_file"],
         },
     }
 
@@ -168,8 +173,8 @@ def _from_toml_dict(d: dict) -> Config:
         fast_path_enabled=beh.get("fast_path_enabled", DEFAULT_CONFIG.fast_path_enabled),
         # Empty string in TOML means "not chosen yet" — preserve None semantics.
         analyze_backend=raw_analyze_backend if raw_analyze_backend else None,
-        instagram_cookies_browser=ig.get("cookies_browser", ""),
-        tiktok_cookies_browser=tt.get("cookies_browser", ""),
+        instagram_cookies_file=ig.get("cookies_file", ""),
+        tiktok_cookies_file=tt.get("cookies_file", ""),
     )
 
 

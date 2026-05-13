@@ -1,20 +1,29 @@
-"""One-shot cookies prompt for Instagram / TikTok on first `subscribes add`.
+"""Cookies-file onboarding for Instagram / TikTok.
 
-Decision order (returns the browser name to use, or "" for anonymous):
-  1. config has `<platform>.cookies_browser` set non-empty  → use it
-  2. non-TTY                                                 → "" (silent anon)
-  3. TTY + no preference                                     → prompt, persist,
-                                                              return choice
+Strict policy (see project memory file feedback_cookies_strict_file_only.md):
+the skill NEVER reads cookies directly from a browser at runtime. Users
+must export their session cookies to a Netscape-format `cookies.txt`
+file (e.g. via the open-source "Get cookies.txt LOCALLY" Chrome extension)
+and we read that file when invoking yt-dlp.
 
-Instagram on `""` will almost always fail with 401 — we still try, since the
-user explicitly picked "none". TikTok on `""` usually works.
+This module provides two functions:
+
+  resolve_cookies_file(platform, ...)
+      Used by `subscribes update` and any other downloader. Returns the
+      configured file path or "" — never prompts during a normal run
+      (non-blocking; the run continues without cookies, which fails on
+      Instagram and may fail on private TikTok).
+
+  set_cookies_file(platform, path)
+      Used by the user-facing `subscribes cookies set` command.
+      Validates the file looks like a Netscape cookies.txt and
+      saves the path to config.toml.
 """
 from __future__ import annotations
 
 import sys
 from pathlib import Path
 
-import click
 from rich.console import Console
 
 from skills.youtube_transcribe.config import (
@@ -22,85 +31,110 @@ from skills.youtube_transcribe.config import (
 )
 
 
-_BROWSERS = ("chrome", "firefox", "edge", "safari", "")  # "" = anonymous
-_CHOICES_DISPLAY = ("chrome", "firefox", "edge", "safari", "none")
 _console = Console()
+_NETSCAPE_HEADER_LINES = (
+    "# Netscape HTTP Cookie File",
+    "# HTTP Cookie File",
+)
 
 
-def resolve_cookies_browser(
+def resolve_cookies_file(
     platform: str,
     *,
     config_path: Path = CONFIG_PATH,
-    is_tty: bool | None = None,
 ) -> str:
-    """Return the cookies browser to use for `platform` (or "" for anon).
+    """Return the configured cookies-file path for `platform`, or "".
 
-    Promises NOT to prompt the user more than once per platform per machine —
-    the choice is persisted to config.toml under `[<platform>] cookies_browser`.
+    Non-blocking: never prompts. If the user hasn't configured a file,
+    we return "" and the caller proceeds without cookies (which fails
+    on Instagram — that's the user's signal to run `subscribes cookies
+    set instagram <path>`).
     """
     if platform not in ("instagram", "tiktok"):
-        return ""  # YouTube doesn't need cookies for public RSS feeds
-
-    cfg = load_config(config_path) if config_path.exists() else None
-    saved = (
-        cfg.instagram_cookies_browser if platform == "instagram"
-        else cfg.tiktok_cookies_browser
-    ) if cfg else ""
-
-    if saved:
-        return saved
-
-    tty = is_tty if is_tty is not None else sys.stdin.isatty()
-    if not tty:
-        # Persist explicit "" so the next non-TTY run doesn't keep treating
-        # this as "not chosen". A standalone CLI user can still override
-        # later via `config set <platform>.cookies_browser <browser>`.
         return ""
 
-    choice = _prompt(platform)
-    _persist(platform, choice, config_path)
-    return choice
+    if not config_path.exists():
+        return ""
+
+    cfg = load_config(config_path)
+    path = (
+        cfg.instagram_cookies_file if platform == "instagram"
+        else cfg.tiktok_cookies_file
+    )
+
+    if not path:
+        return ""
+    if not Path(path).expanduser().exists():
+        _console.print(
+            f"[yellow]⚠ {platform} cookies file не найден: {path}[/yellow]\n"
+            f"[dim]Перевыгрузи и обнови:[/dim]\n"
+            f"[dim]  yt-tr subscribes cookies set {platform} <new-path>[/dim]"
+        )
+        return ""
+    return str(Path(path).expanduser())
 
 
-def _prompt(platform: str) -> str:
-    title = "Instagram" if platform == "instagram" else "TikTok"
-    hint = (
-        "обычно требует залогиненную сессию"
-        if platform == "instagram"
-        else "иногда работает анонимно, но если канал приватный — нужен залогин"
-    )
-    _console.print(
-        f"\n[bold]{title} {hint}.[/bold]\n"
-        "Из какого браузера брать cookies?"
-    )
-    _console.print(
-        "  [cyan]1[/cyan]) chrome\n"
-        "  [cyan]2[/cyan]) firefox\n"
-        "  [cyan]3[/cyan]) edge\n"
-        "  [cyan]4[/cyan]) safari\n"
-        "  [cyan]5[/cyan]) none [dim](попробую анонимно — Instagram скорее всего "
-        "вернёт 401)[/dim]"
-    )
-    choice = click.prompt(
-        "Выбор",
-        type=click.Choice(["1", "2", "3", "4", "5"]),
-        default="1",
-        show_choices=False,
-        show_default=True,
-    )
-    return _BROWSERS[int(choice) - 1]
+def set_cookies_file(
+    platform: str,
+    path: str,
+    *,
+    config_path: Path = CONFIG_PATH,
+) -> Path:
+    """Validate the file, copy it to a canonical location, save to config.
 
+    Returns the final stored path. Raises ValueError on validation failure.
+    """
+    if platform not in ("instagram", "tiktok"):
+        raise ValueError(
+            f"unsupported platform: {platform!r}. Expected 'instagram' or 'tiktok'."
+        )
 
-def _persist(platform: str, choice: str, config_path: Path) -> None:
+    src = Path(path).expanduser().resolve()
+    if not src.exists():
+        raise ValueError(f"файл не найден: {src}")
+    if not src.is_file():
+        raise ValueError(f"не файл: {src}")
+
+    # Basic Netscape format sniff: first non-empty line should be a header
+    # or a tab-separated row with 7 fields.
+    try:
+        first = ""
+        with src.open("r", encoding="utf-8", errors="replace") as f:
+            for line in f:
+                if line.strip():
+                    first = line.strip()
+                    break
+        looks_netscape = (
+            any(first.startswith(h) for h in _NETSCAPE_HEADER_LINES)
+            or len(first.split("\t")) == 7
+        )
+        if not looks_netscape:
+            raise ValueError(
+                f"файл не похож на Netscape cookies.txt "
+                f"(первая строка: {first[:60]!r}). "
+                "Экспортируй через расширение 'Get cookies.txt LOCALLY'."
+            )
+    except OSError as e:
+        raise ValueError(f"не могу прочесть файл: {e}") from e
+
+    # Copy to a canonical location under ~/.youtube-transcribe/ with 0600
+    # permissions. Keeps user's source file untouched; if they want to
+    # revoke, deleting either copy is enough (we re-validate path on
+    # every read).
+    dest_dir = config_path.parent
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    dest = dest_dir / f"{platform}-cookies.txt"
+    dest.write_bytes(src.read_bytes())
+    if sys.platform != "win32":
+        try:
+            dest.chmod(0o600)
+        except OSError:
+            pass
+
     cfg = load_config(config_path) if config_path.exists() else Config()
     if platform == "instagram":
-        cfg.instagram_cookies_browser = choice
+        cfg.instagram_cookies_file = str(dest)
     else:
-        cfg.tiktok_cookies_browser = choice
+        cfg.tiktok_cookies_file = str(dest)
     save_config(cfg, config_path)
-    display = choice if choice else "none (anonymous)"
-    _console.print(
-        f"[dim]→ сохранено: [{platform}] cookies_browser = "
-        f"{display!r}.[/dim]\n"
-        f"[dim]Сменить позже: правка ~/.youtube-transcribe/config.toml.[/dim]"
-    )
+    return dest

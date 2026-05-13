@@ -48,13 +48,23 @@ def add_cmd(channel_url: str, group: str | None) -> None:
         _console.print(f"[red]Не удалось распознать канал:[/red] {e}")
         sys.exit(3)
 
-    # First IG/TikTok add triggers the cookies onboarding prompt; YouTube
-    # short-circuits to "" since RSS is public.
+    # On first IG / TikTok add, point the user at the cookies-file workflow.
+    # We do NOT prompt during `add` — the user can finish adding now and set
+    # up cookies later when they actually run `subscribes update`.
     if resolved.platform in ("instagram", "tiktok"):
         from skills.youtube_transcribe.subscribes.cookies_onboarding import (
-            resolve_cookies_browser,
+            resolve_cookies_file,
         )
-        resolve_cookies_browser(resolved.platform)
+        if not resolve_cookies_file(resolved.platform):
+            _console.print(
+                f"[dim]⚠ {resolved.platform} требует cookies. Когда будешь "
+                f"готов запускать update — экспортируй cookies через "
+                f"расширение[/dim]\n"
+                f"[dim]   \"Get cookies.txt LOCALLY\" (Chrome / Firefox) и "
+                f"подключи их:[/dim]\n"
+                f"[dim]   yt-tr subscribes cookies set {resolved.platform} "
+                f"<path-to-cookies.txt>[/dim]"
+            )
 
     channel = Channel(
         url=resolved.url,
@@ -268,11 +278,11 @@ def update_cmd(
             output_dir=output_dir,
             api_keys=api_keys,
             batch_opts=batch_opts,
-            instagram_cookies_browser=(
-                cfg.instagram_cookies_browser if cfg else ""
+            instagram_cookies_file=(
+                cfg.instagram_cookies_file if cfg else ""
             ),
-            tiktok_cookies_browser=(
-                cfg.tiktok_cookies_browser if cfg else ""
+            tiktok_cookies_file=(
+                cfg.tiktok_cookies_file if cfg else ""
             ),
         )
     except SubscribesError as e:
@@ -281,6 +291,108 @@ def update_cmd(
     except ValueError as e:
         _console.print(f"[red]{e}[/red]")
         sys.exit(2)
+
+
+@subscribes_group.group(name="cookies")
+def cookies_group() -> None:
+    """Manage Instagram / TikTok cookies file (Netscape cookies.txt).
+
+    Step-by-step setup:
+
+      1. Install the open-source "Get cookies.txt LOCALLY" extension
+         (Chrome / Firefox) — it does NOT phone home.
+      2. Open instagram.com (logged in) → click the extension → Export.
+         Same for tiktok.com if you need TikTok cookies.
+      3. Run:  yt-tr subscribes cookies set instagram ~/Downloads/instagram_com_cookies.txt
+              yt-tr subscribes cookies set tiktok    ~/Downloads/tiktok_com_cookies.txt
+
+    The file is copied to `~/.youtube-transcribe/<platform>-cookies.txt`
+    with mode 0600. To revoke, just delete that file or run
+    `yt-tr subscribes cookies clear <platform>`.
+    """
+
+
+@cookies_group.command(name="set")
+@click.argument("platform", type=click.Choice(["instagram", "tiktok"]))
+@click.argument("path", type=click.Path(exists=True, dir_okay=False))
+def cookies_set_cmd(platform: str, path: str) -> None:
+    """Register a cookies.txt for PLATFORM."""
+    from skills.youtube_transcribe.subscribes.cookies_onboarding import (
+        set_cookies_file,
+    )
+    try:
+        dest = set_cookies_file(platform, path)
+    except ValueError as e:
+        _console.print(f"[red]{e}[/red]")
+        sys.exit(2)
+    _console.print(
+        f"[green]✓[/green] {platform} cookies сохранены в "
+        f"[bold]{dest}[/bold] (mode 0600)\n"
+        f"[dim]Когда yt-dlp вернёт login-required / empty response — это "
+        f"знак что cookies протухли. Перевыгрузи и снова `cookies set`.[/dim]"
+    )
+
+
+@cookies_group.command(name="clear")
+@click.argument("platform", type=click.Choice(["instagram", "tiktok"]))
+def cookies_clear_cmd(platform: str) -> None:
+    """Remove the registered cookies file for PLATFORM."""
+    from skills.youtube_transcribe.config import (
+        CONFIG_PATH, load_config, save_config, Config,
+    )
+    cfg = load_config(CONFIG_PATH) if CONFIG_PATH.exists() else Config()
+    current = (
+        cfg.instagram_cookies_file if platform == "instagram"
+        else cfg.tiktok_cookies_file
+    )
+    if not current:
+        _console.print(
+            f"[yellow]Нет настроенного cookies-файла для {platform}.[/yellow]"
+        )
+        return
+    p = Path(current).expanduser()
+    if p.exists():
+        try:
+            p.unlink()
+        except OSError as e:
+            _console.print(f"[yellow]Не удалил {p}: {e}[/yellow]")
+    if platform == "instagram":
+        cfg.instagram_cookies_file = ""
+    else:
+        cfg.tiktok_cookies_file = ""
+    save_config(cfg, CONFIG_PATH)
+    _console.print(
+        f"[green]✓[/green] {platform} cookies очищены. "
+        f"Следующий `subscribes update` пойдёт анонимно "
+        f"(на Instagram это упадёт — это ожидаемо)."
+    )
+
+
+@cookies_group.command(name="show")
+def cookies_show_cmd() -> None:
+    """Show currently configured cookies files."""
+    from skills.youtube_transcribe.config import CONFIG_PATH, load_config
+    cfg = load_config(CONFIG_PATH) if CONFIG_PATH.exists() else None
+    if cfg is None:
+        _console.print("[dim]config.toml не существует.[/dim]")
+        return
+    rows = [
+        ("instagram", cfg.instagram_cookies_file),
+        ("tiktok", cfg.tiktok_cookies_file),
+    ]
+    table = Table(show_header=True, header_style="bold")
+    table.add_column("Platform")
+    table.add_column("Cookies file")
+    table.add_column("Status")
+    for plat, p in rows:
+        if not p:
+            status = "[dim]not set[/dim]"
+        elif Path(p).expanduser().exists():
+            status = "[green]ok[/green]"
+        else:
+            status = "[red]missing[/red]"
+        table.add_row(plat, p or "—", status)
+    _console.print(table)
 
 
 @subscribes_group.group(name="schedule")
