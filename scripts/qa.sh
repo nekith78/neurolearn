@@ -505,6 +505,223 @@ phase5_4() {
   fi
 }
 
+# ── Phase 8a: cookies file workflow — self-contained (no real cookies) ──
+phase8a() {
+  step "Phase 8a — cookies file workflow (validation, set/show/clear, perms)"
+
+  local tmp="$QA_DIR/cookies-self"
+  rm -rf "$tmp"; mkdir -p "$tmp"
+
+  # Back up real config + cookies if present — restore at end so the test
+  # doesn't trash the user's setup.
+  local cfg=~/.youtube-transcribe/config.toml
+  local ig_file=~/.youtube-transcribe/instagram-cookies.txt
+  local tt_file=~/.youtube-transcribe/tiktok-cookies.txt
+  local yt_file=~/.youtube-transcribe/youtube-cookies.txt
+  [[ -f $cfg ]]     && cp "$cfg" "$tmp/config.toml.bak"
+  [[ -f $ig_file ]] && cp "$ig_file" "$tmp/ig.bak"
+  [[ -f $tt_file ]] && cp "$tt_file" "$tmp/tt.bak"
+  [[ -f $yt_file ]] && cp "$yt_file" "$tmp/yt.bak"
+
+  # === Fixtures ===
+  local good="$tmp/good_cookies.txt"
+  local bad="$tmp/not-cookies.txt"
+  cat > "$good" <<'CKEOF'
+# Netscape HTTP Cookie File
+.instagram.com	TRUE	/	TRUE	9999999999	sessionid	fake_session_token_for_qa
+.instagram.com	TRUE	/	FALSE	9999999999	csrftoken	fake_csrf
+CKEOF
+  echo "This is just a plain text file, definitely not cookies." > "$bad"
+
+  # === 1. help shows the new subgroup ===
+  if $YT subscribes cookies --help 2>&1 | grep -q "set"; then
+    ok "1. subscribes cookies --help shows 'set'"
+  else
+    fail "1. subscribes cookies --help is missing 'set'"
+  fi
+
+  # === 2. rejects missing path (exit non-zero) ===
+  if ! $YT subscribes cookies set instagram /tmp/this-does-not-exist.txt \
+       >/dev/null 2>&1; then
+    ok "2. missing path rejected with non-zero exit"
+  else
+    fail "2. expected non-zero exit on missing path"
+  fi
+
+  # === 3. rejects file that's not Netscape format ===
+  local out
+  out=$($YT subscribes cookies set instagram "$bad" 2>&1) || true
+  if echo "$out" | grep -q "Netscape"; then
+    ok "3. non-Netscape file rejected with clear message"
+  else
+    fail "3. expected Netscape rejection, got: $out"
+  fi
+
+  # === 4. happy-path set instagram ===
+  if $YT subscribes cookies set instagram "$good" >/dev/null 2>&1; then
+    ok "4. subscribes cookies set instagram (valid file) exit 0"
+  else
+    fail "4. set instagram (valid) failed"
+  fi
+
+  # === 5. file copied to canonical location ===
+  if [[ -f $ig_file ]]; then
+    ok "5. ~/.youtube-transcribe/instagram-cookies.txt created"
+  else
+    fail "5. canonical IG cookies file missing"
+  fi
+
+  # === 6. file has mode 0600 ===
+  if [[ $(stat -f '%Lp' "$ig_file" 2>/dev/null) == "600" ]]; then
+    ok "6. instagram-cookies.txt has mode 0600"
+  else
+    fail "6. wrong perms: $(stat -f '%Lp' "$ig_file" 2>/dev/null)"
+  fi
+
+  # === 7. config.toml updated ===
+  if grep -q "^cookies_file" "$cfg" 2>/dev/null \
+     || grep -A2 "^\[instagram\]" "$cfg" 2>/dev/null | grep -q "cookies_file"; then
+    ok "7. config.toml has [instagram] cookies_file = ..."
+  else
+    fail "7. config.toml missing instagram cookies_file"
+  fi
+
+  # === 8. cookies show prints the registered file with ok status ===
+  out=$($YT subscribes cookies show 2>&1)
+  if echo "$out" | grep -q "instagram" && echo "$out" | grep -q "ok"; then
+    ok "8. cookies show lists instagram as ok"
+  else
+    fail "8. cookies show output unexpected: $out"
+  fi
+
+  # === 9. set tiktok separately ===
+  if $YT subscribes cookies set tiktok "$good" >/dev/null 2>&1 \
+     && [[ -f $tt_file ]]; then
+    ok "9. cookies set tiktok works too"
+  else
+    fail "9. tiktok set failed"
+  fi
+
+  # === 10. clear removes file + clears config ===
+  if $YT subscribes cookies clear instagram >/dev/null 2>&1 \
+     && [[ ! -f $ig_file ]]; then
+    ok "10. cookies clear instagram removed file"
+  else
+    fail "10. clear instagram failed"
+  fi
+
+  # === 11. youtube-level: config set-cookies works ===
+  if $YT config set-cookies "$good" >/dev/null 2>&1 \
+     && [[ -f $yt_file ]] \
+     && [[ $(stat -f '%Lp' "$yt_file" 2>/dev/null) == "600" ]]; then
+    ok "11. config set-cookies (youtube) works + perms 0600"
+  else
+    fail "11. config set-cookies failed"
+  fi
+
+  # === 12. backward-compat: legacy `cookies_browser = "chrome"` loads cleanly ===
+  local legacy_cfg="$tmp/legacy_config.toml"
+  cat > "$legacy_cfg" <<'TOMLEOF'
+default_preset = "smart"
+default_backend = "gemini"
+
+[behavior]
+cookies_browser = "chrome"
+TOMLEOF
+  if uv run python -c "
+from pathlib import Path
+from skills.youtube_transcribe.config import load_config
+cfg = load_config(Path('$legacy_cfg'))
+assert cfg.cookies_file == '', f'cookies_file should be empty, got: {cfg.cookies_file!r}'
+print('legacy-load-ok')
+" 2>&1 | tail -1 | grep -q "legacy-load-ok"; then
+    ok "12. pre-v0.8 [behavior] cookies_browser loads cleanly (ignored)"
+  else
+    fail "12. legacy config load failed"
+  fi
+
+  # === 13. clear tiktok too ===
+  $YT subscribes cookies clear tiktok >/dev/null 2>&1 || true
+
+  # === Restore user state ===
+  [[ -f $tmp/config.toml.bak ]] && cp "$tmp/config.toml.bak" "$cfg"
+  [[ -f $tmp/ig.bak ]] && cp "$tmp/ig.bak" "$ig_file"
+  [[ -f $tmp/tt.bak ]] && cp "$tmp/tt.bak" "$tt_file"
+  [[ -f $tmp/yt.bak ]] && cp "$tmp/yt.bak" "$yt_file"
+  # Files that didn't exist before — make sure we cleaned up
+  [[ ! -f $tmp/ig.bak ]] && rm -f "$ig_file"
+  [[ ! -f $tmp/tt.bak ]] && rm -f "$tt_file"
+  [[ ! -f $tmp/yt.bak ]] && rm -f "$yt_file"
+  note "user state restored"
+}
+
+# ── Phase 8b: live cookies workflow — requires user-provided cookies ──
+# This phase needs the user to have run `subscribes cookies set instagram <path>`
+# (and optionally tiktok) BEFORE invoking. It then runs a real `subscribes
+# update` for Instagram to verify the file-based auth works end-to-end.
+phase8b() {
+  step "Phase 8b — LIVE cookies workflow (требует твоих cookies)"
+
+  # Verify the user has registered IG cookies first
+  if ! $YT subscribes cookies show 2>&1 | grep -E "^\| instagram" \
+       | grep -q "ok"; then
+    fail "Сначала зарегистрируй IG cookies:"
+    note "  1. Поставь расширение 'Get cookies.txt LOCALLY' в браузере"
+    note "  2. Открой instagram.com (залогиненный) → Export → ~/Downloads/ig.txt"
+    note "  3. yt-tr subscribes cookies set instagram ~/Downloads/ig.txt"
+    note "Потом запусти phase8b повторно."
+    return 1
+  fi
+  ok "instagram cookies зарегистрированы"
+
+  # Back up subscribes.toml
+  [[ -f ~/.youtube-transcribe/subscribes.toml ]] && \
+    cp ~/.youtube-transcribe/subscribes.toml \
+       ~/.youtube-transcribe/subscribes.toml.phase8b-bak
+
+  # Add a public IG channel
+  $YT subscribes add "https://www.instagram.com/natgeo/" --group qa-ig8b
+  local code=$?
+  if [[ $code -ne 0 ]]; then
+    fail "subscribes add (instagram) exit $code"
+    [[ -f ~/.youtube-transcribe/subscribes.toml.phase8b-bak ]] && \
+      mv ~/.youtube-transcribe/subscribes.toml.phase8b-bak \
+         ~/.youtube-transcribe/subscribes.toml
+    return 1
+  fi
+  ok "subscribes add @natgeo (instagram) — ok"
+
+  # Run update — with cookies, this should NOT fail with "Unable to
+  # extract data" (which is the anonymous-IG failure mode).
+  rm -rf "$QA_DIR/subs-ig-live"
+  local out
+  out=$($YT subscribes update --group qa-ig8b --days 30 \
+         --backend subtitles --no-analyze --yes \
+         --output-dir "$QA_DIR/subs-ig-live" 2>&1)
+  echo "$out" | tail -8
+
+  if echo "$out" | grep -q "Unable to extract data"; then
+    fail "live update получил 'Unable to extract data' даже с cookies"
+    note "Возможные причины:"
+    note "  • cookies протухли (re-export и set заново)"
+    note "  • IG поломал yt-dlp upstream (проверь yt-dlp -U)"
+  elif echo "$out" | grep -q "Нет новых видео\|новых видео нет"; then
+    ok "live update — cookies дошли до yt-dlp, видео не нашлось (это OK)"
+  elif find "$QA_DIR/subs-ig-live" -name '*.txt' 2>/dev/null | grep -q .; then
+    local n
+    n=$(find "$QA_DIR/subs-ig-live" -name '*.txt' | wc -l | tr -d ' ')
+    ok "live update — $n IG reel(s) скачано + транскрибировано"
+  else
+    fail "live update — неожиданный результат"
+  fi
+
+  # Cleanup
+  $YT subscribes remove "@natgeo" >/dev/null 2>&1 || true
+  [[ -f ~/.youtube-transcribe/subscribes.toml.phase8b-bak ]] && \
+    mv ~/.youtube-transcribe/subscribes.toml.phase8b-bak \
+       ~/.youtube-transcribe/subscribes.toml
+}
+
 # ── cleanup ───────────────────────────────────────────────────────────
 cleanup() {
   step "Cleanup — удаляю $QA_DIR и восстанавливаю subscribes.toml"
@@ -530,6 +747,8 @@ Usage: scripts/qa.sh <phase>
   phase5.3d      — subscribes Instagram (graceful no-cookies fail; v0.8)
   phase5.3e      — subscribes TikTok @duolingo (real yt-dlp scrape; v0.8)
   phase5.4       — history list/show
+  phase8a        — cookies file workflow (self-contained, no real cookies)
+  phase8b        — LIVE Instagram через cookies-файл (требует твоих cookies)
   cleanup        — удалить все QA-артефакты + восстановить subscribes.toml
 
 Каждая фаза самостоятельна и сообщает PASS/FAIL.
@@ -550,6 +769,8 @@ case "${1:-}" in
   phase5.3d) phase5_3d ;;
   phase5.3e) phase5_3e ;;
   phase5.4)  phase5_4 ;;
+  phase8a)   phase8a ;;
+  phase8b)   phase8b ;;
   cleanup)   cleanup ;;
   *)         menu ;;
 esac

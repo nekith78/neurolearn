@@ -48,23 +48,26 @@ def add_cmd(channel_url: str, group: str | None) -> None:
         _console.print(f"[red]Не удалось распознать канал:[/red] {e}")
         sys.exit(3)
 
-    # On first IG / TikTok add, point the user at the cookies-file workflow.
-    # We do NOT prompt during `add` — the user can finish adding now and set
-    # up cookies later when they actually run `subscribes update`.
+    # On first IG / TikTok add: if cookies aren't set up yet AND we're in
+    # a TTY, offer the interactive wizard. In non-TTY (Claude Code, CI)
+    # we silently print a one-liner hint — no blocking prompts.
     if resolved.platform in ("instagram", "tiktok"):
         from skills.youtube_transcribe.subscribes.cookies_onboarding import (
-            resolve_cookies_file,
+            resolve_cookies_file, wizard,
         )
         if not resolve_cookies_file(resolved.platform):
-            _console.print(
-                f"[dim]⚠ {resolved.platform} требует cookies. Когда будешь "
-                f"готов запускать update — экспортируй cookies через "
-                f"расширение[/dim]\n"
-                f"[dim]   \"Get cookies.txt LOCALLY\" (Chrome / Firefox) и "
-                f"подключи их:[/dim]\n"
-                f"[dim]   yt-tr subscribes cookies set {resolved.platform} "
-                f"<path-to-cookies.txt>[/dim]"
-            )
+            if sys.stdin.isatty() and click.confirm(
+                f"Cookies для {resolved.platform} ещё не настроены. "
+                "Настроить сейчас?",
+                default=False,
+            ):
+                wizard(resolved.platform)
+            else:
+                _console.print(
+                    f"[dim]⚠ {resolved.platform} требует cookies. "
+                    f"Настрой позже: "
+                    f"yt-tr subscribes cookies set {resolved.platform}[/dim]"
+                )
 
     channel = Channel(
         url=resolved.url,
@@ -259,6 +262,27 @@ def update_cmd(
     output_dir = output_dir_opt or (cfg.output_dir if cfg else "./transcripts")
     batch_opts = {k: v for k, v in batch_passthrough.items() if v is not None}
 
+    # Mid-flow safety net: if --platform targets IG/TT and we're in a TTY
+    # but cookies aren't set, give the user one chance to set them via the
+    # wizard before yt-dlp gets the "Unable to extract data" error.
+    if platform in ("instagram", "tiktok") and sys.stdin.isatty() and cfg is not None:
+        cookies_path = (
+            cfg.instagram_cookies_file if platform == "instagram"
+            else cfg.tiktok_cookies_file
+        )
+        if not cookies_path:
+            if click.confirm(
+                f"Cookies для {platform} не настроены — yt-dlp скорее всего "
+                f"вернёт ошибку. Настроить сейчас?",
+                default=False,
+            ):
+                from skills.youtube_transcribe.subscribes.cookies_onboarding import (
+                    wizard,
+                )
+                wizard(platform)
+                # Reload config so the just-saved file is picked up below.
+                cfg = load_config(CONFIG_PATH)
+
     from skills.youtube_transcribe.subscribes.pipeline import (
         run_subscribes_update, SubscribesError,
     )
@@ -313,13 +337,31 @@ def cookies_group() -> None:
 
 
 @cookies_group.command(name="set")
-@click.argument("platform", type=click.Choice(["instagram", "tiktok"]))
-@click.argument("path", type=click.Path(exists=True, dir_okay=False))
-def cookies_set_cmd(platform: str, path: str) -> None:
-    """Register a cookies.txt for PLATFORM."""
+@click.argument("platform",
+                type=click.Choice(["instagram", "tiktok"]),
+                required=False)
+@click.argument("path",
+                type=click.Path(exists=True, dir_okay=False),
+                required=False)
+def cookies_set_cmd(platform: str | None, path: str | None) -> None:
+    """Register a cookies.txt for PLATFORM.
+
+    Run without arguments to enter the interactive wizard (TTY only):
+      yt-tr subscribes cookies set
+    Scripted invocation works as before:
+      yt-tr subscribes cookies set instagram ~/Downloads/ig.txt
+    """
     from skills.youtube_transcribe.subscribes.cookies_onboarding import (
-        set_cookies_file,
+        set_cookies_file, wizard,
     )
+
+    if path is None:
+        # Either missing platform too (full wizard) or only path missing
+        # (still walk the wizard — it'll re-prompt for the path).
+        if not wizard(platform):
+            sys.exit(2)
+        return
+
     try:
         dest = set_cookies_file(platform, path)
     except ValueError as e:

@@ -24,6 +24,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+import click
 from rich.console import Console
 
 from skills.youtube_transcribe.config import (
@@ -36,6 +37,69 @@ _NETSCAPE_HEADER_LINES = (
     "# Netscape HTTP Cookie File",
     "# HTTP Cookie File",
 )
+
+
+def wizard(
+    platform: str | None = None,
+    *,
+    config_path: Path = CONFIG_PATH,
+    is_tty: bool | None = None,
+) -> bool:
+    """Interactive cookies setup. Returns True if a file was registered.
+
+    Asks for `platform` (instagram / tiktok) if not given, then for a path
+    to a Netscape cookies.txt file the user has exported. Validates and
+    persists via `set_cookies_file`.
+
+    Non-TTY callers (Claude Code subprocess / CI) get False immediately —
+    we do NOT block scripted runs on missing input.
+    """
+    tty = is_tty if is_tty is not None else sys.stdin.isatty()
+    if not tty:
+        return False
+
+    if platform is None:
+        _console.print(
+            "\n[bold]Какой платформы cookies?[/bold]\n"
+            "  [cyan]1[/cyan]) Instagram\n"
+            "  [cyan]2[/cyan]) TikTok\n"
+        )
+        choice = click.prompt(
+            "Выбор",
+            type=click.Choice(["1", "2"]),
+            default="1",
+            show_choices=False,
+        )
+        platform = "instagram" if choice == "1" else "tiktok"
+
+    _console.print(
+        f"\n[bold]Настройка {platform} cookies[/bold]\n"
+        "[dim]Шаги:[/dim]\n"
+        "[dim]  1. Поставь расширение 'Get cookies.txt LOCALLY' (open-source) "
+        "в любом[/dim]\n"
+        "[dim]     браузере (Chrome / Firefox / Edge / Brave).[/dim]\n"
+        f"[dim]  2. Открой {platform}.com (залогиненный) → расширение → "
+        "Export.[/dim]\n"
+        "[dim]  3. Введи путь к скачанному файлу ниже.[/dim]\n"
+    )
+    path = click.prompt(
+        "Путь к cookies.txt",
+        type=click.Path(exists=True, dir_okay=False),
+    )
+
+    try:
+        dest = set_cookies_file(platform, path, config_path=config_path)
+    except ValueError as e:
+        _console.print(f"[red]✗ {e}[/red]")
+        return False
+
+    _console.print(
+        f"[green]✓[/green] {platform} cookies сохранены: "
+        f"[bold]{dest}[/bold] (mode 0600)\n"
+        f"[dim]Сменить позже: yt-tr subscribes cookies set {platform} "
+        f"<new-path>.[/dim]"
+    )
+    return True
 
 
 def resolve_cookies_file(

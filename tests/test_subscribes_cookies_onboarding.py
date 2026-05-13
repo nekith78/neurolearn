@@ -133,3 +133,83 @@ def test_resolve_cookies_file_youtube_always_empty(tmp_path: Path):
     )
     cfg = tmp_path / "config.toml"
     assert resolve_cookies_file("youtube", config_path=cfg) == ""
+
+
+# === v0.8.1: interactive wizard ===
+
+
+def test_wizard_non_tty_returns_false(tmp_path: Path):
+    """Non-TTY (CI / Claude Code / pipe) → wizard never blocks; returns False."""
+    from skills.youtube_transcribe.subscribes.cookies_onboarding import wizard
+    cfg = tmp_path / "config.toml"
+    assert wizard("instagram", config_path=cfg, is_tty=False) is False
+
+
+def test_wizard_full_flow_persists_to_config(tmp_path: Path):
+    """TTY path: prompts for platform (if missing) + path, then persists."""
+    from unittest.mock import patch
+    from skills.youtube_transcribe.subscribes import cookies_onboarding as mod
+    cfg = tmp_path / "config.toml"
+    src = _make_cookies_file(tmp_path / "ig.txt")
+
+    # platform was not provided — first prompt picks "1" (instagram),
+    # second prompt picks the path.
+    with patch("click.prompt", side_effect=["1", str(src)]):
+        ok = mod.wizard(None, config_path=cfg, is_tty=True)
+
+    assert ok is True
+    raw = tomllib.loads(cfg.read_text(encoding="utf-8"))
+    assert raw["instagram"]["cookies_file"].endswith("instagram-cookies.txt")
+
+
+def test_wizard_with_platform_skips_first_prompt(tmp_path: Path):
+    """If platform already known (called from `add` or `update`), wizard
+    asks only for the path — single prompt."""
+    from unittest.mock import patch
+    from skills.youtube_transcribe.subscribes import cookies_onboarding as mod
+    cfg = tmp_path / "config.toml"
+    src = _make_cookies_file(tmp_path / "tt.txt")
+
+    with patch("click.prompt", side_effect=[str(src)]) as mock_prompt:
+        ok = mod.wizard("tiktok", config_path=cfg, is_tty=True)
+
+    assert ok is True
+    # Exactly one prompt — for the path. Platform was passed in.
+    assert mock_prompt.call_count == 1
+
+
+def test_wizard_invalid_file_returns_false(tmp_path: Path):
+    """Wizard surfaces validation errors and returns False without crashing."""
+    from unittest.mock import patch
+    from skills.youtube_transcribe.subscribes import cookies_onboarding as mod
+    cfg = tmp_path / "config.toml"
+    bad = tmp_path / "garbage.txt"
+    bad.write_text("not cookies", encoding="utf-8")
+
+    with patch("click.prompt", side_effect=[str(bad)]):
+        ok = mod.wizard("instagram", config_path=cfg, is_tty=True)
+
+    assert ok is False
+    # Config left clean — no half-saved state.
+    if cfg.exists():
+        raw = tomllib.loads(cfg.read_text(encoding="utf-8"))
+        assert not raw.get("instagram", {}).get("cookies_file")
+
+
+def test_cookies_set_cmd_no_args_invokes_wizard(tmp_path: Path):
+    """`subscribes cookies set` without args → triggers wizard in TTY."""
+    from unittest.mock import patch
+    from click.testing import CliRunner
+    from skills.youtube_transcribe.transcribe import cli
+
+    src = _make_cookies_file(tmp_path / "ig.txt")
+
+    # Replace wizard with a stub that just verifies it got called.
+    with patch(
+        "skills.youtube_transcribe.subscribes.cookies_onboarding.wizard",
+        return_value=True,
+    ) as mock_wizard:
+        runner = CliRunner()
+        res = runner.invoke(cli, ["subscribes", "cookies", "set"])
+    assert res.exit_code == 0
+    mock_wizard.assert_called_once_with(None)
