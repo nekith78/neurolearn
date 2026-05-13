@@ -53,8 +53,8 @@ class GeminiBackend:
         key = get_api_key("gemini")
         if not key:
             return False, (
-                "GEMINI_API_KEY не задан. Получи ключ на https://aistudio.google.com/apikey "
-                "и пропиши его через `youtube-transcribe config set-key gemini`."
+                "GEMINI_API_KEY is not set. Get a key at https://aistudio.google.com/apikey "
+                "and register it via `youtube-transcribe config set-key gemini`."
             )
         return True, None
 
@@ -81,15 +81,15 @@ class GeminiBackend:
                 contents=[_PROMPT, uploaded],
             )
         except Exception as e:
-            raise BackendError(f"Gemini API ошибка: {e}") from e
+            raise BackendError(f"Gemini API error: {e}") from e
 
         raw_text = getattr(response, "text", "") or ""
         try:
             data = _extract_json(raw_text)
         except json.JSONDecodeError as e:
             raise BackendError(
-                f"Gemini вернул не-JSON ответ. Пробуй другой движок или повтори запрос. "
-                f"Ошибка: {e}"
+                f"Gemini returned a non-JSON response. Try another backend or retry. "
+                f"Error: {e}"
             ) from e
 
         segments: list[Segment] = []

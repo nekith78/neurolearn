@@ -37,7 +37,7 @@ def _get_transcript_api() -> _ApiAdapter:
     try:
         import youtube_transcript_api  # noqa: F401
     except ImportError as e:
-        raise ImportError("youtube-transcript-api не установлен. Запусти `uv sync`.") from e
+        raise ImportError("youtube-transcript-api is not installed. Run `uv sync`.") from e
     return _ApiAdapter()
 
 
@@ -52,16 +52,16 @@ class SubtitlesBackend:
             import youtube_transcript_api  # noqa: F401
             return True, None
         except ImportError:
-            return False, "youtube-transcript-api не установлен. Запусти `uv sync`."
+            return False, "youtube-transcript-api is not installed. Run `uv sync`."
 
     def transcribe(self, audio_or_url, *, language: str = "auto", **opts) -> TranscriptionResult:
         url = str(audio_or_url)
         if not is_youtube_url(url):
-            raise BackendError("Бэкенд subtitles работает только с YouTube-ссылками.")
+            raise BackendError("Subtitles backend only works with YouTube URLs.")
 
         video_id = extract_youtube_video_id(url)
         if not video_id:
-            raise BackendError(f"Не смог извлечь ID YouTube-видео из URL: {url}")
+            raise BackendError(f"Could not extract YouTube video ID from URL: {url}")
 
         api = _get_transcript_api()
         languages = None if language == "auto" else [language]
@@ -69,8 +69,8 @@ class SubtitlesBackend:
             raw = api.get_transcript(video_id, languages=languages or ["en"])
         except Exception as e:
             raise BackendError(
-                f"Субтитры недоступны для этого видео ({type(e).__name__}). "
-                "Попробуй другой бэкенд."
+                f"Subtitles unavailable for this video ({type(e).__name__}). "
+                "Try another backend."
             ) from e
 
         segments: list[Segment] = []
@@ -84,8 +84,8 @@ class SubtitlesBackend:
             ))
         if not segments:
             raise BackendError(
-                f"Субтитры для видео {video_id} пусты или недоступны на запрошенных языках. "
-                "Smart-mode переключится на fallback-бэкенд."
+                f"Subtitles for video {video_id} are empty or unavailable in the requested languages. "
+                "Smart mode will switch to the fallback backend."
             )
         text = " ".join(s.text for s in segments)
         return TranscriptionResult(

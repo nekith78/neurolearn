@@ -100,8 +100,8 @@ class DeepgramBackend:
     def is_configured(self) -> tuple[bool, str | None]:
         if not get_api_key("deepgram"):
             return False, (
-                "DEEPGRAM_API_KEY не задан. Получи на https://console.deepgram.com/ "
-                "и пропиши через `youtube-transcribe config set-key deepgram`."
+                "DEEPGRAM_API_KEY is not set. Get one at https://console.deepgram.com/ "
+                "and register via `youtube-transcribe config set-key deepgram`."
             )
         return True, None
 
@@ -136,7 +136,7 @@ class DeepgramBackend:
                 language=None if auto else language,
             )
         except Exception as e:
-            raise BackendError(f"Deepgram API ошибка: {e}") from e
+            raise BackendError(f"Deepgram API error: {e}") from e
 
         try:
             channel = response.results.channels[0]
@@ -144,7 +144,7 @@ class DeepgramBackend:
             words = alt.words or []
             language_detected = channel.detected_language
         except (AttributeError, IndexError) as e:
-            raise BackendError(f"Неожиданный формат ответа Deepgram: {e}")
+            raise BackendError(f"Unexpected Deepgram response format: {e}")
 
         segments = _group_words_into_segments(words)
         text = (alt.transcript or "").strip()

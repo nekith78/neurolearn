@@ -82,12 +82,12 @@ class WhisperLocalBackend:
                 import mlx_whisper  # noqa: F401, PLC0415
                 return True, None
             except ImportError:
-                return False, "mlx-whisper не установлен (нужен macOS Apple Silicon)."
+                return False, "mlx-whisper is not installed (requires macOS Apple Silicon)."
         try:
             import faster_whisper  # noqa: F401, PLC0415
             return True, None
         except ImportError:
-            return False, "faster-whisper не установлен. Запусти `uv sync`."
+            return False, "faster-whisper is not installed. Run `uv sync`."
 
     def _resolve_model_name(self) -> str:
         m = _MODEL_MAP.get(self.model)

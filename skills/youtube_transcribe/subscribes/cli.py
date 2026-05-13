@@ -45,7 +45,7 @@ def add_cmd(channel_url: str, group: str | None) -> None:
     try:
         resolved = resolve_channel(channel_url)
     except ValueError as e:
-        _console.print(f"[red]Не удалось распознать канал:[/red] {e}")
+        _console.print(f"[red]Could not resolve channel:[/red] {e}")
         sys.exit(3)
 
     # On first IG / TikTok add: if cookies aren't set up yet AND we're in
@@ -57,16 +57,17 @@ def add_cmd(channel_url: str, group: str | None) -> None:
         )
         if not resolve_cookies_file(resolved.platform):
             if sys.stdin.isatty() and click.confirm(
-                f"Cookies для {resolved.platform} ещё не настроены. "
-                "Настроить сейчас?",
+                f"Cookies for {resolved.platform} are not configured yet. "
+                "Set them up now?",
                 default=False,
             ):
                 wizard(resolved.platform)
             else:
                 _console.print(
-                    f"[dim]⚠ {resolved.platform} требует cookies. "
-                    f"Настрой позже: "
-                    f"yt-tr subscribes cookies set {resolved.platform}[/dim]"
+                    f"[dim]⚠ {resolved.platform} needs cookies. "
+                    f"Set them up later: "
+                    f"youtube-transcribe subscribes cookies set "
+                    f"{resolved.platform}[/dim]"
                 )
 
     channel = Channel(
@@ -79,7 +80,7 @@ def add_cmd(channel_url: str, group: str | None) -> None:
     )
     add_channel(SUBSCRIBES_PATH, channel)
     _console.print(
-        f"[green]✓[/green] Добавлен {resolved.handle or resolved.url} "
+        f"[green]✓[/green] Added {resolved.handle or resolved.url} "
         f"([cyan]{resolved.platform}[/cyan], "
         f"id={resolved.channel_id}, group={group or '—'})"
     )
@@ -90,9 +91,9 @@ def add_cmd(channel_url: str, group: str | None) -> None:
 def remove_cmd(identifier: str) -> None:
     """Remove a channel by handle, URL, or channel_id."""
     if not remove_channel(SUBSCRIBES_PATH, identifier):
-        _console.print(f"[red]Канал не найден: {identifier}[/red]")
+        _console.print(f"[red]Channel not found: {identifier}[/red]")
         sys.exit(3)
-    _console.print(f"[green]✓[/green] Удалён {identifier}")
+    _console.print(f"[green]✓[/green] Removed {identifier}")
 
 
 @subscribes_group.command(name="list")
@@ -109,7 +110,7 @@ def list_cmd(group: str | None, platform: str | None) -> None:
     if platform:
         channels = [c for c in channels if c.platform == platform]
     if not channels:
-        _console.print("[yellow]Нет каналов.[/yellow]")
+        _console.print("[yellow]No channels.[/yellow]")
         return
 
     # Partition by platform, render one table per group with non-empty rows.
@@ -240,7 +241,7 @@ def update_cmd(
     if not effective_no_analyze:
         if bool(prompt_inline) == bool(prompt_file):
             _console.print(
-                "[red]При analyze on — нужен ровно один из[/red] "
+                "[red]With analyze enabled — pass exactly one of[/red] "
                 "--prompt / --prompt-file."
             )
             sys.exit(2)
@@ -272,8 +273,8 @@ def update_cmd(
         )
         if not cookies_path:
             if click.confirm(
-                f"Cookies для {platform} не настроены — yt-dlp скорее всего "
-                f"вернёт ошибку. Настроить сейчас?",
+                f"Cookies for {platform} are not configured — yt-dlp will "
+                f"likely fail. Set them up now?",
                 default=False,
             ):
                 from skills.youtube_transcribe.subscribes.cookies_onboarding import (
@@ -368,10 +369,10 @@ def cookies_set_cmd(platform: str | None, path: str | None) -> None:
         _console.print(f"[red]{e}[/red]")
         sys.exit(2)
     _console.print(
-        f"[green]✓[/green] {platform} cookies сохранены в "
+        f"[green]✓[/green] {platform} cookies saved to "
         f"[bold]{dest}[/bold] (mode 0600)\n"
-        f"[dim]Когда yt-dlp вернёт login-required / empty response — это "
-        f"знак что cookies протухли. Перевыгрузи и снова `cookies set`.[/dim]"
+        f"[dim]When yt-dlp returns login-required / empty response — that's "
+        f"the signal cookies expired. Re-export and run `cookies set` again.[/dim]"
     )
 
 
@@ -389,7 +390,7 @@ def cookies_clear_cmd(platform: str) -> None:
     )
     if not current:
         _console.print(
-            f"[yellow]Нет настроенного cookies-файла для {platform}.[/yellow]"
+            f"[yellow]No cookies file configured for {platform}.[/yellow]"
         )
         return
     p = Path(current).expanduser()
@@ -397,16 +398,16 @@ def cookies_clear_cmd(platform: str) -> None:
         try:
             p.unlink()
         except OSError as e:
-            _console.print(f"[yellow]Не удалил {p}: {e}[/yellow]")
+            _console.print(f"[yellow]Could not remove {p}: {e}[/yellow]")
     if platform == "instagram":
         cfg.instagram_cookies_file = ""
     else:
         cfg.tiktok_cookies_file = ""
     save_config(cfg, CONFIG_PATH)
     _console.print(
-        f"[green]✓[/green] {platform} cookies очищены. "
-        f"Следующий `subscribes update` пойдёт анонимно "
-        f"(на Instagram это упадёт — это ожидаемо)."
+        f"[green]✓[/green] {platform} cookies cleared. "
+        f"Next `subscribes update` will run anonymously "
+        f"(Instagram will likely fail — that's expected)."
     )
 
 
@@ -416,7 +417,7 @@ def cookies_show_cmd() -> None:
     from skills.youtube_transcribe.config import CONFIG_PATH, load_config
     cfg = load_config(CONFIG_PATH) if CONFIG_PATH.exists() else None
     if cfg is None:
-        _console.print("[dim]config.toml не существует.[/dim]")
+        _console.print("[dim]config.toml does not exist.[/dim]")
         return
     rows = [
         ("instagram", cfg.instagram_cookies_file),

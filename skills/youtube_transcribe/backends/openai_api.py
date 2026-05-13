@@ -29,8 +29,8 @@ class OpenAIBackend:
     def is_configured(self) -> tuple[bool, str | None]:
         if not get_api_key("openai"):
             return False, (
-                "OPENAI_API_KEY не задан. Получи на https://platform.openai.com/api-keys "
-                "и пропиши через `youtube-transcribe config set-key openai`."
+                "OPENAI_API_KEY is not set. Get one at https://platform.openai.com/api-keys "
+                "and register via `youtube-transcribe config set-key openai`."
             )
         return True, None
 
@@ -62,7 +62,7 @@ class OpenAIBackend:
                     timestamp_granularities=["segment"],
                 )
         except Exception as e:
-            raise BackendError(f"OpenAI API ошибка: {e}") from e
+            raise BackendError(f"OpenAI API error: {e}") from e
 
         segments_data = getattr(resp, "segments", None) or []
         segments = [

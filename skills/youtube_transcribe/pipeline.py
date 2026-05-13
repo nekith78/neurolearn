@@ -59,7 +59,7 @@ def run_pipeline(
     if not is_url(target.url):
         path = Path(target.url).expanduser().resolve()
         if not path.exists():
-            raise BackendError(f"Файл не найден: {path}")
+            raise BackendError(f"File not found: {path}")
         return _transcribe_one(backend_name, path, cfg, language=cfg.language)
 
     # URL paths

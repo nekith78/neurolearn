@@ -29,8 +29,8 @@ class GroqBackend:
     def is_configured(self) -> tuple[bool, str | None]:
         if not get_api_key("groq"):
             return False, (
-                "GROQ_API_KEY не задан. Получи на https://console.groq.com/keys "
-                "и пропиши через `youtube-transcribe config set-key groq`."
+                "GROQ_API_KEY is not set. Get one at https://console.groq.com/keys "
+                "and register via `youtube-transcribe config set-key groq`."
             )
         return True, None
 
@@ -62,7 +62,7 @@ class GroqBackend:
                     timestamp_granularities=["segment"],
                 )
         except Exception as e:
-            raise BackendError(f"Groq API ошибка: {e}") from e
+            raise BackendError(f"Groq API error: {e}") from e
 
         segments_data = getattr(resp, "segments", None) or []
         segments = [

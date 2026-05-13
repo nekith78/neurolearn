@@ -96,7 +96,7 @@ def run_research(
         )
 
     if not candidates:
-        _console.print("[yellow]Кандидаты не найдены.[/yellow]")
+        _console.print("[yellow]No candidates found.[/yellow]")
         return None
 
     # 3. Date filter
@@ -107,7 +107,7 @@ def run_research(
         candidates = _filter_by_window(candidates, window)
         if not candidates:
             _console.print(
-                "[yellow]После фильтра по дате осталось 0.[/yellow]"
+                "[yellow]Date filter left 0 candidates.[/yellow]"
             )
             return None
 
@@ -115,7 +115,7 @@ def run_research(
     if match:
         candidates = match_titles(candidates, match)
         if not candidates:
-            _console.print(f"[yellow]После --match '{match}' осталось 0.[/yellow]")
+            _console.print(f"[yellow]--match '{match}' left 0 candidates.[/yellow]")
             return None
 
     # 5. LLM --filter
@@ -127,14 +127,14 @@ def run_research(
             ollama_model=ollama_model, ollama_host=ollama_host,
         )
         if not candidates:
-            _console.print("[yellow]LLM filter оставил 0.[/yellow]")
+            _console.print("[yellow]LLM filter left 0 candidates.[/yellow]")
             return None
 
     # 6. TTY checkpoint
     if not yes and _stdin_is_tty():
         candidates = _tty_checkpoint(candidates)
         if not candidates:
-            _console.print("[yellow]Отменено.[/yellow]")
+            _console.print("[yellow]Cancelled.[/yellow]")
             return None
 
     # 7. Convert to ResolvedTarget and run batch_pipeline
@@ -251,7 +251,7 @@ def _tty_checkpoint(candidates: list) -> list:
         label = f"{date_str}  {title}  [{getattr(c, 'channel', '?')}]"
         choices.append(questionary.Choice(title=label, value=i - 1, checked=True))
     answer = questionary.checkbox(
-        "Выбери видео для analyze (Space=toggle, Enter=ok):",
+        "Pick videos to analyze (Space=toggle, Enter=ok):",
         choices=choices,
     ).ask()
     if answer is None:

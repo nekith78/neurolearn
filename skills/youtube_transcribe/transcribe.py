@@ -184,13 +184,13 @@ def transcribe_cmd(audio_or_url: str, **opts) -> None:
     targets, failures = resolve([audio_or_url], None, ResolverFilters())
     if failures:
         f = failures[0]
-        console.print(f"[red]Не удалось разобрать URL:[/red] {f.url}\n  {f.error}")
+        console.print(f"[red]Failed to resolve URL:[/red] {f.url}\n  {f.error}")
         sys.exit(2)
     if len(targets) != 1:
         # Bare URL/file should always resolve to exactly one target.
         # If user passed a channel here, they should use `batch` instead.
-        console.print("[red]Этот URL развернулся в несколько видео.[/red] "
-                      "Для каналов/плейлистов используй: youtube-transcribe batch <URL> --limit N")
+        console.print("[red]This URL expanded to multiple videos.[/red] "
+                      "For channels/playlists use: youtube-transcribe batch <URL> --limit N")
         sys.exit(2)
     target = targets[0]
 
@@ -200,10 +200,10 @@ def transcribe_cmd(audio_or_url: str, **opts) -> None:
     try:
         result = run_pipeline(target, cfg, backend_override=opts.get("backend"))
     except BackendNotConfigured as e:
-        console.print(f"[red]Бэкенд не настроен:[/red] {e}")
+        console.print(f"[red]Backend not configured:[/red] {e}")
         sys.exit(3)
     except BackendError as e:
-        console.print(f"[red]Ошибка транскрипции:[/red] {e}")
+        console.print(f"[red]Transcription error:[/red] {e}")
         sys.exit(4)
 
     # === v0.2 stage application ===
@@ -291,7 +291,7 @@ def transcribe_cmd(audio_or_url: str, **opts) -> None:
                     cookies_file=cfg.cookies_file,
                 )
             except Exception as e:
-                console.print(f"[yellow]⚠ Визуал отключён — не удалось скачать mp4:[/yellow] {e}",
+                console.print(f"[yellow]⚠ Visual mode disabled — mp4 download failed:[/yellow] {e}",
                               style="dim")
                 video_path = None
             result = apply_v02_stages(
@@ -556,12 +556,12 @@ def _run_then_analyze(
         try:
             chosen = pick_videos(videos)
         except PickerCancelled:
-            console.print("[yellow]analyze отменён.[/yellow]")
+            console.print("[yellow]analyze cancelled.[/yellow]")
             return
     else:
         chosen = videos
     if not chosen:
-        console.print("[yellow]Пустой выбор — analyze пропущен.[/yellow]")
+        console.print("[yellow]Empty selection — analyze skipped.[/yellow]")
         return
 
     full_prompt = build_prompt(user_prompt, chosen)
@@ -865,7 +865,7 @@ def _run_batch_pipeline(
                 if kind == "failed":
                     failures.append(payload)
                     if fail_fast:
-                        console.print(f"[red]Ошибка #{i}: {payload.error_text}[/red]")
+                        console.print(f"[red]Error #{i}: {payload.error_text}[/red]")
                         sys.exit(4)
                 else:
                     _write_outputs_and_record(i, target, payload)
@@ -884,7 +884,7 @@ def _run_batch_pipeline(
                         failures.append(payload)
                         progress.update(task, advance=1, fail=len(failures))
                         if fail_fast:
-                            console.print(f"[red]Ошибка #{i}: {payload.error_text}[/red]")
+                            console.print(f"[red]Error #{i}: {payload.error_text}[/red]")
                             sys.exit(4)
                     else:
                         _write_outputs_and_record(i, target, payload)
@@ -1223,7 +1223,7 @@ def batch_cmd(
         ))
 
     if not targets and not initial_failures:
-        console.print("[yellow]Нет ни одного видео по этому входу.[/yellow]")
+        console.print("[yellow]No videos to process from this input.[/yellow]")
         sys.exit(0)
 
     # Delegate the post-resolution pipeline (download → transcribe → write outputs
@@ -1468,11 +1468,11 @@ def _ensure_gradio_installed() -> None:
         sys.exit(4)
 
     console.print(
-        "[yellow]Web UI требует gradio (~100 MB) — пока не установлен.[/yellow]"
+        "[yellow]Web UI requires gradio (~100 MB) — not installed yet.[/yellow]"
     )
-    if not click.confirm("Установить сейчас?", default=False):
+    if not click.confirm("Install now?", default=False):
         console.print(
-            "[red]Отменено.[/red] Установи вручную:\n"
+            "[red]Cancelled.[/red] Install manually:\n"
             "  uv pip install 'gradio>=4'"
         )
         sys.exit(4)
@@ -1486,15 +1486,15 @@ def _ensure_gradio_installed() -> None:
         )
     except subprocess.CalledProcessError as e:
         console.print(
-            f"[red]pip install не прошёл (exit {e.returncode}).[/red]\n"
-            "Попробуй вручную:\n"
+            f"[red]pip install failed (exit {e.returncode}).[/red]\n"
+            "Try manually:\n"
             "  uv pip install 'gradio>=4'"
         )
         sys.exit(4)
     except FileNotFoundError:
         console.print(
-            "[red]`python -m pip` недоступен в этом окружении.[/red]\n"
-            "Установи через uv:\n"
+            "[red]`python -m pip` not available in this environment.[/red]\n"
+            "Install via uv:\n"
             "  uv pip install 'gradio>=4'"
         )
         sys.exit(4)
@@ -1503,10 +1503,10 @@ def _ensure_gradio_installed() -> None:
         from gradio import Blocks  # noqa: F401
     except (ImportError, AttributeError) as e:
         console.print(
-            f"[red]gradio установлен, но не импортируется: {e}[/red]"
+            f"[red]gradio installed but cannot be imported: {e}[/red]"
         )
         sys.exit(4)
-    console.print("[green]✓ gradio установлен.[/green]")
+    console.print("[green]✓ gradio installed.[/green]")
 
 
 @cli.command(name="summarize")
@@ -1547,10 +1547,10 @@ def summarize_cmd(
     try:
         segments, detected_lang = load_transcript_segments(transcript_path)
     except Exception as e:
-        console.print(f"[red]Не удалось прочитать транскрипт:[/red] {e}")
+        console.print(f"[red]Failed to read transcript:[/red] {e}")
         sys.exit(2)
     if not segments:
-        console.print("[yellow]Транскрипт пустой — нечего суммаризировать.[/yellow]")
+        console.print("[yellow]Transcript is empty — nothing to summarize.[/yellow]")
         sys.exit(0)
 
     if backend_opt == "ollama":
@@ -1715,7 +1715,7 @@ def analyze_cmd(
             console.print(f"[red]{e}[/red]")
             sys.exit(3)
         except PickerCancelled:
-            console.print("[yellow]Отменено.[/yellow]")
+            console.print("[yellow]Cancelled.[/yellow]")
             sys.exit(5)
 
     try:
@@ -1724,7 +1724,7 @@ def analyze_cmd(
         console.print(f"[red]{e}[/red]")
         sys.exit(3)
     if not videos:
-        console.print("[red]Не найдено ни одного транскрипта в источнике.[/red]")
+        console.print("[red]No transcripts found in the source.[/red]")
         sys.exit(3)
 
     total_videos = len(videos)
@@ -1745,8 +1745,8 @@ def analyze_cmd(
     else:
         if not _stdin_is_tty():
             console.print(
-                "[red]Не указано --all / --select / --latest, "
-                "а stdin не TTY — picker недоступен.[/red]"
+                "[red]Need one of --all / --select / --latest; "
+                "stdin is not a TTY so the interactive picker can't run.[/red]"
             )
             sys.exit(3)
         from skills.youtube_transcribe.analyze.picker import (
@@ -1755,7 +1755,7 @@ def analyze_cmd(
         try:
             chosen = pick_videos(videos)
         except PickerCancelled:
-            console.print("[yellow]Отменено.[/yellow]")
+            console.print("[yellow]Cancelled.[/yellow]")
             sys.exit(5)
 
     # 5. Build the full prompt.
@@ -1890,7 +1890,7 @@ def research_cmd(
     from skills.youtube_transcribe.research.pipeline import run_research
 
     if not query and not in_subscribes:
-        console.print("[red]Нужен QUERY (или --in-subscribes).[/red]")
+        console.print("[red]QUERY required (or pass --in-subscribes).[/red]")
         sys.exit(2)
 
     # Resolve analyze backend BEFORE prompt validation: if it ends up None

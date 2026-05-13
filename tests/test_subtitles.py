@@ -46,7 +46,7 @@ def test_transcribe_empty_subtitles_raises_backend_error():
         return_value=fake_api,
     ):
         b = SubtitlesBackend()
-        with pytest.raises(BackendError, match="пусты"):
+        with pytest.raises(BackendError, match="empty"):
             b.transcribe("https://youtu.be/aaa", language="en")
 
 

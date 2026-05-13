@@ -49,8 +49,8 @@ class AssemblyAIBackend:
     def is_configured(self) -> tuple[bool, str | None]:
         if not get_api_key("assemblyai"):
             return False, (
-                "ASSEMBLYAI_API_KEY не задан. Получи на https://www.assemblyai.com/dashboard/signup "
-                "и пропиши через `youtube-transcribe config set-key assemblyai`."
+                "ASSEMBLYAI_API_KEY is not set. Get one at https://www.assemblyai.com/dashboard/signup "
+                "and register via `youtube-transcribe config set-key assemblyai`."
             )
         return True, None
 
@@ -73,7 +73,7 @@ class AssemblyAIBackend:
         try:
             transcript = transcriber.transcribe(str(audio))
         except Exception as e:
-            raise BackendError(f"AssemblyAI API ошибка: {e}") from e
+            raise BackendError(f"AssemblyAI API error: {e}") from e
 
         # Check for transcription error status (error is a str when set, None otherwise)
         error_msg = getattr(transcript, "error", None)

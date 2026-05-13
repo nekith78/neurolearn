@@ -73,23 +73,23 @@ def run_wizard() -> None:
     info = detect_platform()
     vram_str = f"{info.vram_mb} MiB" if info.vram_mb is not None else "n/a"
     console.print(Panel.fit(
-        f"[bold]youtube-transcribe — первая настройка[/bold]\n\n"
-        f"Обнаружил: [cyan]{info.label}[/cyan]  "
+        f"[bold]youtube-transcribe — first-run setup[/bold]\n\n"
+        f"Detected: [cyan]{info.label}[/cyan]  "
         f"(device={info.device}, VRAM={vram_str})\n"
-        f"Рекомендация: [green]whisper-local[/green] — оффлайн, приватно, лучшее качество\n\n"
-        f"[dim]Облачные бэкенды (gemini, groq, openai, deepgram, assemblyai, custom)\n"
-        f"отправляют аудио на серверы провайдера. Убедись, что это тебя устраивает.[/dim]",
+        f"Recommendation: [green]whisper-local[/green] — offline, private, best quality\n\n"
+        f"[dim]Cloud backends (gemini, groq, openai, deepgram, assemblyai, custom)\n"
+        f"send audio to the provider's servers. Make sure that's acceptable.[/dim]",
         title="youtube-transcribe",
     ))
 
     # --- Backend menu ---
-    console.print("\nКакой движок использовать по умолчанию?\n")
+    console.print("\nWhich backend to use by default?\n")
     for idx, (name, desc) in enumerate(_BACKEND_CHOICES, start=1):
         star = " [yellow]⭐[/yellow]" if idx == 1 else ""
         console.print(f"  [cyan]{idx})[/cyan] [bold]{name}[/bold]{star} — {desc}")
 
     choice_str = Prompt.ask(
-        "\nНомер варианта",
+        "\nChoice number",
         choices=[str(i) for i in range(1, len(_BACKEND_CHOICES) + 1)],
         default="1",
     )
@@ -101,7 +101,7 @@ def run_wizard() -> None:
 
     if backend == "smart":
         console.print(
-            "\n[dim]Какой движок использовать как fallback в smart-режиме?\n"
+            "\n[dim]Which backend to use as fallback in smart mode?\n"
             "  1) whisper-local  2) gemini  3) groq[/dim]"
         )
         fb_choice = Prompt.ask(
@@ -117,22 +117,22 @@ def run_wizard() -> None:
     if backend in _CLOUD_BACKENDS:
         guide = _KEY_GUIDE[backend]
         console.print(
-            f"\n[yellow]Нужен API-ключ.[/yellow]  Получить: [link={guide}]{guide}[/link]"
+            f"\n[yellow]API key required.[/yellow]  Get one at: [link={guide}]{guide}[/link]"
         )
         key = Prompt.ask(
-            f"Введи {backend.upper()}_API_KEY  (Enter — пропустить)",
+            f"Enter {backend.upper()}_API_KEY  (Enter — skip)",
             default="",
             password=True,
         )
         if key.strip():
             set_api_key(backend, key.strip(), env_path=ENV_PATH)
-            console.print(f"[green]✓[/green] Ключ сохранён в {ENV_PATH}")
+            console.print(f"[green]✓[/green] Key saved to {ENV_PATH}")
         else:
-            console.print("[dim]Пропущено. Добавь ключ позже в ~/.youtube-transcribe/.env[/dim]")
+            console.print("[dim]Skipped. Add the key later to ~/.youtube-transcribe/.env[/dim]")
 
     # --- Done ---
-    console.print(f"\n[green]✓ Настроено.[/green]  Дефолтный движок: [bold]{backend}[/bold]")
+    console.print(f"\n[green]✓ Configured.[/green]  Default backend: [bold]{backend}[/bold]")
     console.print(
-        "Поменять выбор:          [cyan]youtube-transcribe config wizard[/cyan]\n"
-        "Использовать разово:     [cyan]youtube-transcribe <URL> --backend gemini[/cyan]\n"
+        "Change choice:    [cyan]youtube-transcribe config wizard[/cyan]\n"
+        "One-off use:      [cyan]youtube-transcribe <URL> --backend gemini[/cyan]\n"
     )

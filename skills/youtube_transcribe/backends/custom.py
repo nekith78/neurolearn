@@ -40,18 +40,18 @@ class CustomBackend:
     def is_configured(self) -> tuple[bool, str | None]:
         if not self.base_url:
             return False, (
-                "Не задан base_url для custom-бэкенда. "
-                "Пропиши: `youtube-transcribe config set custom.base_url <URL>`."
+                "base_url is not set for custom backend. "
+                "Set: `youtube-transcribe config set custom.base_url <URL>`."
             )
         if not self.model:
             return False, (
-                "Не задана model для custom-бэкенда. "
-                "Пропиши: `youtube-transcribe config set custom.model <NAME>`."
+                "model is not set for custom backend. "
+                "Set: `youtube-transcribe config set custom.model <NAME>`."
             )
         if not get_api_key("custom"):
             return False, (
-                "CUSTOM_API_KEY не задан. "
-                "Пропиши через `youtube-transcribe config set-key custom`."
+                "CUSTOM_API_KEY is not set. "
+                "Register via `youtube-transcribe config set-key custom`."
             )
         return True, None
 
@@ -82,7 +82,7 @@ class CustomBackend:
                     response_format="verbose_json",
                 )
         except Exception as e:
-            raise BackendError(f"Custom-бэкенд API ошибка: {e}") from e
+            raise BackendError(f"Custom backend API error: {e}") from e
 
         segments_data = getattr(resp, "segments", None) or []
         segments = [

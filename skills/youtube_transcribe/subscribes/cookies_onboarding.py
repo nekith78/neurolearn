@@ -46,14 +46,13 @@ def _prompt_for_path(label: str) -> str | None:
         (GNOME Terminal, Konsole, Alacritty, Kitty, WezTerm) / Windows
         Terminal. Internally uses prompt_toolkit which abstracts the
         readline / libedit / pyreadline split.
-      • Drag-and-drop из файлового менеджера тоже работает — это
-        feature терминала на уровне OS, любой prompt-input её
-        получает как обычный текст.
+      • Drag-and-drop from a file manager also works — that's an OS-level
+        terminal feature, any prompt-input receives it as plain text.
 
     Returns the (possibly tilde-/escape-cleaned) path, or None on
     cancellation (Ctrl-C). Existence is validated by the CALLER via
     `set_cookies_file` — we don't reject here so users see a clear
-    "файл не найден" message rather than `questionary`'s generic one.
+    "file not found" message rather than `questionary`'s generic one.
     """
     try:
         import questionary
@@ -92,12 +91,12 @@ def wizard(
 
     if platform is None:
         _console.print(
-            "\n[bold]Какой платформы cookies?[/bold]\n"
+            "\n[bold]Which platform are these cookies for?[/bold]\n"
             "  [cyan]1[/cyan]) Instagram\n"
             "  [cyan]2[/cyan]) TikTok\n"
         )
         choice = click.prompt(
-            "Выбор",
+            "Choice",
             type=click.Choice(["1", "2"]),
             default="1",
             show_choices=False,
@@ -105,22 +104,22 @@ def wizard(
         platform = "instagram" if choice == "1" else "tiktok"
 
     _console.print(
-        f"\n[bold]Настройка {platform} cookies[/bold]\n"
-        "[dim]Шаги:[/dim]\n"
-        "[dim]  1. Поставь расширение 'Get cookies.txt LOCALLY' (open-source) "
-        "в любом[/dim]\n"
-        "[dim]     браузере (Chrome / Firefox / Edge / Brave).[/dim]\n"
-        f"[dim]  2. Открой {platform}.com (залогиненный) → расширение → "
+        f"\n[bold]Setting up {platform} cookies[/bold]\n"
+        "[dim]Steps:[/dim]\n"
+        "[dim]  1. Install the 'Get cookies.txt LOCALLY' extension "
+        "(open-source)[/dim]\n"
+        "[dim]     in any browser (Chrome / Firefox / Edge / Brave).[/dim]\n"
+        f"[dim]  2. Open {platform}.com (logged in) → click the extension → "
         "Export.[/dim]\n"
-        "[dim]  3. Введи путь к скачанному файлу ниже.[/dim]\n"
-        "[dim]     Можно перетащить файл в терминал, либо набрать с "
-        "Tab-автодополнением[/dim]\n"
-        "[dim]     (работает на macOS / Linux GNOME Terminal/Konsole / "
+        "[dim]  3. Enter the downloaded file path below.[/dim]\n"
+        "[dim]     You can drag-drop the file into the terminal, or type with "
+        "Tab-completion[/dim]\n"
+        "[dim]     (works on macOS / Linux GNOME Terminal/Konsole / "
         "Windows Terminal).[/dim]\n"
     )
-    path = _prompt_for_path("Путь к cookies.txt")
+    path = _prompt_for_path("Path to cookies.txt")
     if not path:
-        _console.print("[yellow]Отменено.[/yellow]")
+        _console.print("[yellow]Cancelled.[/yellow]")
         return False
 
     try:
@@ -130,10 +129,10 @@ def wizard(
         return False
 
     _console.print(
-        f"[green]✓[/green] {platform} cookies сохранены: "
+        f"[green]✓[/green] {platform} cookies saved: "
         f"[bold]{dest}[/bold] (mode 0600)\n"
-        f"[dim]Сменить позже: yt-tr subscribes cookies set {platform} "
-        f"<new-path>.[/dim]"
+        f"[dim]Change later: youtube-transcribe subscribes cookies set "
+        f"{platform} <new-path>.[/dim]"
     )
     return True
 
@@ -166,9 +165,10 @@ def resolve_cookies_file(
         return ""
     if not Path(path).expanduser().exists():
         _console.print(
-            f"[yellow]⚠ {platform} cookies file не найден: {path}[/yellow]\n"
-            f"[dim]Перевыгрузи и обнови:[/dim]\n"
-            f"[dim]  yt-tr subscribes cookies set {platform} <new-path>[/dim]"
+            f"[yellow]⚠ {platform} cookies file not found: {path}[/yellow]\n"
+            f"[dim]Re-export and update:[/dim]\n"
+            f"[dim]  youtube-transcribe subscribes cookies set {platform} "
+            f"<new-path>[/dim]"
         )
         return ""
     return str(Path(path).expanduser())
@@ -191,9 +191,9 @@ def set_cookies_file(
 
     src = Path(path).expanduser().resolve()
     if not src.exists():
-        raise ValueError(f"файл не найден: {src}")
+        raise ValueError(f"file not found: {src}")
     if not src.is_file():
-        raise ValueError(f"не файл: {src}")
+        raise ValueError(f"not a file: {src}")
 
     # Basic Netscape format sniff: first non-empty line should be a header
     # or a tab-separated row with 7 fields.
@@ -210,12 +210,12 @@ def set_cookies_file(
         )
         if not looks_netscape:
             raise ValueError(
-                f"файл не похож на Netscape cookies.txt "
-                f"(первая строка: {first[:60]!r}). "
-                "Экспортируй через расширение 'Get cookies.txt LOCALLY'."
+                f"file does not look like Netscape cookies.txt "
+                f"(first line: {first[:60]!r}). "
+                "Export via the 'Get cookies.txt LOCALLY' extension."
             )
     except OSError as e:
-        raise ValueError(f"не могу прочесть файл: {e}") from e
+        raise ValueError(f"cannot read file: {e}") from e
 
     # Copy to a canonical location under ~/.youtube-transcribe/ with 0600
     # permissions. Keeps user's source file untouched; if they want to

@@ -46,7 +46,7 @@ def test_set_cookies_file_rejects_missing(tmp_path: Path):
         set_cookies_file,
     )
     cfg = tmp_path / "config.toml"
-    with pytest.raises(ValueError, match="не найден"):
+    with pytest.raises(ValueError, match="not found"):
         set_cookies_file(
             "instagram", str(tmp_path / "missing.txt"), config_path=cfg,
         )

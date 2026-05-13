@@ -32,7 +32,7 @@ def list_cmd(limit: int, type_filter: str | None) -> None:
     """List recent runs."""
     runs = list_runs(HISTORY_PATH, limit=limit, type_filter=type_filter)
     if not runs:
-        _console.print("[yellow]История пуста (no runs yet).[/yellow]")
+        _console.print("[yellow]History is empty (no runs yet).[/yellow]")
         return
     table = Table(show_header=True, header_style="bold")
     table.add_column("ID")

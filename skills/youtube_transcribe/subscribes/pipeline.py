@@ -208,7 +208,7 @@ def run_subscribes_update(
             scope_bits.append(f"group={group}")
         scope = " ".join(scope_bits) if scope_bits else "—"
         _console.print(
-            f"[yellow]Нет каналов под выбранный фильтр ({scope}).[/yellow]"
+            f"[yellow]No channels match the filter ({scope}).[/yellow]"
         )
         return None
 
@@ -271,11 +271,11 @@ def run_subscribes_update(
             # the next run we still notice the channel is broken.
             identifier = ch.handle or ch.channel_id
             _console.print(
-                f"[red]✗ {identifier}: канал не найден на {ch.platform}.[/red]\n"
-                f"  Возможно, пользователь сменил username или удалил аккаунт.\n"
-                f"  Проверь {ch.url} и обнови запись:\n"
-                f"    yt-tr subscribes remove {identifier}\n"
-                f"    yt-tr subscribes add <new-url>"
+                f"[red]✗ {identifier}: channel not found on {ch.platform}.[/red]\n"
+                f"  The user may have changed their username or deleted the account.\n"
+                f"  Check {ch.url} and update the entry:\n"
+                f"    youtube-transcribe subscribes remove {identifier}\n"
+                f"    youtube-transcribe subscribes add <new-url>"
             )
             continue
         if not entries:
@@ -327,7 +327,7 @@ def run_subscribes_update(
 
     if not candidates:
         _console.print(
-            "[yellow]Нет новых видео с момента последнего запуска.[/yellow]"
+            "[yellow]No new videos since the last run.[/yellow]"
         )
         return None
 
@@ -345,14 +345,14 @@ def run_subscribes_update(
         )
 
     if not candidates:
-        _console.print("[yellow]После фильтров ничего не осталось.[/yellow]")
+        _console.print("[yellow]Nothing left after filters.[/yellow]")
         return None
 
     # TTY checkpoint
     if not yes and _stdin_is_tty():
         candidates = _tty_checkpoint(candidates)
         if not candidates:
-            _console.print("[yellow]Отменено.[/yellow]")
+            _console.print("[yellow]Cancelled.[/yellow]")
             return None
 
     # Batch pipeline
@@ -427,7 +427,7 @@ def _tty_checkpoint(candidates: list) -> list:
         label = f"{date_str}  {title}  [{c.channel}]"
         choices.append(questionary.Choice(title=label, value=i - 1, checked=True))
     answer = questionary.checkbox(
-        "Выбери видео для analyze (Space=toggle, Enter=ok):",
+        "Pick videos to analyze (Space=toggle, Enter=ok):",
         choices=choices,
     ).ask()
     if answer is None:

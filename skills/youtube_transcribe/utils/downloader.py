@@ -127,23 +127,23 @@ def _diagnose_ytdlp_error(stderr: str) -> str:
         "login" in s or "session" in s or "logged" in s or "rate-limit" in s
     ):
         return (
-            "Instagram требует залогиненную сессию. Зарегистрируй cookies-файл:\n"
-            "  yt-tr subscribes cookies set instagram <path-to-cookies.txt>\n"
-            "Stories и приватные аккаунты — только с cookies того, кто на них подписан."
+            "Instagram requires a logged-in session. Register a cookies file:\n"
+            "  youtube-transcribe subscribes cookies set instagram <path-to-cookies.txt>\n"
+            "Stories and private accounts: only with cookies of an account that follows them."
         )
     if "sign in to confirm you" in s or "bot" in s or "403" in s:
-        return ("YouTube заблокировал запрос как бот. Зарегистрируй cookies-файл:\n"
-                "  yt-tr config set-cookies <path-to-cookies.txt>\n"
-                "Также может помочь обновить yt-dlp: youtube-transcribe update-deps.")
+        return ("YouTube blocked the request as a bot. Register a cookies file:\n"
+                "  youtube-transcribe config set-cookies <path-to-cookies.txt>\n"
+                "Updating yt-dlp may also help: youtube-transcribe update-deps.")
     if "video is private" in s or "members-only" in s:
-        return "Видео приватное или только для подписчиков. Нужны cookies залогиненного аккаунта."
+        return "Video is private or members-only. Cookies of a logged-in subscriber are required."
     if "age" in s and "restrict" in s:
-        return "Видео с возрастным ограничением. Передай --cookies-file <path>."
+        return "Age-restricted video. Pass --cookies-file <path>."
     if "country" in s or "geo" in s:
-        return "Видео заблокировано в твоём регионе. Попробуй VPN или другой регион."
+        return "Video is blocked in your region. Try a VPN or different region."
     if "unable to download" in s and "requested format" in s:
-        return "Формат недоступен. Возможно, видео — только live-stream или premiere."
-    return "Скачивание упало. См. полный stderr выше."
+        return "Format unavailable. Possibly the video is live-stream or premiere only."
+    return "Download failed. See full stderr above."
 
 
 def download_audio(
@@ -160,7 +160,7 @@ def download_audio(
     file `feedback_cookies_strict_file_only.md`.
     """
     if shutil.which("yt-dlp") is None:
-        raise DownloadError("yt-dlp не найден в PATH. Установи через `uv sync` или `pip install yt-dlp`.")
+        raise DownloadError("yt-dlp not found in PATH. Install via `uv sync` or `pip install yt-dlp`.")
     output_dir.mkdir(parents=True, exist_ok=True)
     template = str(output_dir / "audio_%(id)s.%(ext)s")
     cmd = build_ytdlp_command(
@@ -174,7 +174,7 @@ def download_audio(
             cmd, capture_output=True, text=True, timeout=timeout_seconds, check=False,
         )
     except subprocess.TimeoutExpired:
-        raise DownloadError(f"Скачивание превысило {timeout_seconds} сек. Проверь интернет или используй --cookies.")
+        raise DownloadError(f"Download exceeded {timeout_seconds}s. Check connection or pass --cookies-file.")
 
     if result.returncode != 0:
         hint = _diagnose_ytdlp_error(result.stderr or "")
@@ -183,7 +183,7 @@ def download_audio(
     # Find downloaded file
     candidates = sorted(output_dir.glob("audio_*"), key=lambda p: p.stat().st_mtime, reverse=True)
     if not candidates:
-        raise DownloadError("yt-dlp завершился успешно, но файл не найден.")
+        raise DownloadError("yt-dlp exited successfully but no audio file was found.")
     return candidates[0]
 
 
@@ -201,7 +201,7 @@ def download_video(
     `download_audio` for the rationale.
     """
     if shutil.which("yt-dlp") is None:
-        raise DownloadError("yt-dlp не найден в PATH.")
+        raise DownloadError("yt-dlp not found in PATH.")
     output_dir.mkdir(parents=True, exist_ok=True)
     template = str(output_dir / "video_%(id)s.%(ext)s")
     cmd = [
@@ -223,11 +223,11 @@ def download_video(
             cmd, capture_output=True, text=True, timeout=timeout_seconds, check=False,
         )
     except subprocess.TimeoutExpired:
-        raise DownloadError(f"Скачивание видео превысило {timeout_seconds} сек.")
+        raise DownloadError(f"Video download exceeded {timeout_seconds}s.")
 
     if result.returncode != 0:
         hint = _diagnose_ytdlp_error(result.stderr or "")
-        raise DownloadError(f"yt-dlp упал при скачивании mp4: {hint}\n{result.stderr}")
+        raise DownloadError(f"yt-dlp failed downloading mp4: {hint}\n{result.stderr}")
 
     # Find the resulting mp4 — yt-dlp may have produced .mp4 directly or merged from parts
     for f in output_dir.glob("video_*.mp4"):
@@ -305,7 +305,7 @@ def probe_input(url_or_path: str) -> tuple[Literal["video", "playlist", "local"]
     if not is_url(url_or_path):
         p = Path(url_or_path).expanduser().resolve()
         if not p.exists():
-            raise DownloadError(f"Файл не найден: {p}")
+            raise DownloadError(f"File not found: {p}")
         return "local", {"path": str(p)}
 
     info = _extract_flat(url_or_path)

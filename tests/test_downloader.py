@@ -147,7 +147,7 @@ def test_download_audio_raises_when_yt_dlp_not_in_path(tmp_path: Path):
     """yt-dlp missing → DownloadError + no output dir created."""
     target_dir = tmp_path / "out"  # does NOT exist
     with patch("shutil.which", return_value=None):
-        with pytest.raises(DownloadError, match="не найден"):
+        with pytest.raises(DownloadError, match="not found"):
             from skills.youtube_transcribe.utils.downloader import download_audio
             download_audio("https://youtu.be/abc", target_dir)
     assert not target_dir.exists()  # debris check
