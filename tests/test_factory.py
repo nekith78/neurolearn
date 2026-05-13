@@ -192,8 +192,10 @@ def test_smart_uses_subtitles_for_youtube_when_available():
     fake_fallback.transcribe.assert_not_called()
 
 
-def test_smart_falls_back_when_subtitles_fail():
-    """YouTube URL + subtitles raises BackendError → fallback used."""
+def test_smart_falls_back_when_subtitles_fail(tmp_path):
+    """YouTube URL + subtitles raises BackendError → fallback used after
+    download. The fallback backend receives a local file path, not the URL,
+    because all non-subtitles backends require local audio."""
     cfg = Config(default_backend="smart", fallback_backend="whisper-local", fast_path_enabled=True)
     from skills.youtube_transcribe.backends.base import BackendError
     fake_subs = MagicMock()
@@ -201,14 +203,24 @@ def test_smart_falls_back_when_subtitles_fail():
     fake_fallback = MagicMock()
     fake_fallback.transcribe.return_value = MagicMock(backend_name="whisper-local")
 
+    fake_audio = tmp_path / "audio.mp3"
+    fake_audio.write_bytes(b"\x00")
+
     with patch(
         "skills.youtube_transcribe.backends.factory.build_backend",
         side_effect=lambda n, c: fake_subs if n == "subtitles" else fake_fallback,
-    ):
+    ), patch(
+        "skills.youtube_transcribe.backends.factory.download_audio",
+        return_value=fake_audio,
+    ) as mock_dl:
         result = run_smart("https://youtu.be/abc", cfg, language="en")
 
     assert result.backend_name == "whisper-local"
     fake_fallback.transcribe.assert_called_once()
+    # Fallback receives the downloaded file path, not the original URL.
+    fallback_arg = fake_fallback.transcribe.call_args.args[0]
+    assert str(fallback_arg).endswith("audio.mp3")
+    mock_dl.assert_called_once()
 
 
 def test_smart_skips_subtitles_for_non_youtube_url():
@@ -228,8 +240,10 @@ def test_smart_skips_subtitles_for_non_youtube_url():
     assert result.backend_name == "whisper-local"
 
 
-def test_smart_skips_subtitles_when_fast_path_disabled():
-    """fast_path_enabled=False → always skip subtitles, even for YouTube URLs."""
+def test_smart_skips_subtitles_when_fast_path_disabled(tmp_path):
+    """fast_path_enabled=False → always skip subtitles, even for YouTube URLs.
+    The fallback path still downloads audio because the URL must be turned
+    into a local file before any non-subtitles backend can transcribe it."""
     cfg = Config(
         default_backend="smart",
         fallback_backend="whisper-local",
@@ -238,10 +252,15 @@ def test_smart_skips_subtitles_when_fast_path_disabled():
     fake_subs = MagicMock()
     fake_fallback = MagicMock()
     fake_fallback.transcribe.return_value = MagicMock(backend_name="whisper-local")
+    fake_audio = tmp_path / "a.mp3"
+    fake_audio.write_bytes(b"\x00")
 
     with patch(
         "skills.youtube_transcribe.backends.factory.build_backend",
         side_effect=lambda n, c: fake_subs if n == "subtitles" else fake_fallback,
+    ), patch(
+        "skills.youtube_transcribe.backends.factory.download_audio",
+        return_value=fake_audio,
     ):
         result = run_smart("https://youtu.be/xyz", cfg, language="auto")
 

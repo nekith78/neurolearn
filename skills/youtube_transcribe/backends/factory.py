@@ -23,7 +23,7 @@ from skills.youtube_transcribe.backends.openai_api import OpenAIBackend
 from skills.youtube_transcribe.backends.subtitles import SubtitlesBackend
 from skills.youtube_transcribe.backends.whisper_local import WhisperLocalBackend
 from skills.youtube_transcribe.config import Config
-from skills.youtube_transcribe.utils.downloader import is_youtube_url
+from skills.youtube_transcribe.utils.downloader import download_audio, is_url, is_youtube_url
 from skills.youtube_transcribe.utils.platform_detect import detect_platform
 
 
@@ -86,7 +86,10 @@ def run_smart(
     1. If cfg.fast_path_enabled AND audio_or_url is a YouTube URL:
        - Try SubtitlesBackend; on success return immediately.
        - On BackendError: fall through to fallback.
-    2. Use cfg.fallback_backend for everything else.
+    2. Fall back to cfg.fallback_backend. The fallback backends
+       (whisper-local, gemini, groq, ...) all require a local audio file
+       — none of them accept URLs directly. If the input is a URL, the
+       smart composer is responsible for downloading audio first.
     """
     src = str(audio_or_url)
     if cfg.fast_path_enabled and is_youtube_url(src):
@@ -97,4 +100,14 @@ def run_smart(
             pass  # fall through to fallback
 
     fb = build_backend(cfg.fallback_backend, cfg)
+    if is_url(src):
+        # Fallback backend needs a local file. Download into a temp dir;
+        # the file is cleaned up on context exit (transcription has
+        # already returned by then with its result in memory).
+        import tempfile
+        with tempfile.TemporaryDirectory(prefix="yt-smart-fb-") as tmp:
+            audio_path = download_audio(
+                src, Path(tmp), cookies_file=cfg.cookies_file,
+            )
+            return fb.transcribe(audio_path, language=language)
     return fb.transcribe(audio_or_url, language=language)
