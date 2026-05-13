@@ -673,6 +673,17 @@ to be useful), platforms beyond {YouTube, Instagram, TikTok} for `subscribes`.
 
 ---
 
+## For AI agents
+
+If you're an LLM driving this skill, start here:
+
+- [`skills/youtube_transcribe/SKILL.md`](skills/youtube_transcribe/SKILL.md) — when to invoke, which command to pick, the `--no-analyze` rule for chat-driven use.
+- [`docs/agent-reference.md`](docs/agent-reference.md) — full CLI surface, file/module map, exit codes, state semantics, how to add a backend.
+- [`graphify-out/GRAPH_REPORT.md`](graphify-out/GRAPH_REPORT.md) — top god-nodes, hyperedges (subscribes flow, analyze pipeline, detection pipeline, vision backends), suggested questions.
+- [`graphify-out/graph.json`](graphify-out/graph.json) — queryable via `/graphify query "..."`.
+
+---
+
 ## License
 
 MIT — see [LICENSE](LICENSE).
