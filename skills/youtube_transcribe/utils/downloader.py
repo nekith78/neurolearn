@@ -260,18 +260,27 @@ def parse_yt_date(s: str | None) -> date | None:
         return None
 
 
-def _extract_flat(url: str) -> dict:
+def _extract_flat(
+    url: str, *, cookies_browser: str | None = None,
+) -> dict:
     """Тонкая обёртка над yt-dlp YoutubeDL.extract_info(extract_flat=True).
-    Изолирована, чтобы тесты могли мокать её точечно через patch."""
+    Изолирована, чтобы тесты могли мокать её точечно через patch.
+
+    `cookies_browser` — optional browser name ("chrome" / "firefox" / etc.)
+    to source cookies from. Required for Instagram (anon → 401), useful for
+    private TikTok accounts.
+    """
     from yt_dlp import YoutubeDL  # импорт локальный — yt-dlp тяжёлый
     from yt_dlp.utils import DownloadError as YtDlpDownloadError
-    opts = {
+    opts: dict = {
         "quiet": True,
         "no_warnings": True,
         "extract_flat": True,
         "skip_download": True,
         "geo_bypass": True,
     }
+    if cookies_browser:
+        opts["cookiesfrombrowser"] = (cookies_browser,)
     try:
         with YoutubeDL(opts) as ydl:
             return ydl.extract_info(url, download=False)
@@ -297,9 +306,15 @@ def probe_input(url_or_path: str) -> tuple[Literal["video", "playlist", "local"]
     return kind, info  # type: ignore[return-value]
 
 
-def expand_channel_or_playlist(url: str, limit: int) -> list[ChannelEntry]:
-    """Развернуть канал/плейлист в первые N entries. Только метадата, без скачивания."""
-    info = _extract_flat(url)
+def expand_channel_or_playlist(
+    url: str, limit: int, *, cookies_browser: str | None = None,
+) -> list[ChannelEntry]:
+    """Развернуть канал/плейлист в первые N entries. Только метадата, без скачивания.
+
+    `cookies_browser` пробрасывается в yt-dlp для платформ, которым нужна
+    залогиненная сессия (Instagram всегда, TikTok иногда).
+    """
+    info = _extract_flat(url, cookies_browser=cookies_browser)
     entries = info.get("entries") or []
     out: list[ChannelEntry] = []
     for e in entries[:limit]:

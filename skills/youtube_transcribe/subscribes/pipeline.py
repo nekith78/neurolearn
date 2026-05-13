@@ -52,6 +52,15 @@ class SubscribesError(Exception):
     """Pipeline-level error (e.g. missing initial state)."""
 
 
+class ChannelNotFoundError(Exception):
+    """A channel's identifier (IG username / TikTok @handle) doesn't resolve
+    on the platform anymore — typically a rename.
+
+    Raised by _fetch_via_yt_dlp; the per-channel loop catches it and surfaces
+    the friendly "username changed?" hint without aborting other channels.
+    """
+
+
 @dataclass
 class _ChannelVideo:
     """Unified shape for entries from RSS or yt-dlp channel scrape."""
@@ -65,20 +74,56 @@ class _ChannelVideo:
 _console = Console()
 
 
-def _fetch_via_yt_dlp(channel_url: str, *, limit: int = 30) -> list[_ChannelVideo]:
-    """yt-dlp fallback for `--no-rss`. Returns entries with `duration_sec`
-    populated (RSS path leaves it None).
+_NOT_FOUND_SIGNATURES = (
+    "does not exist",
+    "is not available",
+    "user not found",
+    "profile not found",
+    "404",
+    "not found",
+    "private account",
+    "this account",
+)
 
-    Slower than RSS (~1-3s per channel vs ~100ms) but the only way to
-    get duration metadata, which is needed when downstream code filters
-    by --min-duration / --max-duration.
+
+def _looks_like_channel_not_found(err_text: str) -> bool:
+    """Heuristic: did yt-dlp fail because the username doesn't exist?
+
+    yt-dlp's error messages vary by extractor; pattern-match common
+    "user gone" signatures so we can give a useful hint instead of
+    re-raising a wall of yt-dlp text.
     """
+    lower = err_text.lower()
+    return any(sig in lower for sig in _NOT_FOUND_SIGNATURES)
+
+
+def _fetch_via_yt_dlp(
+    channel_url: str,
+    *,
+    limit: int = 30,
+    cookies_browser: str | None = None,
+) -> list[_ChannelVideo]:
+    """yt-dlp profile scraper. Returns entries with `duration_sec` populated.
+
+    Used for:
+      • YouTube `--no-rss` fallback (no RSS, want duration metadata)
+      • Instagram (no RSS exists; needs cookies)
+      • TikTok (no RSS exists; cookies optional)
+
+    Raises ChannelNotFoundError when the platform reports the user
+    doesn't exist — the per-channel loop catches it to print a clear
+    "username changed?" hint without halting the whole run.
+    """
+    from skills.youtube_transcribe.utils.downloader import (
+        expand_channel_or_playlist,
+    )
     try:
-        from skills.youtube_transcribe.utils.downloader import (
-            expand_channel_or_playlist,
+        entries = expand_channel_or_playlist(
+            channel_url, limit=limit, cookies_browser=cookies_browser,
         )
-        entries = expand_channel_or_playlist(channel_url, limit=limit)
     except Exception as e:
+        if _looks_like_channel_not_found(str(e)):
+            raise ChannelNotFoundError(str(e)) from e
         _console.print(
             f"[yellow]yt-dlp fetch failed for {channel_url}: {e}[/yellow]"
         )
@@ -123,6 +168,8 @@ def run_subscribes_update(
     output_dir: str,
     api_keys: dict[str, str | None],
     batch_opts: dict,
+    instagram_cookies_browser: str = "",
+    tiktok_cookies_browser: str = "",
 ) -> Path | None:
     """Run subscribes update. Returns Path to batch folder or None."""
 
@@ -153,18 +200,42 @@ def run_subscribes_update(
         if not ch.channel_id:
             continue
 
-        # Source: RSS (default, fast, no duration) or yt-dlp (slow but
-        # returns duration_sec — required for duration filters).
-        if no_rss:
-            entries = _fetch_via_yt_dlp(ch.url)
-        else:
-            entries = [
-                _ChannelVideo(
-                    video_id=e.video_id, url=e.url, title=e.title,
-                    duration_sec=None, published=e.published,
+        # Per-platform source dispatch:
+        #   • YouTube: RSS by default (fast), yt-dlp on --no-rss (slow, gives duration)
+        #   • Instagram: always yt-dlp scrape, with cookies (no RSS exists; anon → 401)
+        #   • TikTok: always yt-dlp scrape; cookies optional
+        try:
+            if ch.platform == "instagram":
+                entries = _fetch_via_yt_dlp(
+                    ch.url, cookies_browser=instagram_cookies_browser or None,
                 )
-                for e in fetch_rss(ch.channel_id)
-            ]
+            elif ch.platform == "tiktok":
+                entries = _fetch_via_yt_dlp(
+                    ch.url, cookies_browser=tiktok_cookies_browser or None,
+                )
+            elif no_rss:
+                entries = _fetch_via_yt_dlp(ch.url)
+            else:
+                entries = [
+                    _ChannelVideo(
+                        video_id=e.video_id, url=e.url, title=e.title,
+                        duration_sec=None, published=e.published,
+                    )
+                    for e in fetch_rss(ch.channel_id)
+                ]
+        except ChannelNotFoundError:
+            # Username changed (or account deleted / privated). Surface a clear
+            # hint and move to the next channel — DO NOT advance state, so on
+            # the next run we still notice the channel is broken.
+            identifier = ch.handle or ch.channel_id
+            _console.print(
+                f"[red]✗ {identifier}: канал не найден на {ch.platform}.[/red]\n"
+                f"  Возможно, пользователь сменил username или удалил аккаунт.\n"
+                f"  Проверь {ch.url} и обнови запись:\n"
+                f"    yt-tr subscribes remove {identifier}\n"
+                f"    yt-tr subscribes add <new-url>"
+            )
+            continue
         if not entries:
             continue
 

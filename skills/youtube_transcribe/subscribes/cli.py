@@ -262,6 +262,12 @@ def update_cmd(
             output_dir=output_dir,
             api_keys=api_keys,
             batch_opts=batch_opts,
+            instagram_cookies_browser=(
+                cfg.instagram_cookies_browser if cfg else ""
+            ),
+            tiktok_cookies_browser=(
+                cfg.tiktok_cookies_browser if cfg else ""
+            ),
         )
     except SubscribesError as e:
         _console.print(f"[red]{e}[/red]")

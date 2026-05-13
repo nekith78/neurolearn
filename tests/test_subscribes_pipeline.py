@@ -7,12 +7,18 @@ import pytest
 
 
 def _channel(handle="@A", channel_id="UC_a", last_id=None, last_pub=None,
-             group=None):
+             group=None, platform="youtube"):
     from skills.youtube_transcribe.subscribes.store import Channel
+    base_url = {
+        "youtube": "https://www.youtube.com",
+        "instagram": "https://www.instagram.com",
+        "tiktok": "https://www.tiktok.com",
+    }[platform]
     return Channel(
-        url=f"https://www.youtube.com/{handle}", handle=handle,
+        url=f"{base_url}/{handle}", handle=handle,
         channel_id=channel_id, group=group, added="2026-05-12",
         last_seen_video_id=last_id, last_seen_published=last_pub,
+        platform=platform,
     )
 
 
@@ -358,3 +364,200 @@ def test_group_filters_channels(tmp_path: Path):
         )
     # Only UC_ai1 fetched
     mock_rss.assert_called_once_with("UC_ai1")
+
+
+# === v0.8: Instagram / TikTok flows ===
+
+
+def test_instagram_channel_uses_yt_dlp_with_cookies(tmp_path: Path):
+    """Instagram channels NEVER hit RSS — always go through yt-dlp with the
+    user's configured cookies_browser."""
+    from skills.youtube_transcribe.subscribes.pipeline import (
+        run_subscribes_update, _ChannelVideo,
+    )
+    sub_path = tmp_path / "subscribes.toml"
+    ch = _channel(
+        handle="@anthropic", channel_id="anthropic",
+        last_id="oldvid", last_pub="2026-05-01T00:00:00+00:00",
+        platform="instagram",
+    )
+    fake_videos = [_ChannelVideo(
+        video_id="reel1", url="https://www.instagram.com/p/reel1/",
+        title="A new reel", duration_sec=42,
+        published=datetime(2026, 5, 11, tzinfo=timezone.utc),
+    )]
+
+    captured: dict = {}
+
+    def fake_fetch(url, *, cookies_browser=None, limit=30):
+        captured["url"] = url
+        captured["cookies_browser"] = cookies_browser
+        return fake_videos
+
+    with patch(
+        "skills.youtube_transcribe.subscribes.pipeline.load_subscribes",
+        return_value=[ch],
+    ), patch(
+        "skills.youtube_transcribe.subscribes.pipeline.fetch_rss",
+        side_effect=AssertionError("RSS must NOT be used for Instagram"),
+    ), patch(
+        "skills.youtube_transcribe.subscribes.pipeline._fetch_via_yt_dlp",
+        side_effect=fake_fetch,
+    ), patch(
+        "skills.youtube_transcribe.subscribes.pipeline._run_batch_pipeline",
+        return_value=tmp_path / "batch",
+    ), patch(
+        "skills.youtube_transcribe.subscribes.pipeline._stdin_is_tty",
+        return_value=False,
+    ), patch(
+        "skills.youtube_transcribe.subscribes.pipeline._append_history",
+    ):
+        run_subscribes_update(
+            subscribes_path=sub_path,
+            group=None, days=None, since=None, until=None,
+            match=None, filter_text=None,
+            no_rss=False, yes=True, no_analyze=True,
+            prompt=None, prompt_file=None,
+            analyze_backend="gemini", filter_backend="gemini",
+            ollama_model="llama3.2:3b", ollama_host="http://localhost:11434",
+            no_stdout=False, output_dir=str(tmp_path),
+            api_keys={}, batch_opts={},
+            instagram_cookies_browser="chrome",
+        )
+    assert captured["cookies_browser"] == "chrome"
+
+
+def test_username_change_surfaces_friendly_error(tmp_path: Path, capsys):
+    """When yt-dlp reports 'user not found', the loop prints a hint and
+    moves on without aborting the run."""
+    from skills.youtube_transcribe.subscribes.pipeline import (
+        run_subscribes_update, ChannelNotFoundError, _ChannelVideo,
+    )
+    sub_path = tmp_path / "subscribes.toml"
+    ig_ch = _channel(
+        handle="@ghost", channel_id="ghost",
+        last_id="x", last_pub="2026-05-01T00:00:00+00:00",
+        platform="instagram",
+    )
+    yt_ch = _channel(
+        handle="@anthropic-ai", channel_id="UC_anth",
+        last_id="x", last_pub="2026-05-01T00:00:00+00:00",
+        platform="youtube",
+    )
+    yt_rss = [_rss("yt_new", "2026-05-11T00:00:00+00:00")]
+
+    def fake_fetch(url, *, cookies_browser=None, limit=30):
+        raise ChannelNotFoundError("user does not exist")
+
+    with patch(
+        "skills.youtube_transcribe.subscribes.pipeline.load_subscribes",
+        return_value=[ig_ch, yt_ch],
+    ), patch(
+        "skills.youtube_transcribe.subscribes.pipeline.fetch_rss",
+        return_value=yt_rss,
+    ), patch(
+        "skills.youtube_transcribe.subscribes.pipeline._fetch_via_yt_dlp",
+        side_effect=fake_fetch,
+    ), patch(
+        "skills.youtube_transcribe.subscribes.pipeline._run_batch_pipeline",
+        return_value=tmp_path / "batch",
+    ) as mock_batch, patch(
+        "skills.youtube_transcribe.subscribes.pipeline.update_last_seen",
+    ) as mock_state, patch(
+        "skills.youtube_transcribe.subscribes.pipeline._stdin_is_tty",
+        return_value=False,
+    ), patch(
+        "skills.youtube_transcribe.subscribes.pipeline._append_history",
+    ):
+        run_subscribes_update(
+            subscribes_path=sub_path,
+            group=None, days=None, since=None, until=None,
+            match=None, filter_text=None,
+            no_rss=False, yes=True, no_analyze=True,
+            prompt=None, prompt_file=None,
+            analyze_backend="gemini", filter_backend="gemini",
+            ollama_model="llama3.2:3b", ollama_host="http://localhost:11434",
+            no_stdout=False, output_dir=str(tmp_path),
+            api_keys={}, batch_opts={},
+            instagram_cookies_browser="chrome",
+        )
+    # Batch ran with YT video only — IG was skipped, run continues.
+    mock_batch.assert_called_once()
+    # State advanced for the surviving YT channel, NOT for the broken IG one.
+    # update_last_seen signature: (path, channel_id, video_id, published).
+    state_targets = [call.args[1] for call in mock_state.call_args_list]
+    assert "UC_anth" in state_targets
+    assert "ghost" not in state_targets
+
+
+def test_looks_like_channel_not_found_matches_common_signatures():
+    from skills.youtube_transcribe.subscribes.pipeline import (
+        _looks_like_channel_not_found,
+    )
+    assert _looks_like_channel_not_found("ERROR: user not found")
+    assert _looks_like_channel_not_found("HTTP Error 404: Not Found")
+    assert _looks_like_channel_not_found("This account does not exist")
+    assert _looks_like_channel_not_found("Private account, login required")
+    # Real-world false-positive guard:
+    assert not _looks_like_channel_not_found(
+        "RuntimeError: ffmpeg crashed"
+    )
+    assert not _looks_like_channel_not_found("Quota exceeded")
+
+
+def test_tiktok_channel_uses_yt_dlp_with_tiktok_cookies(tmp_path: Path):
+    """TikTok routes the same as Instagram, but with its own cookies setting.
+    Verifies the per-platform cookies plumbing doesn't cross-contaminate."""
+    from skills.youtube_transcribe.subscribes.pipeline import (
+        run_subscribes_update, _ChannelVideo,
+    )
+    sub_path = tmp_path / "subscribes.toml"
+    ch = _channel(
+        handle="@duolingo", channel_id="@duolingo",
+        last_id="x", last_pub="2026-05-01T00:00:00+00:00",
+        platform="tiktok",
+    )
+    fake_videos = [_ChannelVideo(
+        video_id="v1", url="https://www.tiktok.com/@duolingo/video/v1",
+        title="A new short", duration_sec=30,
+        published=datetime(2026, 5, 11, tzinfo=timezone.utc),
+    )]
+
+    captured: dict = {}
+
+    def fake_fetch(url, *, cookies_browser=None, limit=30):
+        captured["cookies_browser"] = cookies_browser
+        return fake_videos
+
+    with patch(
+        "skills.youtube_transcribe.subscribes.pipeline.load_subscribes",
+        return_value=[ch],
+    ), patch(
+        "skills.youtube_transcribe.subscribes.pipeline.fetch_rss",
+        side_effect=AssertionError("RSS must NOT be used for TikTok"),
+    ), patch(
+        "skills.youtube_transcribe.subscribes.pipeline._fetch_via_yt_dlp",
+        side_effect=fake_fetch,
+    ), patch(
+        "skills.youtube_transcribe.subscribes.pipeline._run_batch_pipeline",
+        return_value=tmp_path / "batch",
+    ), patch(
+        "skills.youtube_transcribe.subscribes.pipeline._stdin_is_tty",
+        return_value=False,
+    ), patch(
+        "skills.youtube_transcribe.subscribes.pipeline._append_history",
+    ):
+        run_subscribes_update(
+            subscribes_path=sub_path,
+            group=None, days=None, since=None, until=None,
+            match=None, filter_text=None,
+            no_rss=False, yes=True, no_analyze=True,
+            prompt=None, prompt_file=None,
+            analyze_backend="gemini", filter_backend="gemini",
+            ollama_model="llama3.2:3b", ollama_host="http://localhost:11434",
+            no_stdout=False, output_dir=str(tmp_path),
+            api_keys={}, batch_opts={},
+            instagram_cookies_browser="firefox",  # MUST NOT be used here
+            tiktok_cookies_browser="chrome",
+        )
+    assert captured["cookies_browser"] == "chrome"
