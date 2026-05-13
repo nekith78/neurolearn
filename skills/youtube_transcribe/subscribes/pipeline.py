@@ -20,7 +20,7 @@ state and the next incremental run still asked for --days.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 from rich.console import Console
@@ -102,6 +102,7 @@ def _fetch_via_yt_dlp(
     *,
     limit: int = 30,
     cookies_browser: str | None = None,
+    accept_missing_dates: bool = False,
 ) -> list[_ChannelVideo]:
     """yt-dlp profile scraper. Returns entries with `duration_sec` populated.
 
@@ -109,6 +110,13 @@ def _fetch_via_yt_dlp(
       • YouTube `--no-rss` fallback (no RSS, want duration metadata)
       • Instagram (no RSS exists; needs cookies)
       • TikTok (no RSS exists; cookies optional)
+
+    `accept_missing_dates=True` (set for IG/TikTok): when yt-dlp's flat
+    extract returns an entry without `upload_date` — which is the norm
+    for IG and TikTok — synthesize a descending sequence of timestamps
+    starting from now() so the entries keep their newest-first order
+    through the date-window filter. The caller is expected to dedup by
+    `video_id` against `last_seen_video_id` instead of trusting the dates.
 
     Raises ChannelNotFoundError when the platform reports the user
     doesn't exist — the per-channel loop catches it to print a clear
@@ -130,15 +138,20 @@ def _fetch_via_yt_dlp(
         return []
 
     out: list[_ChannelVideo] = []
-    for e in entries:
-        if e.upload_date is None:
-            # Without a date we can't apply the date window — skip.
+    now = datetime.now(timezone.utc)
+    for idx, e in enumerate(entries):
+        if e.upload_date is not None:
+            pub = datetime.combine(
+                e.upload_date, datetime.min.time(), tzinfo=timezone.utc,
+            )
+        elif accept_missing_dates:
+            # Synthetic descending stamp: idx=0 (newest) → now, idx=1 →
+            # now - 1min, etc. Preserves ordering for the downstream window
+            # filter without claiming a real publish time.
+            pub = now.replace(microsecond=0) - timedelta(minutes=idx)
+        else:
+            # YouTube path: without a date we can't apply the window — skip.
             continue
-        # ChannelEntry.upload_date is a date; lift to datetime at UTC midnight
-        # so it's comparable with RSS-path published datetimes.
-        pub = datetime.combine(
-            e.upload_date, datetime.min.time(), tzinfo=timezone.utc,
-        )
         out.append(_ChannelVideo(
             video_id=e.video_id, url=e.url, title=e.title or "",
             duration_sec=e.duration_sec, published=pub,
@@ -204,14 +217,21 @@ def run_subscribes_update(
         #   • YouTube: RSS by default (fast), yt-dlp on --no-rss (slow, gives duration)
         #   • Instagram: always yt-dlp scrape, with cookies (no RSS exists; anon → 401)
         #   • TikTok: always yt-dlp scrape; cookies optional
+        # `accept_missing_dates=True` for IG/TT — those platforms' flat
+        # extracts don't include upload_date, so we synthesize a descending
+        # stamp from now() and rely on last_seen_video_id for dedup below.
         try:
             if ch.platform == "instagram":
                 entries = _fetch_via_yt_dlp(
-                    ch.url, cookies_browser=instagram_cookies_browser or None,
+                    ch.url,
+                    cookies_browser=instagram_cookies_browser or None,
+                    accept_missing_dates=True,
                 )
             elif ch.platform == "tiktok":
                 entries = _fetch_via_yt_dlp(
-                    ch.url, cookies_browser=tiktok_cookies_browser or None,
+                    ch.url,
+                    cookies_browser=tiktok_cookies_browser or None,
+                    accept_missing_dates=True,
                 )
             elif no_rss:
                 entries = _fetch_via_yt_dlp(ch.url)
@@ -239,7 +259,19 @@ def run_subscribes_update(
         if not entries:
             continue
 
-        if window is not None:
+        # For IG/TikTok, dates are synthetic — the date window pass-through is
+        # imprecise. Reliable dedup is via last_seen_video_id: yt-dlp returns
+        # entries newest-first, so we stop scanning when we hit the last id
+        # we processed previously. On first run (no last_seen_video_id), every
+        # entry is "new".
+        if ch.platform in ("instagram", "tiktok") and ch.last_seen_video_id:
+            fresh: list[_ChannelVideo] = []
+            for e in entries:
+                if e.video_id == ch.last_seen_video_id:
+                    break
+                fresh.append(e)
+            entries = fresh
+        elif window is not None:
             entries = [e for e in entries if in_window(e.published, window)]
         else:
             cutoff = _parse_iso(ch.last_seen_published) if ch.last_seen_published else None

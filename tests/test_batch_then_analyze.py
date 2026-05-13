@@ -227,3 +227,76 @@ def test_then_analyze_all_backends_empty_writes_no_file(tmp_path: Path):
             backend="gemini",
         )
     assert list(batch.glob("analysis-*.md")) == []
+
+
+def test_download_error_becomes_batch_failure_not_traceback(tmp_path: Path):
+    """Pre-v0.8.1 bug: a DownloadError from yt-dlp propagated out of
+    _run_batch_pipeline, killing the whole batch (and subscribes update).
+    Common trigger: TikTok's anti-bot system returning a malformed
+    response on one specific video while the rest succeed.
+
+    Fix: _process_one catches DownloadError and converts to a BatchFailure
+    with stage="download", so the loop continues through remaining videos.
+    """
+    from unittest.mock import MagicMock
+    from skills.youtube_transcribe.transcribe import _run_batch_pipeline
+    from skills.youtube_transcribe.utils.downloader import DownloadError
+
+    def fake_run_pipeline(target, cfg, **kw):
+        if "broken" in target.url:
+            raise DownloadError("yt-dlp: Unexpected response")
+        result = MagicMock()
+        result.segments = [MagicMock(start=0, end=1, text="ok")]
+        result.text = "ok"
+        result.language_detected = "en"
+        result.backend_name = "subtitles"
+        result.duration_seconds = 1.0
+        result.quality = None
+        result.visual_segments = []
+        return result
+
+    targets = []
+    for vid, url in [
+        ("ok1", "https://www.tiktok.com/@u/video/ok1"),
+        ("broken", "https://www.tiktok.com/@u/video/broken"),
+        ("ok2", "https://www.tiktok.com/@u/video/ok2"),
+    ]:
+        t = MagicMock(
+            url=url, video_id=vid, title=vid, upload_date=None,
+            duration_sec=10, channel="@u", source="channel",
+            source_language=None,
+        )
+        targets.append(t)
+
+    from skills.youtube_transcribe.config import Config
+    cfg = Config(
+        default_backend="subtitles",
+        output_dir=str(tmp_path),
+        cookies_browser="",
+        keep_audio=False,
+        timestamps=True,
+        srt=True,
+        language="auto",
+    )
+    opts = {
+        "output_dir": str(tmp_path),
+        "batch_name": "test-batch",
+        "no_combined": False, "fail_fast": False,
+    }
+
+    with patch(
+        "skills.youtube_transcribe.transcribe.run_pipeline",
+        side_effect=fake_run_pipeline,
+    ):
+        batch_dir = _run_batch_pipeline(targets=targets, cfg=cfg, opts=opts)
+
+    assert batch_dir is not None
+    # The two healthy videos should have produced transcripts despite the
+    # broken middle one crashing the downloader.
+    txts = list((batch_dir / "videos").glob("*.txt"))
+    assert len(txts) == 2
+    # errors.log should mention the broken one with stage="download".
+    errors_log = batch_dir / "errors.log"
+    assert errors_log.exists()
+    content = errors_log.read_text(encoding="utf-8")
+    assert "broken" in content

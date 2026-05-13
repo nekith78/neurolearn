@@ -389,7 +389,7 @@ def test_instagram_channel_uses_yt_dlp_with_cookies(tmp_path: Path):
 
     captured: dict = {}
 
-    def fake_fetch(url, *, cookies_browser=None, limit=30):
+    def fake_fetch(url, *, cookies_browser=None, limit=30, **kw):
         captured["url"] = url
         captured["cookies_browser"] = cookies_browser
         return fake_videos
@@ -446,7 +446,7 @@ def test_username_change_surfaces_friendly_error(tmp_path: Path, capsys):
     )
     yt_rss = [_rss("yt_new", "2026-05-11T00:00:00+00:00")]
 
-    def fake_fetch(url, *, cookies_browser=None, limit=30):
+    def fake_fetch(url, *, cookies_browser=None, limit=30, **kw):
         raise ChannelNotFoundError("user does not exist")
 
     with patch(
@@ -525,7 +525,7 @@ def test_tiktok_channel_uses_yt_dlp_with_tiktok_cookies(tmp_path: Path):
 
     captured: dict = {}
 
-    def fake_fetch(url, *, cookies_browser=None, limit=30):
+    def fake_fetch(url, *, cookies_browser=None, limit=30, **kw):
         captured["cookies_browser"] = cookies_browser
         return fake_videos
 
@@ -561,3 +561,63 @@ def test_tiktok_channel_uses_yt_dlp_with_tiktok_cookies(tmp_path: Path):
             tiktok_cookies_browser="chrome",
         )
     assert captured["cookies_browser"] == "chrome"
+
+
+def test_tiktok_dedup_via_last_seen_video_id(tmp_path: Path):
+    """For IG/TikTok the date window is bypassed — dedup is by
+    last_seen_video_id. yt-dlp returns entries newest-first; we walk
+    until we hit the previously-seen id and stop."""
+    from skills.youtube_transcribe.subscribes.pipeline import (
+        run_subscribes_update, _ChannelVideo,
+    )
+    sub_path = tmp_path / "subscribes.toml"
+    ch = _channel(
+        handle="@duolingo", channel_id="@duolingo",
+        last_id="OLD_SEEN", last_pub=None,  # date doesn't exist for TT
+        platform="tiktok",
+    )
+    # Newest first; OLD_SEEN was previously seen → only NEW1, NEW2 are fresh.
+    fake_videos = [
+        _ChannelVideo(video_id="NEW1", url="...", title="t1",
+                      duration_sec=10, published=datetime.now(timezone.utc)),
+        _ChannelVideo(video_id="NEW2", url="...", title="t2",
+                      duration_sec=10, published=datetime.now(timezone.utc)),
+        _ChannelVideo(video_id="OLD_SEEN", url="...", title="t3",
+                      duration_sec=10, published=datetime.now(timezone.utc)),
+        _ChannelVideo(video_id="OLDER", url="...", title="t4",
+                      duration_sec=10, published=datetime.now(timezone.utc)),
+    ]
+    captured: dict = {}
+
+    def capture_batch(*, targets, **kw):
+        captured["targets"] = list(targets)
+        return tmp_path / "batch"
+
+    with patch(
+        "skills.youtube_transcribe.subscribes.pipeline.load_subscribes",
+        return_value=[ch],
+    ), patch(
+        "skills.youtube_transcribe.subscribes.pipeline._fetch_via_yt_dlp",
+        return_value=fake_videos,
+    ), patch(
+        "skills.youtube_transcribe.subscribes.pipeline._run_batch_pipeline",
+        side_effect=capture_batch,
+    ), patch(
+        "skills.youtube_transcribe.subscribes.pipeline._stdin_is_tty",
+        return_value=False,
+    ), patch(
+        "skills.youtube_transcribe.subscribes.pipeline._append_history",
+    ):
+        run_subscribes_update(
+            subscribes_path=sub_path,
+            group=None, days=None, since=None, until=None,
+            match=None, filter_text=None,
+            no_rss=False, yes=True, no_analyze=True,
+            prompt=None, prompt_file=None,
+            analyze_backend="gemini", filter_backend="gemini",
+            ollama_model="llama3.2:3b", ollama_host="http://localhost:11434",
+            no_stdout=False, output_dir=str(tmp_path),
+            api_keys={}, batch_opts={},
+        )
+    seen_ids = [t.video_id for t in captured["targets"]]
+    assert seen_ids == ["NEW1", "NEW2"]  # OLD_SEEN stopped the scan

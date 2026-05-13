@@ -25,6 +25,7 @@ from skills.youtube_transcribe.config import (
 )
 from skills.youtube_transcribe.pipeline import run_pipeline
 from skills.youtube_transcribe.utils.downloader import (
+    DownloadError,
     extract_youtube_video_id,
     is_url,
     is_youtube_url,
@@ -724,6 +725,16 @@ def _run_batch_pipeline(
                 index=i, url=target.url, stage=stage,
                 error_text=str(e),
                 hint=_diagnose_failure_hint(stage, str(e)),
+            ))
+        except DownloadError as e:
+            # yt-dlp / ffmpeg / network errors during the download stage.
+            # Convert to BatchFailure so the batch keeps going through the
+            # remaining videos. Common case: TikTok's anti-bot returning a
+            # weird response on a specific video while the rest succeed.
+            return ("failed", BatchFailure(
+                index=i, url=target.url, stage="download",
+                error_text=str(e),
+                hint=_diagnose_failure_hint("download", str(e)),
             ))
 
         # === v0.2 stages ===

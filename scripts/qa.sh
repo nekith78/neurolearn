@@ -375,6 +375,115 @@ PY
   ok "--no-rss exit 0 (yt-dlp path)"
 }
 
+# ── Phase 5.3d: Instagram channel — graceful no-cookies fail ───────────
+phase5_3d() {
+  step "Phase 5.3d — subscribes Instagram (anon fetch must fail gracefully)"
+
+  # Backup existing subscribes.toml so we don't pollute user state.
+  [[ -f ~/.youtube-transcribe/subscribes.toml ]] && \
+    cp ~/.youtube-transcribe/subscribes.toml \
+       ~/.youtube-transcribe/subscribes.toml.phase5_3d-bak
+
+  # Use a real public account (natgeo). yt-dlp anon access to IG is broken
+  # right now ("Unable to extract data") — this phase verifies the pipeline
+  # treats that as a soft failure: warning printed, no traceback, exit 0,
+  # other channels unaffected. Real IG fetch requires cookies (set via
+  # `config set instagram.cookies_browser chrome`).
+  $YT subscribes add "https://www.instagram.com/natgeo/" --group qa-ig
+  local code=$?
+  if [[ $code -ne 0 ]]; then
+    fail "subscribes add (instagram) exit $code"
+    [[ -f ~/.youtube-transcribe/subscribes.toml.phase5_3d-bak ]] && \
+      mv ~/.youtube-transcribe/subscribes.toml.phase5_3d-bak \
+         ~/.youtube-transcribe/subscribes.toml
+    return 1
+  fi
+  ok "subscribes add @natgeo (instagram) exit 0"
+
+  if grep -q 'platform = "instagram"' ~/.youtube-transcribe/subscribes.toml; then
+    ok "platform=\"instagram\" записан в subscribes.toml"
+  else
+    fail "platform не записан"
+  fi
+
+  rm -rf "$QA_DIR/subs-ig"
+  $YT subscribes update --group qa-ig --days 7 \
+    --backend subtitles --no-analyze --yes \
+    --output-dir "$QA_DIR/subs-ig"
+  code=$?
+  if [[ $code -ne 0 ]]; then
+    fail "subscribes update (instagram) exit $code"
+  else
+    ok "subscribes update exit 0 (мягкая обработка анон-сбоя IG)"
+    note "ожидание: yt-dlp warning или ChannelNotFoundError, no traceback"
+    note "для реального IG fetch:"
+    note "  yt-tr config set instagram.cookies_browser chrome"
+  fi
+
+  # Cleanup: remove the test channel + restore user's subscribes.toml.
+  $YT subscribes remove "@natgeo" >/dev/null 2>&1 || true
+  [[ -f ~/.youtube-transcribe/subscribes.toml.phase5_3d-bak ]] && \
+    mv ~/.youtube-transcribe/subscribes.toml.phase5_3d-bak \
+       ~/.youtube-transcribe/subscribes.toml
+}
+
+# ── Phase 5.3e: TikTok channel — real end-to-end smoke ────────────────
+phase5_3e() {
+  step "Phase 5.3e — subscribes TikTok (@duolingo, real yt-dlp scrape)"
+  require_key "GEMINI_API_KEY" || return 1
+
+  [[ -f ~/.youtube-transcribe/subscribes.toml ]] && \
+    cp ~/.youtube-transcribe/subscribes.toml \
+       ~/.youtube-transcribe/subscribes.toml.phase5_3e-bak
+
+  # @duolingo is the most reliably-public TikTok profile that yt-dlp can
+  # scrape anonymously (confirmed during Phase 5 design probe). NASA and
+  # khan_academy fail with yt-dlp's "secondary user ID" quirk — don't pick
+  # those for QA.
+  $YT subscribes add "https://www.tiktok.com/@duolingo" --group qa-tt
+  local code=$?
+  if [[ $code -ne 0 ]]; then
+    fail "subscribes add (tiktok) exit $code"
+    [[ -f ~/.youtube-transcribe/subscribes.toml.phase5_3e-bak ]] && \
+      mv ~/.youtube-transcribe/subscribes.toml.phase5_3e-bak \
+         ~/.youtube-transcribe/subscribes.toml
+    return 1
+  fi
+  ok "subscribes add @duolingo (tiktok) exit 0"
+
+  if grep -q 'platform = "tiktok"' ~/.youtube-transcribe/subscribes.toml; then
+    ok "platform=\"tiktok\" записан в subscribes.toml"
+  else
+    fail "platform не записан"
+  fi
+
+  rm -rf "$QA_DIR/subs-tt"
+  # Use Gemini for actual ASR — TikTok has no subtitles. --max-duration 60
+  # to skip multi-minute videos and keep the smoke fast / cheap.
+  $YT subscribes update --group qa-tt --days 30 --max-duration 60 \
+    --backend gemini --no-analyze --yes \
+    --output-dir "$QA_DIR/subs-tt"
+  code=$?
+  if [[ $code -ne 0 ]]; then
+    fail "subscribes update (tiktok) exit $code"
+  else
+    ok "subscribes update (tiktok) exit 0"
+    local dir
+    dir=$(find "$QA_DIR/subs-tt" -maxdepth 1 -mindepth 1 -type d | head -1)
+    if [[ -n "$dir" ]]; then
+      ok "batch folder: $(basename "$dir")"
+      local txt_count
+      txt_count=$(find "$dir/videos" -name '*.txt' 2>/dev/null | wc -l | tr -d ' ')
+      note "транскриптов: $txt_count"
+    fi
+  fi
+
+  $YT subscribes remove "@duolingo" >/dev/null 2>&1 || true
+  [[ -f ~/.youtube-transcribe/subscribes.toml.phase5_3e-bak ]] && \
+    mv ~/.youtube-transcribe/subscribes.toml.phase5_3e-bak \
+       ~/.youtube-transcribe/subscribes.toml
+}
+
 # ── Phase 5.4: history ────────────────────────────────────────────────
 phase5_4() {
   step "Phase 5.4 — history list/show"
@@ -418,6 +527,8 @@ Usage: scripts/qa.sh <phase>
   phase5.3a      — subscribes add + list (нужна сеть для resolve)
   phase5.3b      — subscribes update first run + incremental
   phase5.3c      — subscribes update --no-rss (yt-dlp путь)
+  phase5.3d      — subscribes Instagram (graceful no-cookies fail; v0.8)
+  phase5.3e      — subscribes TikTok @duolingo (real yt-dlp scrape; v0.8)
   phase5.4       — history list/show
   cleanup        — удалить все QA-артефакты + восстановить subscribes.toml
 
@@ -436,6 +547,8 @@ case "${1:-}" in
   phase5.3a) phase5_3a ;;
   phase5.3b) phase5_3b ;;
   phase5.3c) phase5_3c ;;
+  phase5.3d) phase5_3d ;;
+  phase5.3e) phase5_3e ;;
   phase5.4)  phase5_4 ;;
   cleanup)   cleanup ;;
   *)         menu ;;
