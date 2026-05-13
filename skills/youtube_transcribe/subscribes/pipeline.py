@@ -156,9 +156,31 @@ def _fetch_instagram(ch, *, cookies_file: str | None) -> list[_ChannelVideo]:
     except InstaloaderUnavailable as e:
         _console.print(f"[yellow]Instagram fallback unavailable: {e}[/yellow]")
         return []
+    except ValueError as e:
+        # ValueError from instagram_loader._load_cookies_into_session
+        # signals malformed cookies file — the message already contains
+        # the re-export instruction.
+        _console.print(f"[yellow]Instagram fallback: {e}[/yellow]")
+        return []
     except Exception as e:
         if _looks_like_channel_not_found(str(e)):
             raise ChannelNotFoundError(str(e)) from e
+        # instaloader.LoginRequiredException → cookies expired
+        err_text = str(e).lower()
+        cls_name = type(e).__name__
+        if (
+            cls_name == "LoginRequiredException"
+            or "login" in err_text
+            or "logged in" in err_text
+            or "401" in err_text
+            or "403" in err_text
+        ):
+            _console.print(
+                "[yellow]Instagram cookies look expired or rate-limited.\n"
+                "  Re-export from your browser and update:\n"
+                "  youtube-transcribe subscribes cookies set instagram <path>[/yellow]"
+            )
+            return []
         _console.print(
             f"[yellow]Instagram fallback (instaloader) failed for "
             f"{ch.url}: {e}[/yellow]"

@@ -141,5 +141,5 @@ def test_resolve_tiktok_profile():
 
 
 def test_resolve_unrecognized_url_raises():
-    with pytest.raises(ValueError, match="не похож"):
+    with pytest.raises(ValueError, match="doesn't look like"):
         resolve_channel("https://vimeo.com/user12345")

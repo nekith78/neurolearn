@@ -331,12 +331,12 @@ def cookies_group() -> None:
          (Chrome / Firefox) — it does NOT phone home.
       2. Open instagram.com (logged in) → click the extension → Export.
          Same for tiktok.com if you need TikTok cookies.
-      3. Run:  yt-tr subscribes cookies set instagram ~/Downloads/instagram_com_cookies.txt
-              yt-tr subscribes cookies set tiktok    ~/Downloads/tiktok_com_cookies.txt
+      3. Run:  youtube-transcribe subscribes cookies set instagram ~/Downloads/instagram_com_cookies.txt
+              youtube-transcribe subscribes cookies set tiktok    ~/Downloads/tiktok_com_cookies.txt
 
     The file is copied to `~/.youtube-transcribe/<platform>-cookies.txt`
     with mode 0600. To revoke, just delete that file or run
-    `yt-tr subscribes cookies clear <platform>`.
+    `youtube-transcribe subscribes cookies clear <platform>`.
     """
 
 
@@ -351,9 +351,9 @@ def cookies_set_cmd(platform: str | None, path: str | None) -> None:
     """Register a cookies.txt for PLATFORM.
 
     Run without arguments to enter the interactive wizard (TTY only):
-      yt-tr subscribes cookies set
+      youtube-transcribe subscribes cookies set
     Scripted invocation works as before:
-      yt-tr subscribes cookies set instagram ~/Downloads/ig.txt
+      youtube-transcribe subscribes cookies set instagram ~/Downloads/ig.txt
     """
     from skills.youtube_transcribe.subscribes.cookies_onboarding import (
         set_cookies_file, wizard,
@@ -477,7 +477,7 @@ def schedule_install_cmd(every, platform_opt, prompt, prompt_file, group_opt):
         argv.extend(["--group", group_opt])
 
     if plat == "launchd":
-        label = "com.user.yt-tr-subscribes"
+        label = "com.user.youtube-transcribe-subscribes"
         plist = generate_launchd_plist(
             command_argv=argv, every_seconds=seconds, label=label,
         )
@@ -499,36 +499,36 @@ def schedule_install_cmd(every, platform_opt, prompt, prompt_file, group_opt):
         )
     elif plat == "systemd":
         timer, service = generate_systemd_units(
-            command_argv=argv, every_seconds=seconds, label="yt-tr-subscribes",
+            command_argv=argv, every_seconds=seconds, label="youtube-transcribe-subscribes",
         )
         _console.print(
             "\n[bold]# Save timer to ~/.config/systemd/user/"
-            "yt-tr-subscribes.timer:[/bold]\n"
+            "youtube-transcribe-subscribes.timer:[/bold]\n"
         )
         click.echo(timer)
         _console.print(
             "\n[bold]# Save service to ~/.config/systemd/user/"
-            "yt-tr-subscribes.service:[/bold]\n"
+            "youtube-transcribe-subscribes.service:[/bold]\n"
         )
         click.echo(service)
         _console.print(
             "\n[bold]# Then enable + start:[/bold]\n"
             "  systemctl --user daemon-reload\n"
-            "  systemctl --user enable --now yt-tr-subscribes.timer\n"
+            "  systemctl --user enable --now youtube-transcribe-subscribes.timer\n"
         )
     elif plat == "taskscheduler":
         xml = generate_taskscheduler_xml(
             command_argv=argv, every_seconds=seconds,
-            task_name="yt-tr-subscribes",
+            task_name="youtube-transcribe-subscribes",
         )
         _console.print(
-            "\n[bold]# Save XML to %TEMP%\\yt-tr-subscribes.xml:[/bold]\n"
+            "\n[bold]# Save XML to %TEMP%\\youtube-transcribe-subscribes.xml:[/bold]\n"
         )
         click.echo(xml)
         _console.print(
             "\n[bold]# Then import via schtasks:[/bold]\n"
-            "  schtasks /create /tn yt-tr-subscribes /xml "
-            "%TEMP%\\yt-tr-subscribes.xml\n"
+            "  schtasks /create /tn youtube-transcribe-subscribes /xml "
+            "%TEMP%\\youtube-transcribe-subscribes.xml\n"
         )
 
 
@@ -537,13 +537,13 @@ def schedule_uninstall_cmd():
     """Print uninstall instructions for all supported platforms."""
     _console.print(
         "[bold]# macOS (launchd):[/bold]\n"
-        "  launchctl unload ~/Library/LaunchAgents/com.user.yt-tr-subscribes.plist\n"
-        "  rm ~/Library/LaunchAgents/com.user.yt-tr-subscribes.plist\n\n"
+        "  launchctl unload ~/Library/LaunchAgents/com.user.youtube-transcribe-subscribes.plist\n"
+        "  rm ~/Library/LaunchAgents/com.user.youtube-transcribe-subscribes.plist\n\n"
         "[bold]# Linux (cron):[/bold]\n"
-        "  crontab -e   # delete the yt-tr-subscribes line\n\n"
+        "  crontab -e   # delete the youtube-transcribe-subscribes line\n\n"
         "[bold]# Linux (systemd):[/bold]\n"
-        "  systemctl --user disable --now yt-tr-subscribes.timer\n"
-        "  rm ~/.config/systemd/user/yt-tr-subscribes.{timer,service}\n\n"
+        "  systemctl --user disable --now youtube-transcribe-subscribes.timer\n"
+        "  rm ~/.config/systemd/user/youtube-transcribe-subscribes.{timer,service}\n\n"
         "[bold]# Windows (Task Scheduler):[/bold]\n"
-        "  schtasks /delete /tn yt-tr-subscribes /f\n"
+        "  schtasks /delete /tn youtube-transcribe-subscribes /f\n"
     )

@@ -223,6 +223,74 @@ def test_smart_falls_back_when_subtitles_fail(tmp_path):
     mock_dl.assert_called_once()
 
 
+def test_smart_downloads_for_non_youtube_url(tmp_path):
+    """Non-YouTube URL (e.g. Instagram reel) → skip subtitles, download
+    audio, then transcribe via fallback with the local file path.
+
+    Regression coverage for the v0.8 bug: previously `run_smart` passed
+    the URL straight to the fallback backend, which then failed at
+    `Path(audio_or_url).exists()` because URLs aren't files.
+    """
+    cfg = Config(default_backend="smart", fallback_backend="whisper-local",
+                 fast_path_enabled=True)
+    fake_subs = MagicMock()
+    fake_fallback = MagicMock()
+    fake_fallback.transcribe.return_value = MagicMock(backend_name="whisper-local")
+    fake_audio = tmp_path / "ig-audio.mp3"
+    fake_audio.write_bytes(b"\x00")
+
+    with patch(
+        "skills.youtube_transcribe.backends.factory.build_backend",
+        side_effect=lambda n, c: fake_subs if n == "subtitles" else fake_fallback,
+    ), patch(
+        "skills.youtube_transcribe.backends.factory.download_audio",
+        return_value=fake_audio,
+    ) as mock_dl:
+        result = run_smart(
+            "https://www.instagram.com/reel/ABC/", cfg, language="auto",
+        )
+
+    fake_subs.transcribe.assert_not_called()
+    mock_dl.assert_called_once()
+    assert result.backend_name == "whisper-local"
+    # Fallback receives the downloaded file, not the URL.
+    fallback_arg = fake_fallback.transcribe.call_args.args[0]
+    assert str(fallback_arg).endswith("ig-audio.mp3")
+
+
+def test_smart_emits_stage_notifications(tmp_path):
+    """run_smart should drive on_stage at phase boundaries so a caller-side
+    spinner can show what's happening (download / transcribe stages)."""
+    cfg = Config(default_backend="smart", fallback_backend="gemini",
+                 fast_path_enabled=True)
+    from skills.youtube_transcribe.backends.base import BackendError
+    fake_subs = MagicMock()
+    fake_subs.transcribe.side_effect = BackendError("no subs")
+    fake_fallback = MagicMock()
+    fake_fallback.transcribe.return_value = MagicMock(backend_name="gemini")
+    fake_audio = tmp_path / "x.mp3"
+    fake_audio.write_bytes(b"\x00")
+    stages: list[str] = []
+
+    with patch(
+        "skills.youtube_transcribe.backends.factory.build_backend",
+        side_effect=lambda n, c: fake_subs if n == "subtitles" else fake_fallback,
+    ), patch(
+        "skills.youtube_transcribe.backends.factory.download_audio",
+        return_value=fake_audio,
+    ):
+        run_smart(
+            "https://youtu.be/abc", cfg, language="auto",
+            on_stage=stages.append,
+        )
+
+    # Expect at least: subtitle attempt, download, transcribe-via-fallback.
+    text = " | ".join(stages).lower()
+    assert "subtitle" in text
+    assert "download" in text
+    assert "gemini" in text
+
+
 def test_smart_skips_subtitles_for_non_youtube_url():
     """Non-YouTube URL → skip subtitles, go straight to fallback."""
     cfg = Config(default_backend="smart", fallback_backend="whisper-local", fast_path_enabled=True)

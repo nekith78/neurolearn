@@ -48,7 +48,7 @@ def pick_batch(outputs_dir: Path) -> Path:
         choices.append(questionary.Choice(title=label, value=str(b)))
 
     answer = questionary.select(
-        "Выбери batch:", choices=choices,
+        "Pick a batch:", choices=choices,
     ).ask()
     if answer is None:
         raise PickerCancelled()
@@ -75,7 +75,7 @@ def pick_videos(videos: list[VideoSource]) -> list[VideoSource]:
         choices.append(questionary.Choice(title=label, value=i - 1, checked=True))
 
     answer = questionary.checkbox(
-        "Выбери видео для анализа (Space=toggle, Enter=ok):",
+        "Pick videos to analyze (Space=toggle, Enter=ok):",
         choices=choices,
     ).ask()
     if answer is None:

@@ -10,6 +10,9 @@ _NETSCAPE_HEADER = "# Netscape HTTP Cookie File\n"
 _FAKE_COOKIE_ROW = (
     ".instagram.com\tTRUE\t/\tTRUE\t9999999999\tsessionid\tfake_token\n"
 )
+_FOREIGN_COOKIE_ROW = (
+    ".example.com\tTRUE\t/\tTRUE\t9999999999\tfoo\tbar\n"
+)
 
 
 def _make_cookies_file(p: Path) -> Path:
@@ -119,6 +122,111 @@ def test_cookies_loaded_into_session(tmp_path: Path):
 
     # cookies.update was called with a populated MozillaCookieJar.
     fake_session.cookies.update.assert_called_once()
+
+
+def test_cookies_filtered_to_instagram_domain(tmp_path: Path):
+    """Defence in depth: non-instagram cookies in the jar are stripped
+    before handing them to instaloader's session — minimizes credentials
+    in process memory if the user exported the wrong jar."""
+    from skills.youtube_transcribe.subscribes import instagram_loader
+
+    p = tmp_path / "mixed.txt"
+    p.write_text(
+        _NETSCAPE_HEADER + _FAKE_COOKIE_ROW + _FOREIGN_COOKIE_ROW,
+        encoding="utf-8",
+    )
+
+    fake_session = MagicMock()
+    fake_session.cookies = MagicMock()
+    fake_loader = MagicMock()
+    fake_loader.context._session = fake_session
+
+    fake_il = MagicMock()
+    fake_il.Instaloader.return_value = fake_loader
+    profile = MagicMock()
+    profile.get_posts.return_value = iter([])
+    profile.profile_url = "u"
+    fake_il.Profile.from_username.return_value = profile
+
+    with patch.object(
+        instagram_loader, "_lazy_import_instaloader", return_value=fake_il,
+    ):
+        instagram_loader.fetch_profile_videos(
+            "natgeo", cookies_file=str(p),
+        )
+
+    # The jar passed to session.cookies.update must contain ONLY the
+    # instagram cookie (foreign domain stripped).
+    jar = fake_session.cookies.update.call_args.args[0]
+    names_by_domain = {c.domain: c.name for c in jar}
+    assert any(
+        d.endswith("instagram.com") for d in names_by_domain
+    ), "instagram cookie should be retained"
+    assert not any(
+        "example.com" in d for d in names_by_domain
+    ), "foreign cookie should be stripped"
+
+
+def test_malformed_cookies_file_raises_friendly_error(tmp_path: Path):
+    """Malformed Netscape file → ValueError with re-export instruction
+    (caller turns this into a user-visible yellow hint)."""
+    from skills.youtube_transcribe.subscribes import instagram_loader
+
+    p = tmp_path / "bad.txt"
+    # Not a valid Netscape header — MozillaCookieJar will raise LoadError.
+    p.write_text("garbage not-a-cookies-file\n", encoding="utf-8")
+
+    fake_session = MagicMock()
+    fake_loader = MagicMock()
+    fake_loader.context._session = fake_session
+    fake_il = MagicMock()
+    fake_il.Instaloader.return_value = fake_loader
+    profile = MagicMock()
+    profile.get_posts.return_value = iter([])
+    profile.profile_url = "u"
+    fake_il.Profile.from_username.return_value = profile
+
+    with patch.object(
+        instagram_loader, "_lazy_import_instaloader", return_value=fake_il,
+    ):
+        with pytest.raises(ValueError, match="cookies file malformed"):
+            instagram_loader.fetch_profile_videos(
+                "natgeo", cookies_file=str(p),
+            )
+
+
+def test_session_attribute_renamed_surfaces_clear_hint(tmp_path: Path):
+    """If instaloader renames `_session` upstream we surface a clear
+    'pin to <5' hint instead of an opaque AttributeError stack trace."""
+    from skills.youtube_transcribe.subscribes import instagram_loader
+
+    p = _make_cookies_file(tmp_path / "ok.txt")
+
+    # MagicMock with spec=[] has no attributes — accessing _session raises.
+    class FakeContext:
+        @property
+        def _session(self):
+            raise AttributeError("no _session here")
+
+    fake_loader = MagicMock()
+    fake_loader.context = FakeContext()
+    fake_il = MagicMock()
+    fake_il.Instaloader.return_value = fake_loader
+    profile = MagicMock()
+    profile.get_posts.return_value = iter([])
+    profile.profile_url = "u"
+    fake_il.Profile.from_username.return_value = profile
+
+    with patch.object(
+        instagram_loader, "_lazy_import_instaloader", return_value=fake_il,
+    ):
+        with pytest.raises(
+            instagram_loader.InstaloaderUnavailable,
+            match="session attribute is missing",
+        ):
+            instagram_loader.fetch_profile_videos(
+                "natgeo", cookies_file=str(p),
+            )
 
 
 def test_warning_shown_once_per_session():

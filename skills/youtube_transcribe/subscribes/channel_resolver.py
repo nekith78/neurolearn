@@ -62,7 +62,7 @@ def resolve_channel(url: str) -> ResolvedChannel:
     platform = detect_platform(url)
     if platform is None:
         raise ValueError(
-            f"URL не похож на профиль/канал YouTube, Instagram или TikTok: {url}"
+            f"URL doesn't look like a YouTube / Instagram / TikTok profile or channel: {url}"
         )
     if platform == "youtube":
         return _resolve_youtube(url)

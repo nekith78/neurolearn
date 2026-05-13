@@ -209,14 +209,18 @@ This writes to `~/.youtube-transcribe/config.toml` and affects all future sessio
 |---|---|---|---|---|---|
 | `transcribe <URL>` / `batch <URL>` | ✓ | ✓ (cookies) | ✓ | ✓ | ✓ |
 | `research "query"` | ✓ | ✗ | ✗ | ✗ | n/a |
-| `subscribes` | ✓ | ✗ (roadmap) | ✗ (roadmap) | ✗ | n/a |
+| `subscribes` | ✓ (RSS) | ✓ (cookies + yt-dlp / instaloader fallback) | ✓ (cookies + yt-dlp) | ✗ | n/a |
 
-- **Instagram** requires cookies (register a `cookies.txt` via `yt-tr subscribes cookies set instagram <path>`) —
-  IG blocks anonymous requests. Mention this if a user tries an IG URL without cookies.
-- **Research** is YouTube-only because `yt-dlp ytsearchN:` only supports YouTube;
-  IG/TikTok search via API would require auth tokens.
-- **Subscribes** is currently YouTube-only (RSS feeds). Roadmap: IG/TikTok channel
-  watching via yt-dlp scrape.
+- **Instagram / TikTok** require cookies (register a `cookies.txt` via
+  `youtube-transcribe subscribes cookies set <platform> <path>`) — IG/TT
+  block anonymous requests. Mention this if a user tries IG/TT URLs
+  without cookies set.
+- **Research** is YouTube-only because `yt-dlp ytsearchN:` only supports
+  YouTube; IG/TikTok search via API would require auth tokens.
+- **Subscribes (v0.8)** supports YouTube via RSS, plus Instagram and
+  TikTok via yt-dlp scrape (cookies required). When yt-dlp's IG
+  extractor is broken upstream, instaloader takes over (install with
+  `uv sync --extra instagram`).
 
 ## Analyze backend (when CLI calls an LLM)
 

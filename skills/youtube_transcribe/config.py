@@ -56,7 +56,11 @@ class Config:
     output_dir: str = "./transcripts"
 
     keep_audio: bool = False
-    yt_dlp_auto_update: bool = True
+    # Auto-update of yt-dlp via `yt-dlp -U` is opt-IN since v0.8. Reason:
+    # silent supply-chain widening (a `curl | sh`-installed yt-dlp could
+    # get opportunistically upgraded). When you do hit YouTube extractor
+    # breakage, run `youtube-transcribe update-deps` manually instead.
+    yt_dlp_auto_update: bool = False
     # Path to a Netscape cookies.txt file used by yt-dlp for YouTube
     # downloads that require sign-in (age-restricted, member-only, etc.).
     # By design we DO NOT support `--cookies-from-browser` — that flag
@@ -273,12 +277,19 @@ def set_api_key(backend: str, value: str, env_path: Path = ENV_PATH) -> None:
     existing[var] = value
 
     lines = [f"{k}={v}" for k, v in existing.items() if v is not None]
-    env_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    payload = ("\n".join(lines) + "\n").encode("utf-8")
     if os.name != "nt":
+        # Atomic create-or-truncate with mode 0600 from the start, closing
+        # the TOCTOU window between write_text() and chmod() where another
+        # local user could read the freshly-written API key. On Windows
+        # mode bits don't apply (NTFS ACLs do), so fall back to write_text.
+        fd = os.open(env_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
         try:
-            os.chmod(env_path, 0o600)
-        except OSError:
-            pass
+            os.write(fd, payload)
+        finally:
+            os.close(fd)
+    else:
+        env_path.write_bytes(payload)
 
 
 def mask_key(key: str) -> str:

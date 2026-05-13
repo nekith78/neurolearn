@@ -389,8 +389,8 @@ def transcribe_cmd(audio_or_url: str | None, **opts) -> None:
         )
 
     console.print(f"[green]✓[/green] {result.backend_name} | "
-                  f"язык={result.language_detected or 'auto'} | "
-                  f"длительность={result.duration_seconds:.1f}s")
+                  f"language={result.language_detected or 'auto'} | "
+                  f"duration={result.duration_seconds:.1f}s")
     if write_txt:
         console.print(f"  [bold]{txt_path}[/bold]")
     if write_srt_pick:
@@ -493,7 +493,7 @@ def _diagnose_failure_hint(stage: str, error_text: str) -> str | None:
     """Map common errors to actionable user hints."""
     s = error_text.lower()
     if stage == "download" and ("403" in s or "bot" in s or "sign in" in s):
-        return "register a cookies.txt: yt-tr config set-cookies <path>"
+        return "register a cookies.txt: youtube-transcribe config set-cookies <path>"
     if stage == "backend" and "api_key" in s.replace(" ", ""):
         return "youtube-transcribe config set-key <backend>"
     return None
@@ -553,7 +553,7 @@ def _run_then_analyze(
     backends_to_try = _select_analyze_backends(backend)
     if not backends_to_try:
         console.print(
-            f"[red]--then-analyze: нет ключа для backend={backend}[/red]."
+            f"[red]--then-analyze: no API key for backend={backend}[/red]."
         )
         sys.exit(4)
 
@@ -566,7 +566,7 @@ def _run_then_analyze(
         return
     if not videos:
         console.print(
-            "[yellow]Batch не содержит транскриптов — analyze пропущен.[/yellow]"
+            "[yellow]Batch contains no transcripts — analyze skipped.[/yellow]"
         )
         return
 
@@ -592,8 +592,8 @@ def _run_then_analyze(
         candidate_key = _api_key_for_backend(candidate)
         if i > 0:
             console.print(
-                f"[yellow]{backends_to_try[i-1]} не ответил — "
-                f"пробую {candidate}[/yellow]"
+                f"[yellow]{backends_to_try[i-1]} returned no response — "
+                f"trying {candidate}[/yellow]"
             )
         response = analyze_runner.run_analysis(
             full_prompt, backend=candidate, api_key=candidate_key,
@@ -605,8 +605,8 @@ def _run_then_analyze(
     if not response.strip():
         tried = ", ".join(backends_to_try)
         console.print(
-            f"[red]LLM не вернул ответ (then-analyze). "
-            f"Перепробовано: {tried}.[/red]"
+            f"[red]LLM returned no response (then-analyze). "
+            f"Tried: {tried}.[/red]"
         )
         return
 
@@ -792,7 +792,7 @@ def _run_batch_pipeline(
                     )
                 except Exception as e:
                     console.print(
-                        f"[yellow]⚠ Видео {i}: визуал отключён — {e}[/yellow]",
+                        f"[yellow]⚠ Video {i}: visual mode disabled — {e}[/yellow]",
                         style="dim",
                     )
                     v_path = None
@@ -994,7 +994,7 @@ def _run_batch_pipeline(
         console.print(f"  └── errors.log  ({len(failures)} failures)")
     console.print(
         '\n  [dim]Next:[/dim] ask Claude → '
-        '"прочти combined.md и сделай заметку по теме"\n'
+        '"read combined.md and write a note on the topic"\n'
     )
 
     return batch_dir
@@ -1007,14 +1007,14 @@ def _run_batch_pipeline(
 @cli.command(name="batch")
 @click.argument("inputs", nargs=-1)
 @click.option("--from-file", "from_file", type=click.Path(path_type=Path),
-              default=None, help="Файл со списком URL (1 на строку, # — комментарий).")
+              default=None, help="File with a list of URLs (1 per line, # — comment).")
 @click.option("--limit", type=int, default=10, show_default=True,
-              help="Сколько видео взять из канала/плейлиста.")
+              help="How many videos to take from a channel/playlist.")
 @click.option("--batch-name", default=None,
-              help="Имя batch-папки (default: batch_<ts>_<auto-slug>).")
-@click.option("--no-combined", is_flag=True, help="Не создавать combined.md.")
+              help="Batch directory name (default: batch_<ts>_<auto-slug>).")
+@click.option("--no-combined", is_flag=True, help="Skip combined.md generation.")
 @click.option("--fail-fast", is_flag=True,
-              help="Остановиться на первой ошибке (default: continue-on-error).")
+              help="Stop on first failure (default: continue-on-error).")
 @click.option("--backend", type=click.Choice(BACKEND_CHOICES), default=None)
 @click.option("--whisper-model",
               type=click.Choice(["turbo", "large", "medium", "small", "distil"]),
@@ -1124,7 +1124,7 @@ def batch_cmd(
     fail_fast: bool,
     **opts,
 ) -> None:
-    """Batch-транскрибация: пачка URL, канал/плейлист, или --from-file."""
+    """Batch transcription: list of URLs, a channel/playlist, or --from-file."""
     # If no inputs were provided AND no alternative source (--from-file / --search),
     # prompt for URLs interactively. Lets users paste long URLs without baking them
     # into the shell command line.
@@ -1142,7 +1142,7 @@ def batch_cmd(
 
     if then_analyze and not (analyze_prompt or analyze_prompt_file):
         console.print(
-            "[red]--then-analyze требует --prompt или --prompt-file.[/red]"
+            "[red]--then-analyze requires --prompt or --prompt-file.[/red]"
         )
         sys.exit(2)
 
@@ -1287,9 +1287,9 @@ def batch_cmd(
         )
     elif then_analyze and analyze_backend is None and batch_dir is not None:
         console.print(
-            "[dim]→ --then-analyze пропущен: backend не выбран "
+            "[dim]→ --then-analyze skipped: no backend selected "
             "(skip / non-TTY).[/dim]\n"
-            f"[dim]  combined.md готов: {batch_dir / 'combined.md'}[/dim]"
+            f"[dim]  combined.md is ready: {batch_dir / 'combined.md'}[/dim]"
         )
 
 
@@ -1385,7 +1385,7 @@ def config_set_cookies(path: str) -> None:
     `~/.youtube-transcribe/youtube-cookies.txt` with mode 0600 and the path
     is saved in config.toml.
 
-    For Instagram / TikTok cookies use `yt-tr subscribes cookies set <platform> <path>`.
+    For Instagram / TikTok cookies use `youtube-transcribe subscribes cookies set <platform> <path>`.
     """
     from pathlib import Path as _P
     src = _P(path).expanduser().resolve()
@@ -1490,10 +1490,10 @@ def _ensure_gradio_installed() -> None:
 
     if not sys.stdin.isatty():
         console.print(
-            "[red]Web UI требует gradio (~100 MB), не установлен.[/red]\n"
-            "Установи и запусти снова:\n\n"
+            "[red]Web UI requires gradio (~100 MB), not installed.[/red]\n"
+            "Install and run again:\n\n"
             "  uv pip install 'gradio>=4'\n"
-            "  # или: pip install 'youtube-transcribe[webui]'"
+            "  # or: pip install 'youtube-transcribe[webui]'"
         )
         sys.exit(4)
 
@@ -1594,9 +1594,9 @@ def summarize_cmd(
         api_key = get_api_key(key_lookup)
         if not api_key:
             console.print(
-                f"[red]Нет ключа для backend={backend_opt}[/red]. "
-                f"Установи через `youtube-transcribe config set-key {key_lookup}` "
-                f"или используй --backend ollama (локально)."
+                f"[red]No API key for backend={backend_opt}[/red]. "
+                f"Set it via `youtube-transcribe config set-key {key_lookup}` "
+                f"or use --backend ollama (runs locally)."
             )
             sys.exit(3)
 
@@ -1612,8 +1612,8 @@ def summarize_cmd(
     )
     if not summary_md:
         console.print(
-            f"[red]LLM не вернул ответ.[/red] Возможно, нет сети, истекла "
-            f"квота, или `ollama serve` не запущен."
+            f"[red]LLM returned no response.[/red] Possible causes: no "
+            f"network, quota exceeded, or `ollama serve` is not running."
         )
         sys.exit(4)
 
@@ -1692,7 +1692,7 @@ def analyze_cmd(
     # 1. Validate prompt args (exactly one required).
     if bool(prompt_inline) == bool(prompt_file):
         console.print(
-            "[red]Нужен ровно один из[/red] --prompt / --prompt-file."
+            "[red]Pass exactly one of[/red] --prompt / --prompt-file."
         )
         sys.exit(2)
     if prompt_inline is not None:
@@ -1704,7 +1704,7 @@ def analyze_cmd(
     sel_flags = sum(1 for x in (latest, all_opt, bool(select_opt)) if x)
     if sel_flags > 1:
         console.print(
-            "[red]--latest / --all / --select взаимоисключающи (exclusive).[/red]"
+            "[red]--latest / --all / --select are mutually exclusive.[/red]"
         )
         sys.exit(2)
 
@@ -1718,9 +1718,9 @@ def analyze_cmd(
         api_key = get_api_key(key_lookup)
         if not api_key:
             console.print(
-                f"[red]Нет ключа для backend={backend_opt}[/red]. "
-                f"Установи через `youtube-transcribe config set-key {key_lookup}` "
-                f"или используй --backend ollama (локально)."
+                f"[red]No API key for backend={backend_opt}[/red]. "
+                f"Set it via `youtube-transcribe config set-key {key_lookup}` "
+                f"or use --backend ollama (runs locally)."
             )
             sys.exit(4)
 
@@ -1732,8 +1732,8 @@ def analyze_cmd(
     if source is None and not latest:
         if not _stdin_is_tty():
             console.print(
-                "[red]Не указан SOURCE и нет --latest, "
-                "а stdin не TTY — picker недоступен.[/red]"
+                "[red]SOURCE not specified and --latest not set, "
+                "but stdin is not a TTY — picker unavailable.[/red]"
             )
             sys.exit(3)
         from skills.youtube_transcribe.analyze.picker import (
@@ -1801,8 +1801,8 @@ def analyze_cmd(
     )
     if not response.strip():
         console.print(
-            "[red]LLM не вернул ответ.[/red] Возможно, нет сети, "
-            "истекла квота, или `ollama serve` не запущен."
+            "[red]LLM returned no response.[/red] Possible causes: no "
+            "network, quota exceeded, or `ollama serve` is not running."
         )
         sys.exit(4)
 
@@ -1937,14 +1937,14 @@ def research_cmd(
     if not effective_no_analyze:
         if bool(prompt_inline) == bool(prompt_file):
             console.print(
-                "[red]При analyze on — нужен ровно один из[/red] "
+                "[red]When analyze is on, pass exactly one of[/red] "
                 "--prompt / --prompt-file."
             )
             sys.exit(2)
 
     if days_opt is not None and (since_opt or until_opt):
         console.print(
-            "[red]--days и --since/--until взаимоисключающи (mutex).[/red]"
+            "[red]--days and --since/--until are mutually exclusive.[/red]"
         )
         sys.exit(2)
     since_d = _date.fromisoformat(since_opt) if since_opt else None

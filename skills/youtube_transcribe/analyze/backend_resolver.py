@@ -66,21 +66,21 @@ def resolve_analyze_backend(
 def _prompt_for_default() -> str:
     """One-shot interactive prompt. Returns one of _VALID_BACKENDS."""
     _console.print(
-        "\n[bold]Каким LLM анализировать транскрипты по умолчанию?[/bold]"
+        "\n[bold]Which LLM should analyze transcripts by default?[/bold]"
     )
     _console.print(
-        "  [cyan]1[/cyan]) skip   — не анализировать, выдать combined.md "
-        "(для Клода в чате)\n"
+        "  [cyan]1[/cyan]) skip   — don't analyze; emit combined.md only "
+        "(use Claude in chat to read it)\n"
         "  [cyan]2[/cyan]) gemini — Google Gemini API "
-        "[dim](нужен GEMINI_API_KEY)[/dim]\n"
+        "[dim](needs GEMINI_API_KEY)[/dim]\n"
         "  [cyan]3[/cyan]) claude — Anthropic Claude API "
-        "[dim](нужен ANTHROPIC_API_KEY)[/dim]\n"
+        "[dim](needs ANTHROPIC_API_KEY)[/dim]\n"
         "  [cyan]4[/cyan]) openai — OpenAI API "
-        "[dim](нужен OPENAI_API_KEY)[/dim]\n"
-        "  [cyan]5[/cyan]) ollama — локально через `ollama serve`\n"
+        "[dim](needs OPENAI_API_KEY)[/dim]\n"
+        "  [cyan]5[/cyan]) ollama — local via `ollama serve`\n"
     )
     choice = click.prompt(
-        "Выбор",
+        "Choice",
         type=click.Choice(["1", "2", "3", "4", "5"]),
         default="1",
         show_choices=False,
@@ -98,7 +98,7 @@ def _persist_choice(choice: str, config_path: Path) -> None:
     cfg.analyze_backend = choice
     save_config(cfg, config_path)
     _console.print(
-        f"[dim]→ сохранено в {config_path}: analyze.backend = "
+        f"[dim]→ saved to {config_path}: analyze.backend = "
         f"{choice!r}.[/dim]\n"
-        f"[dim]Сменить позже: правка TOML или флаг --analyze-backend.[/dim]"
+        f"[dim]To change later: edit the TOML or pass --analyze-backend.[/dim]"
     )

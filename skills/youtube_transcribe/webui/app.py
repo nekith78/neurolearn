@@ -37,7 +37,7 @@ def _run_one(
     )
 
     if not url_or_path.strip():
-        return ("Введи URL или путь к файлу.", "", "", None)
+        return ("Enter a URL or file path.", "", "", None)
 
     cli_overrides: dict[str, Any] = {}
     if backend_override and backend_override != "(default)":
@@ -67,7 +67,7 @@ def _run_one(
     if failures:
         return (f"[probe error] {failures[0].error}", "", "", None)
     if not targets:
-        return ("Не удалось разобрать вход.", "", "", None)
+        return ("Could not parse input.", "", "", None)
 
     target = targets[0]
 
@@ -244,7 +244,7 @@ def build_research_tab(gr):
     with gr.Tab("Research"):
         gr.Markdown("# Research a topic\n"
                     "Search + filter + transcribe + analyze in one pass.")
-        query = gr.Textbox(label="Query", placeholder="Claude новинки за неделю")
+        query = gr.Textbox(label="Query", placeholder="Claude updates this week")
         with gr.Row():
             languages = gr.Textbox(label="Languages (CSV)", value="ru,en")
             days = gr.Number(label="Days", value=30, precision=0)

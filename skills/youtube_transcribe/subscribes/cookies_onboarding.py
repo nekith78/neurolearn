@@ -21,6 +21,7 @@ This module provides two functions:
 """
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 
@@ -195,6 +196,32 @@ def set_cookies_file(
     if not src.is_file():
         raise ValueError(f"not a file: {src}")
 
+    # Containment heuristic: refuse paths outside the user's home unless
+    # the caller explicitly opted in. Foot-gun guard against accidentally
+    # copying e.g. /etc/passwd into config-dir on a malformed CLI call.
+    # Test files under tmp/private-tmp are common in pytest — allow those
+    # without an env-var dance.
+    try:
+        home = Path.home().resolve()
+    except (OSError, RuntimeError):
+        home = None
+    allow_anywhere = os.environ.get("YT_TR_COOKIES_ALLOW_ANYWHERE") == "1"
+    # Common temp roots across OSes: Linux/CI /tmp, macOS /private/var/folders
+    # (where pytest tmp_path lives), macOS /private/tmp (also seen),
+    # Linux /var/folders. Windows uses %TEMP% — typically already under $HOME.
+    tmp_prefixes = (
+        "/tmp/", "/private/tmp/",
+        "/var/folders/", "/private/var/folders/",
+    )
+    is_under_home = bool(home and (src == home or home in src.parents))
+    is_tmp = str(src).startswith(tmp_prefixes)
+    if not (allow_anywhere or is_under_home or is_tmp):
+        raise ValueError(
+            f"source path is outside the user's home directory: {src}\n"
+            "Move the file under your home (e.g. ~/Downloads/...) or set "
+            "YT_TR_COOKIES_ALLOW_ANYWHERE=1 to override."
+        )
+
     # Basic Netscape format sniff: first non-empty line should be a header
     # or a tab-separated row with 7 fields.
     try:
@@ -224,12 +251,24 @@ def set_cookies_file(
     dest_dir = config_path.parent
     dest_dir.mkdir(parents=True, exist_ok=True)
     dest = dest_dir / f"{platform}-cookies.txt"
-    dest.write_bytes(src.read_bytes())
+    payload = src.read_bytes()
     if sys.platform != "win32":
+        # Atomic create-or-truncate with 0600 from the start to close the
+        # TOCTOU window between write_bytes() and chmod() where another
+        # local user could read the cookies.
+        fd = os.open(dest, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
         try:
-            dest.chmod(0o600)
-        except OSError:
-            pass
+            os.write(fd, payload)
+        finally:
+            os.close(fd)
+    else:
+        # Windows: NTFS ACLs apply, mode bits don't. Document the limitation;
+        # on a multi-user box the user should restrict via icacls separately.
+        dest.write_bytes(payload)
+        _console.print(
+            "[dim]ℹ Windows: file inherits parent-folder ACLs. "
+            "On a multi-user machine, restrict via `icacls` if needed.[/dim]"
+        )
 
     cfg = load_config(config_path) if config_path.exists() else Config()
     if platform == "instagram":

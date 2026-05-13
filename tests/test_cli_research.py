@@ -170,7 +170,7 @@ def test_research_days_and_since_mutex(tmp_path: Path):
         "--backend", "subtitles",
     ], catch_exceptions=False)
     assert res.exit_code == 2
-    assert "взаимоисключ" in res.output.lower() or "mutex" in res.output.lower()
+    assert "mutually exclusive" in res.output.lower() or "mutex" in res.output.lower()
 
 
 def test_research_query_lang_override(tmp_path: Path):

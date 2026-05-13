@@ -27,6 +27,12 @@ Thumbs.db
 .env
 *.env.local
 
+# Cookies files — defence in depth. Real files live under
+# ~/.youtube-transcribe/ but a user might export into the repo tree for
+# testing. Never commit.
+*cookies*.txt
+*-cookies.txt
+
 # Output (generated transcripts)
 transcripts/
 test-output*/

@@ -23,18 +23,18 @@ from skills.youtube_transcribe.utils.platform_detect import detect_platform
 # ---------------------------------------------------------------------------
 
 _BACKEND_CHOICES = [
-    ("whisper-local", "Локальный Whisper — оффлайн, приватно, лучшее качество.  [бесплатно]"),
-    ("smart",         "Субтитры YouTube → fallback. Быстро и надёжно."),
-    ("subtitles",     "Только субтитры YouTube. Мгновенно, только YouTube.  [бесплатно, без API]"),
-    ("gemini",        "Google AI Studio.  [free tier ~часы/день]  Нужен ключ."),
-    ("groq",          "Groq Whisper API — самый быстрый облачный.  [free tier ~8 ч/день]  Нужен ключ."),
-    ("openai",        "OpenAI Whisper API.  [платно ~$0.006/мин]  Нужен ключ."),
-    ("deepgram",      "Deepgram Nova-3.  [starter-кредит $200 ≈ 750 ч]  Нужен ключ."),
-    ("assemblyai",    "AssemblyAI — хорош для длинных интервью.  [free tier ~5 ч/мес]  Нужен ключ."),
-    ("custom",        "OpenAI-совместимый API. Для продвинутых.  [зависит от провайдера]"),
+    ("whisper-local", "Local Whisper — offline, private, best quality.  [free]"),
+    ("smart",         "YouTube subtitles → fallback. Fast and reliable."),
+    ("subtitles",     "YouTube subtitles only. Instant, YouTube-only.  [free, no API]"),
+    ("gemini",        "Google AI Studio.  [free tier ~hours/day]  Key required."),
+    ("groq",          "Groq Whisper API — the fastest cloud backend.  [free tier ~8 h/day]  Key required."),
+    ("openai",        "OpenAI Whisper API.  [paid ~$0.006/min]  Key required."),
+    ("deepgram",      "Deepgram Nova-3.  [starter credit $200 ≈ 750 h]  Key required."),
+    ("assemblyai",    "AssemblyAI — good for long interviews.  [free tier ~5 h/month]  Key required."),
+    ("custom",        "OpenAI-compatible API. For advanced setups.  [depends on provider]"),
 ]
-# NOTE: free-tier quotas above — ориентир на момент Jan 2026.
-# Реальные числа меняются провайдером; точные лимиты — на странице получения ключа.
+# NOTE: free-tier quotas above reflect the state in Jan 2026.
+# Providers change them; check the key-issuance page for current limits.
 
 # Map backend name → URL where the user can get an API key
 _KEY_GUIDE: dict[str, str] = {
@@ -43,7 +43,7 @@ _KEY_GUIDE: dict[str, str] = {
     "openai":     "https://platform.openai.com/api-keys",
     "deepgram":   "https://console.deepgram.com/",
     "assemblyai": "https://www.assemblyai.com/dashboard/signup",
-    "custom":     "(укажи свой base URL и ключ в config.toml)",
+    "custom":     "(specify your base URL and key in config.toml)",
 }
 
 # Backends that require an API key

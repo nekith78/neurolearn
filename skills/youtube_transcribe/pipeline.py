@@ -66,13 +66,20 @@ def run_pipeline(
         if not path.exists():
             raise BackendError(f"File not found: {path}")
         notify(f"Transcribing via {backend_name}...")
-        return _transcribe_one(backend_name, path, cfg, language=cfg.language)
+        return _transcribe_one(
+            backend_name, path, cfg, language=cfg.language, on_stage=notify,
+        )
 
     # URL paths
     if backend_name in ("subtitles", "smart"):
-        notify(f"Fetching via {backend_name}...")
-        # Backend / smart-composer accept URL directly.
-        return _transcribe_one(backend_name, target.url, cfg, language=cfg.language)
+        # Subtitles handles URL directly without download.
+        # Smart-composer drives its own stage notifications (subtitles
+        # attempt, download on fallback, fallback transcription).
+        if backend_name == "subtitles":
+            notify("Fetching subtitles...")
+        return _transcribe_one(
+            backend_name, target.url, cfg, language=cfg.language, on_stage=notify,
+        )
 
     # All other backends need local audio. Download → transcribe → cleanup.
     maybe_auto_update_ytdlp(cfg.yt_dlp_auto_update)
@@ -83,13 +90,16 @@ def run_pipeline(
             cookies_file=cfg.cookies_file,
         )
         notify(f"Transcribing via {backend_name}...")
-        return _transcribe_one(backend_name, audio_path, cfg, language=cfg.language)
+        return _transcribe_one(
+            backend_name, audio_path, cfg, language=cfg.language, on_stage=notify,
+        )
 
 
 def _transcribe_one(
-    backend_name: str, audio_or_url, cfg: Config, *, language: str
+    backend_name: str, audio_or_url, cfg: Config, *, language: str,
+    on_stage: Callable[[str], None] | None = None,
 ) -> TranscriptionResult:
     if backend_name == "smart":
-        return run_smart(audio_or_url, cfg, language=language)
+        return run_smart(audio_or_url, cfg, language=language, on_stage=on_stage)
     backend = build_backend(backend_name, cfg)
     return backend.transcribe(audio_or_url, language=language)

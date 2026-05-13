@@ -87,18 +87,51 @@ def _load_cookies_into_session(loader, cookies_file: str) -> None:
     instaloader's own session format is a pickled dict; we work with
     Netscape directly via stdlib MozillaCookieJar so the user keeps a
     single cookies file across yt-dlp and instaloader.
+
+    Defence in depth: filter the jar to instagram.com cookies before
+    handing them to instaloader's Session. requests honors per-cookie
+    domain on send, so foreign cookies wouldn't leak to IG endpoints
+    anyway — but keeping them in process memory is unnecessary risk
+    if the user exported the whole jar by mistake.
+
+    Raises ValueError on malformed Netscape files with a friendly hint
+    pointing to the re-export workflow.
     """
+    from http.cookiejar import LoadError
+
     jar = MozillaCookieJar(cookies_file)
-    # Netscape files exported by browser extensions sometimes have
-    # `# HttpOnly_` lines; MozillaCookieJar accepts them with ignore_discard.
-    jar.load(ignore_discard=True, ignore_expires=True)
-    # instaloader.context._session is a requests.Session; its `.cookies`
-    # is a RequestsCookieJar which accepts cookies from any CookieJar via
-    # `.update()`.
-    loader.context._session.cookies.update(jar)
+    try:
+        # Netscape files exported by browser extensions sometimes have
+        # `# HttpOnly_` lines; MozillaCookieJar accepts them with ignore_discard.
+        jar.load(ignore_discard=True, ignore_expires=True)
+    except (LoadError, OSError) as e:
+        raise ValueError(
+            f"cookies file malformed or unreadable: {e}. "
+            "Re-export via the 'Get cookies.txt LOCALLY' extension, then "
+            "`youtube-transcribe subscribes cookies set instagram <path>`."
+        ) from e
+
+    # Filter to *.instagram.com cookies only.
+    for cookie in list(jar):
+        if not cookie.domain.endswith("instagram.com"):
+            jar.clear(cookie.domain, cookie.path, cookie.name)
+
+    # instaloader.context._session is a requests.Session. The leading
+    # underscore signals a private attribute that could be renamed
+    # upstream; guard against that to fail with a clear hint instead of
+    # AttributeError stack traces.
+    try:
+        session = loader.context._session
+    except AttributeError as e:
+        raise InstaloaderUnavailable(
+            "instaloader's internal session attribute is missing — the "
+            "library may have changed shape. Pin to instaloader<5 or "
+            "report this upstream."
+        ) from e
+    session.cookies.update(jar)
 
 
-def _post_to_channel_video(post, channel_url: str):
+def _post_to_channel_video(post):
     """Map an instaloader.Post to the pipeline's _ChannelVideo dataclass.
 
     Only video posts are returned; image-only posts are skipped by the
@@ -165,5 +198,5 @@ def fetch_profile_videos(
             break
         if not post.is_video:
             continue
-        out.append(_post_to_channel_video(post, channel_url=profile.profile_url))
+        out.append(_post_to_channel_video(post))
     return out
