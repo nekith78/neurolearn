@@ -347,6 +347,20 @@ phase5_3c() {
     return 1
   fi
 
+  # Force re-bootstrap: clear the channel's last_seen_* so --no-rss actually
+  # has work to do. Without this, phase5.3b leaves state pointing at the
+  # newest RSS video, and yt-dlp's channel scrape never finds anything newer.
+  python3 - <<'PY'
+import re
+from pathlib import Path
+p = Path.home() / ".youtube-transcribe" / "subscribes.toml"
+text = p.read_text(encoding="utf-8")
+text = re.sub(r'last_seen_video_id = "[^"]*"', 'last_seen_video_id = ""', text)
+text = re.sub(r'last_seen_published = "[^"]*"', 'last_seen_published = ""', text)
+p.write_text(text, encoding="utf-8")
+PY
+  note "reset last_seen_* для re-bootstrap"
+
   rm -rf "$QA_DIR/subs-nrss"
   $YT subscribes update --no-rss --days 7 --group ai \
     --backend subtitles \

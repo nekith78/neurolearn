@@ -29,6 +29,10 @@ class ResolvedTarget:
     channel: str | None
     source: Source
     video_id: str | None       # для дедупликации; None для не-YouTube источников
+    # Optional: which language search produced this target (multi-lang research).
+    # Set by research.pipeline when converting SearchCandidate → ResolvedTarget;
+    # None for everything else. Lands in manifest.json for downstream filtering.
+    source_language: str | None = None
 
 
 @dataclass

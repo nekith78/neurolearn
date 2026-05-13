@@ -267,6 +267,7 @@ def _to_resolved_target(c) -> ResolvedTarget:
         duration_sec=getattr(c, "duration_sec", None),
         upload_date=getattr(c, "upload_date", None),
         source="search",
+        source_language=getattr(c, "source_language", None),
     )
 
 
@@ -294,10 +295,11 @@ def _append_history(
     videos_found, prompt, analyze_backend, status: str = "ok",
 ) -> None:
     p = Path.home() / ".youtube-transcribe" / "history.toml"
-    run_id = (
-        f"{type_}_{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}"
-        f"_{uuid.uuid4().hex[:6]}"
-    )
+    # Short IDs (`r-XXXXXX` / `s-XXXXXX`) fit a 16-col Rich table without
+    # truncation. Full timestamp lives in the `timestamp` field — the ID
+    # only needs to be unique.
+    prefix = {"research": "r", "subscribes": "s"}.get(type_, type_[:1])
+    run_id = f"{prefix}-{uuid.uuid4().hex[:6]}"
     entry = RunEntry(
         id=run_id, type=type_,
         timestamp=datetime.now(timezone.utc).isoformat(),

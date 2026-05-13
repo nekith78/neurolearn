@@ -26,6 +26,7 @@ def _make_target(vid: str, title: str = "T"):
     t.duration_sec = 60
     t.channel = "C"
     t.source = "inline"
+    t.source_language = None
     return t
 
 

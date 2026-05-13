@@ -458,6 +458,8 @@ def _build_video_status(
         # === v0.2 carry-through ===
         visual_segments=list(getattr(result, "visual_segments", []) or []),
         quality=getattr(result, "quality", None),
+        # === v0.7: multi-lang attribution from research/source ===
+        source_language=getattr(target, "source_language", None),
     )
 
 
@@ -517,18 +519,17 @@ def _run_then_analyze(
         else prompt_file.read_text(encoding="utf-8")
     )
 
-    if backend == "ollama":
-        api_key: str | None = None
-    else:
-        key_lookup = {
-            "gemini": "gemini", "claude": "anthropic", "openai": "openai",
-        }[backend]
-        api_key = get_api_key(key_lookup)
-        if not api_key:
-            console.print(
-                f"[red]--then-analyze: нет ключа для backend={backend}[/red]."
-            )
-            sys.exit(4)
+    # Build fallback chain: user's choice first, then the remaining configured
+    # backends (any with an API key — `ollama` is included by default since
+    # it doesn't need a key, only a local server). When the primary backend
+    # returns "" (quota / 429 / network), each next backend gets a turn.
+    # See _select_analyze_backends for the exact ordering.
+    backends_to_try = _select_analyze_backends(backend)
+    if not backends_to_try:
+        console.print(
+            f"[red]--then-analyze: нет ключа для backend={backend}[/red]."
+        )
+        sys.exit(4)
 
     try:
         videos = resolve_source(
@@ -559,23 +560,77 @@ def _run_then_analyze(
         return
 
     full_prompt = build_prompt(user_prompt, chosen)
-    response = analyze_runner.run_analysis(
-        full_prompt, backend=backend, api_key=api_key,
-    )
+    response = ""
+    used_backend = backends_to_try[0]
+    for i, candidate in enumerate(backends_to_try):
+        candidate_key = _api_key_for_backend(candidate)
+        if i > 0:
+            console.print(
+                f"[yellow]{backends_to_try[i-1]} не ответил — "
+                f"пробую {candidate}[/yellow]"
+            )
+        response = analyze_runner.run_analysis(
+            full_prompt, backend=candidate, api_key=candidate_key,
+        )
+        if response.strip():
+            used_backend = candidate
+            break
+
     if not response.strip():
-        console.print("[red]LLM не вернул ответ (then-analyze).[/red]")
+        tried = ", ".join(backends_to_try)
+        console.print(
+            f"[red]LLM не вернул ответ (then-analyze). "
+            f"Перепробовано: {tried}.[/red]"
+        )
         return
 
     now = datetime.now()
     out_path = batch_folder / analysis_filename(now)
     target = write_analysis(
         out_path=out_path, body=response, user_prompt=user_prompt,
-        backend_label=backend, videos=chosen, total_videos=len(videos),
+        backend_label=used_backend, videos=chosen, total_videos=len(videos),
         now=now,
     )
     click.echo(response)
-    console.print(f"[green]✓[/green] then-analyze via {backend}")
+    console.print(f"[green]✓[/green] then-analyze via {used_backend}")
     console.print(f"  [bold]{target}[/bold]")
+
+
+def _select_analyze_backends(primary: str) -> list[str]:
+    """Return ordered fallback chain for analyze.
+
+    Primary backend first (the one the user requested). If the primary is
+    misconfigured (no API key for a cloud backend), return [] so the caller
+    exits with code 4 — user asked for that backend explicitly, don't
+    silently substitute. Otherwise append every other backend that has a
+    key or doesn't need one (ollama is local), in the standard preference
+    order gemini → claude → openai → ollama.
+    """
+    if _api_key_for_backend(primary) is None and primary != "ollama":
+        return []
+    default_order = ["gemini", "claude", "openai", "ollama"]
+    chain: list[str] = [primary]
+    seen: set[str] = {primary}
+    for b in default_order:
+        if b in seen:
+            continue
+        if _api_key_for_backend(b) is None and b != "ollama":
+            continue
+        chain.append(b)
+        seen.add(b)
+    return chain
+
+
+def _api_key_for_backend(backend: str) -> str | None:
+    """None for missing keys, "" for ollama (no key needed)."""
+    if backend == "ollama":
+        return ""
+    key_name = {
+        "gemini": "gemini", "claude": "anthropic", "openai": "openai",
+    }.get(backend)
+    if not key_name:
+        return None
+    return get_api_key(key_name)
 
 
 # ---------------------------------------------------------------------------

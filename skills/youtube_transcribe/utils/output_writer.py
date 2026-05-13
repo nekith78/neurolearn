@@ -125,6 +125,11 @@ class BatchVideoStatus:
     # === v0.2 additions ===
     visual_segments: list = field(default_factory=list)        # list[VisualSegment]
     quality: object | None = None                               # QualityReport | None
+    # === v0.7 ===
+    # Which language query produced this candidate in multi-lang research.
+    # None for batch/analyze/subscribes flows that don't have per-candidate
+    # language attribution.
+    source_language: str | None = None
 
 
 @dataclass
@@ -263,6 +268,7 @@ def write_manifest_json(
             "duration_sec": v.duration_sec,
             "channel": v.channel,
             "language_detected": v.language_detected,
+            "source_language": v.source_language,
             "files": v.files,
             "status": v.status,
             "error": v.error,

@@ -28,11 +28,11 @@ def test_batch_with_visuals_applies_v02_stages_per_video(tmp_path, monkeypatch):
     # Mock resolver to return 2 fake targets
     fake_target_1 = MagicMock(
         url="https://youtu.be/aaa", title="Video A", video_id="aaa",
-        upload_date=None, duration_sec=60, channel="C", source="inline",
+        upload_date=None, duration_sec=60, channel="C", source="inline", source_language=None,
     )
     fake_target_2 = MagicMock(
         url="https://youtu.be/bbb", title="Video B", video_id="bbb",
-        upload_date=None, duration_sec=60, channel="C", source="inline",
+        upload_date=None, duration_sec=60, channel="C", source="inline", source_language=None,
     )
 
     monkeypatch.setattr(
@@ -100,7 +100,7 @@ def test_batch_without_visuals_still_runs_quality_check(tmp_path, monkeypatch):
         "skills.youtube_transcribe.transcribe.resolve",
         lambda inputs, from_file, filters: ([MagicMock(
             url="https://youtu.be/x", title="X", video_id="x",
-            upload_date=None, duration_sec=60, channel="C", source="inline",
+            upload_date=None, duration_sec=60, channel="C", source="inline", source_language=None,
         )], []),
     )
     monkeypatch.setattr(

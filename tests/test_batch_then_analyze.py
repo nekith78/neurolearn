@@ -121,3 +121,109 @@ def test_then_analyze_cli_requires_prompt(tmp_path: Path):
     ], catch_exceptions=False)
     assert res.exit_code == 2
     assert "--then-analyze" in res.output or "prompt" in res.output.lower()
+
+
+# ── analyze backend fallback chain (v0.7) ───────────────────────────────
+
+
+def test_select_analyze_backends_primary_first():
+    """User's choice comes first; rest follow gemini→claude→openai→ollama."""
+    from skills.youtube_transcribe.transcribe import _select_analyze_backends
+    with patch(
+        "skills.youtube_transcribe.transcribe.get_api_key",
+        return_value="fake-key",
+    ):
+        chain = _select_analyze_backends("claude")
+    assert chain[0] == "claude"
+    # gemini/claude/openai/ollama in default order, deduped — claude already
+    # consumed → next is gemini, then openai, then ollama.
+    assert chain == ["claude", "gemini", "openai", "ollama"]
+
+
+def test_select_analyze_backends_skips_missing_keys():
+    """Backends without an API key are excluded (except ollama, no key needed)."""
+    from skills.youtube_transcribe.transcribe import _select_analyze_backends
+
+    def fake_key(name):
+        return "fake-key" if name == "gemini" else None
+
+    with patch(
+        "skills.youtube_transcribe.transcribe.get_api_key",
+        side_effect=fake_key,
+    ):
+        chain = _select_analyze_backends("gemini")
+    # claude / openai dropped (no key), ollama kept (local, no key).
+    assert chain == ["gemini", "ollama"]
+
+
+def test_select_analyze_backends_primary_without_key_returns_empty():
+    """Primary backend explicitly chosen but has no API key → empty chain.
+    Caller exits 4 — we don't silently swap in a different backend the
+    user didn't ask for."""
+    from skills.youtube_transcribe.transcribe import _select_analyze_backends
+    with patch(
+        "skills.youtube_transcribe.transcribe.get_api_key",
+        return_value=None,
+    ):
+        # primary=gemini without key → don't substitute, exit 4 is correct
+        assert _select_analyze_backends("gemini") == []
+
+
+def test_select_analyze_backends_ollama_primary_always_ok():
+    """Ollama as primary never needs a key — chain non-empty even without
+    any cloud key configured."""
+    from skills.youtube_transcribe.transcribe import _select_analyze_backends
+    with patch(
+        "skills.youtube_transcribe.transcribe.get_api_key",
+        return_value=None,
+    ):
+        chain = _select_analyze_backends("ollama")
+    assert chain == ["ollama"]
+
+
+def test_then_analyze_falls_back_when_primary_returns_empty(tmp_path: Path):
+    """Primary backend returns '' (quota / 429) → next backend in chain runs."""
+    batch = _make_fake_batch(tmp_path)
+
+    calls: list[str] = []
+
+    def fake_run(full_prompt, *, backend, **_kw):
+        calls.append(backend)
+        return "" if backend == "gemini" else "ANALYZED BY FALLBACK"
+
+    with patch(
+        "skills.youtube_transcribe.transcribe.get_api_key",
+        return_value="fake-key",
+    ), patch(
+        "skills.youtube_transcribe.analyze.runner.run_analysis",
+        side_effect=fake_run,
+    ):
+        _run_then_analyze(
+            batch_folder=batch,
+            prompt_inline="x", prompt_file=None,
+            backend="gemini",
+        )
+    # gemini tried first, fell back to claude (next in default order).
+    assert calls[0] == "gemini"
+    assert len(calls) >= 2
+    out = list(batch.glob("analysis-*.md"))
+    assert len(out) == 1
+    assert "ANALYZED BY FALLBACK" in out[0].read_text(encoding="utf-8")
+
+
+def test_then_analyze_all_backends_empty_writes_no_file(tmp_path: Path):
+    """Every backend in the chain returns '' → no analysis file, no crash."""
+    batch = _make_fake_batch(tmp_path)
+    with patch(
+        "skills.youtube_transcribe.transcribe.get_api_key",
+        return_value="fake-key",
+    ), patch(
+        "skills.youtube_transcribe.analyze.runner.run_analysis",
+        return_value="",
+    ):
+        _run_then_analyze(
+            batch_folder=batch,
+            prompt_inline="x", prompt_file=None,
+            backend="gemini",
+        )
+    assert list(batch.glob("analysis-*.md")) == []

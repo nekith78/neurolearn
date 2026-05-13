@@ -237,6 +237,7 @@ def run_subscribes_update(
             url=c.url, video_id=c.video_id, title=c.title,
             channel=c.channel, duration_sec=c.duration_sec,
             upload_date=c.upload_date, source="channel",
+            source_language=getattr(c, "source_language", None),
         )
         for c in candidates
     ]
@@ -327,10 +328,9 @@ def _append_history(
     status: str = "ok",
 ) -> None:
     p = Path.home() / ".youtube-transcribe" / "history.toml"
-    run_id = (
-        f"subscribes_{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}"
-        f"_{uuid.uuid4().hex[:6]}"
-    )
+    # See research.pipeline._append_history for the rationale: short IDs
+    # like `s-XXXXXX` fit a Rich-table column without truncation.
+    run_id = f"s-{uuid.uuid4().hex[:6]}"
     entry = RunEntry(
         id=run_id, type="subscribes",
         timestamp=datetime.now(timezone.utc).isoformat(),

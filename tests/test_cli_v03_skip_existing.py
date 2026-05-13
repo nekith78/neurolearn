@@ -32,10 +32,12 @@ def test_skip_existing_skips_video_with_existing_transcript(tmp_path, monkeypatc
     fake_target_a = MagicMock(
         url="https://youtu.be/aaa11111111", title="Test A", video_id="aaa11111111",
         upload_date=None, duration_sec=60, channel="C", source="inline",
+        source_language=None,
     )
     fake_target_b = MagicMock(
         url="https://youtu.be/bbb22222222", title="Test B", video_id="bbb22222222",
         upload_date=None, duration_sec=60, channel="C", source="inline",
+        source_language=None,
     )
 
     pipeline_calls = []
@@ -94,6 +96,7 @@ def test_no_skip_existing_processes_everything(tmp_path, monkeypatch):
     fake_target = MagicMock(
         url="https://youtu.be/aaa11111111", title="A", video_id="aaa11111111",
         upload_date=None, duration_sec=60, channel="C", source="inline",
+        source_language=None,
     )
 
     pipeline_calls = []
