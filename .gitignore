@@ -39,7 +39,12 @@ test-output*/
 # uv lock — intentionally not committed (cross-platform skill, let users resolve)
 uv.lock
 .python-version
-graphify-out/
+
+# graphify — keep graph.json + GRAPH_REPORT.md for agents on fresh clone,
+# ignore everything else (regenerated locally on first build).
+graphify-out/*
+!graphify-out/graph.json
+!graphify-out/GRAPH_REPORT.md
 
 # Claude Code local state (user-specific slash commands, scheduler lock)
 .claude/
