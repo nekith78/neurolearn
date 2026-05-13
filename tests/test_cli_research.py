@@ -83,6 +83,11 @@ def test_research_backend_flag_lands_in_batch_opts(tmp_path: Path):
 
 
 def test_research_mutex_prompt_and_prompt_file_when_analyze(tmp_path: Path):
+    """--prompt and --prompt-file are mutually exclusive when analyze is on.
+
+    Force analyze on via `--analyze-backend gemini` so the mutex check
+    actually runs (with the v0.7 onboarding, analyze defaults to skip in
+    non-TTY without a saved preference, which would bypass the validation)."""
     pf = tmp_path / "p.md"
     pf.write_text("x", encoding="utf-8")
     runner = CliRunner()
@@ -90,6 +95,7 @@ def test_research_mutex_prompt_and_prompt_file_when_analyze(tmp_path: Path):
         "research", "topic",
         "--prompt", "x", "--prompt-file", str(pf),
         "--backend", "subtitles",
+        "--analyze-backend", "gemini",
     ], catch_exceptions=False)
     assert res.exit_code == 2
 

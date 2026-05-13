@@ -60,6 +60,14 @@ class Config:
     cookies_browser: str = ""
     fast_path_enabled: bool = True
 
+    # === v0.7+ analyze defaults ===
+    # User's choice for the LLM that processes transcripts in `research` /
+    # `subscribes update` / `batch --then-analyze` when no `--analyze-backend`
+    # flag is given. Values: None (not yet chosen — onboarding will prompt),
+    # "skip" (never auto-analyze; emit combined.md and let the chat-side LLM
+    # do it), or one of {gemini, claude, openai, ollama}.
+    analyze_backend: str | None = None
+
 
 DEFAULT_CONFIG = Config()
 
@@ -106,6 +114,9 @@ def _to_toml_dict(cfg: Config) -> dict:
             "cookies_browser": d["cookies_browser"],
             "fast_path_enabled": d["fast_path_enabled"],
         },
+        "analyze": {
+            "backend": d["analyze_backend"] or "",
+        },
     }
 
 
@@ -113,6 +124,8 @@ def _from_toml_dict(d: dict) -> Config:
     wl = d.get("whisper-local", {})
     out = d.get("output", {})
     beh = d.get("behavior", {})
+    analyze = d.get("analyze", {})
+    raw_analyze_backend = analyze.get("backend", "")
     return Config(
         default_backend=d.get("default_backend", DEFAULT_CONFIG.default_backend),
         fallback_backend=d.get("fallback_backend", DEFAULT_CONFIG.fallback_backend),
@@ -136,6 +149,8 @@ def _from_toml_dict(d: dict) -> Config:
         yt_dlp_auto_update=beh.get("yt_dlp_auto_update", DEFAULT_CONFIG.yt_dlp_auto_update),
         cookies_browser=beh.get("cookies_browser", DEFAULT_CONFIG.cookies_browser),
         fast_path_enabled=beh.get("fast_path_enabled", DEFAULT_CONFIG.fast_path_enabled),
+        # Empty string in TOML means "not chosen yet" — preserve None semantics.
+        analyze_backend=raw_analyze_backend if raw_analyze_backend else None,
     )
 
 

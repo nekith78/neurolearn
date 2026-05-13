@@ -1073,8 +1073,9 @@ def _run_batch_pipeline(
               help="Read --then-analyze prompt from file.")
 @click.option("--analyze-backend", "analyze_backend",
               type=click.Choice(["gemini", "claude", "openai", "ollama"]),
-              default="gemini", show_default=True,
-              help="LLM backend for --then-analyze.")
+              default=None,
+              help="LLM backend for --then-analyze. "
+                   "Default: ask once and remember in config.toml.")
 def batch_cmd(
     inputs: tuple[str, ...],
     from_file: Path | None,
@@ -1089,13 +1090,24 @@ def batch_cmd(
     then_analyze = opts.pop("then_analyze", False)
     analyze_prompt = opts.pop("analyze_prompt", None)
     analyze_prompt_file = opts.pop("analyze_prompt_file", None)
-    analyze_backend = opts.pop("analyze_backend", "gemini")
+    analyze_backend_cli = opts.pop("analyze_backend", None)
 
     if then_analyze and not (analyze_prompt or analyze_prompt_file):
         console.print(
             "[red]--then-analyze требует --prompt или --prompt-file.[/red]"
         )
         sys.exit(2)
+
+    # Resolve the analyze backend now (single source of truth — flag >
+    # config > onboarding prompt > silent skip on non-TTY). `None` here
+    # means "don't analyze". `_run_then_analyze` will refuse to run if
+    # then_analyze is on but resolved backend is None.
+    from skills.youtube_transcribe.analyze.backend_resolver import (
+        resolve_analyze_backend,
+    )
+    analyze_backend = resolve_analyze_backend(
+        cli_flag=analyze_backend_cli, no_analyze=not then_analyze,
+    )
 
     if not CONFIG_PATH.exists():
         run_wizard()
@@ -1211,12 +1223,25 @@ def batch_cmd(
     batch_dir = _run_batch_pipeline(targets=targets, cfg=cfg, opts=pipeline_opts)
 
     # === v0.6: post-batch analyze hook ===
-    if then_analyze and batch_dir is not None and batch_dir.exists():
+    # analyze_backend is None when the user chose "skip" in onboarding or
+    # we're non-TTY without a stored preference — pipe / Claude Code case.
+    if (
+        then_analyze
+        and analyze_backend is not None
+        and batch_dir is not None
+        and batch_dir.exists()
+    ):
         _run_then_analyze(
             batch_folder=batch_dir,
             prompt_inline=analyze_prompt,
             prompt_file=analyze_prompt_file,
             backend=analyze_backend,
+        )
+    elif then_analyze and analyze_backend is None and batch_dir is not None:
+        console.print(
+            "[dim]→ --then-analyze пропущен: backend не выбран "
+            "(skip / non-TTY).[/dim]\n"
+            f"[dim]  combined.md готов: {batch_dir / 'combined.md'}[/dim]"
         )
 
 
@@ -1332,14 +1357,33 @@ from skills.youtube_transcribe.history.cli import history_group
 cli.add_command(history_group)
 
 
-@cli.command(name="webui")
+@cli.command(name="webui", hidden=True)
 @click.option("--host", default="127.0.0.1", show_default=True,
               help="Bind host (use 0.0.0.0 to expose; default loopback only).")
 @click.option("--port", type=int, default=7860, show_default=True)
 @click.option("--share", is_flag=True, default=False,
               help="Create a Gradio share-link (public tunnel — be careful).")
 def webui_cmd(host: str, port: int, share: bool) -> None:
-    """Launch the Gradio Web UI (v0.4 — opt-in via [webui] extra)."""
+    """[EXPERIMENTAL] Launch the Gradio Web UI.
+
+    Hidden from --help while we focus on the CLI / Claude-skill surface.
+    Code is preserved so we can return to it later, but it's not
+    production-quality: tab wiring is incomplete and behavior on edge
+    cases is unspecified. Prefer the CLI (`research`, `subscribes`,
+    `transcribe`, `batch`, `analyze`) for real work.
+    """
+    console.print(
+        "[yellow]⚠ WebUI is experimental and not actively maintained.[/yellow]\n"
+        "[dim]Use the CLI commands instead. Press Ctrl+C to abort, "
+        "or wait 3s to continue anyway.[/dim]"
+    )
+    import time
+    try:
+        time.sleep(3)
+    except KeyboardInterrupt:
+        console.print("[dim]Aborted.[/dim]")
+        sys.exit(0)
+
     _ensure_gradio_installed()
     from skills.youtube_transcribe.webui.app import launch
     launch(server_name=host, server_port=port, share=share)
@@ -1761,10 +1805,12 @@ def analyze_cmd(
 @click.option("--yes", is_flag=True, default=False,
               help="Skip TTY checkpoint.")
 @click.option("--no-analyze", is_flag=True, default=False,
-              help="Skip final analyze step.")
+              help="Skip final analyze step (force-skip the LLM pass).")
 @click.option("--analyze-backend", "analyze_backend_opt",
               type=click.Choice(["gemini", "claude", "openai", "ollama"]),
-              default="gemini", show_default=True)
+              default=None,
+              help="LLM backend for analyze. Default: ask once and remember "
+                   "in config.toml (non-TTY → skip silently).")
 @click.option("--ollama-model", "ollama_model_opt", default=None)
 @click.option("--ollama-host", "ollama_host_opt", default=None)
 @click.option("--no-stdout", "no_stdout_opt", is_flag=True, default=False)
@@ -1796,7 +1842,18 @@ def research_cmd(
         console.print("[red]Нужен QUERY (или --in-subscribes).[/red]")
         sys.exit(2)
 
-    if not no_analyze:
+    # Resolve analyze backend BEFORE prompt validation: if it ends up None
+    # (user chose "skip" / non-TTY without preference), analyze won't run
+    # and a prompt is no longer required.
+    from skills.youtube_transcribe.analyze.backend_resolver import (
+        resolve_analyze_backend,
+    )
+    resolved_analyze_backend = resolve_analyze_backend(
+        cli_flag=analyze_backend_opt, no_analyze=no_analyze,
+    )
+    effective_no_analyze = no_analyze or resolved_analyze_backend is None
+
+    if not effective_no_analyze:
         if bool(prompt_inline) == bool(prompt_file):
             console.print(
                 "[red]При analyze on — нужен ровно один из[/red] "
@@ -1817,7 +1874,13 @@ def research_cmd(
         days_arg = None
 
     languages = [s.strip() for s in languages_csv.split(",") if s.strip()]
-    translate_backend = translate_backend_opt or analyze_backend_opt
+    # Translation needs SOME backend with a key — fall back to gemini if
+    # neither --translate-backend nor --analyze-backend is set. Only kicks
+    # in when --languages has multiple values; single-language searches
+    # never call the translator.
+    translate_backend = (
+        translate_backend_opt or analyze_backend_opt or "gemini"
+    )
 
     api_keys = {
         "gemini": get_api_key("gemini"),
@@ -1843,9 +1906,9 @@ def research_cmd(
             limit=limit_opt,
             match=match_opt, filter_text=filter_opt,
             in_subscribes=in_subscribes, group=group_opt,
-            yes=yes, no_analyze=no_analyze,
+            yes=yes, no_analyze=effective_no_analyze,
             prompt=prompt_inline, prompt_file=prompt_file,
-            analyze_backend=analyze_backend_opt,
+            analyze_backend=resolved_analyze_backend or "gemini",
             filter_backend=filter_backend_opt,
             translate_backend=translate_backend,
             ollama_model=ollama_model_opt or "llama3.2:3b",

@@ -224,6 +224,9 @@ def test_update_subscribes_error_exits_2(tmp_path: Path):
 
 
 def test_update_analyze_requires_prompt(tmp_path: Path):
+    """Analyze on but no prompt → exit 2. We force `--analyze-backend gemini`
+    so analyze is unambiguously enabled — the v0.7 onboarding would otherwise
+    leave it on `None` in a non-TTY test runner and skip the validation."""
     sub_path = tmp_path / "subscribes.toml"
     sub_path.write_text("# empty\n", encoding="utf-8")
     with patch(
@@ -235,6 +238,7 @@ def test_update_analyze_requires_prompt(tmp_path: Path):
             "subscribes", "update",
             "--days", "7",
             "--backend", "subtitles",
+            "--analyze-backend", "gemini",
         ], catch_exceptions=False)
     assert res.exit_code == 2
 

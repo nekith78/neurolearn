@@ -138,7 +138,9 @@ def _default_editor() -> str:
               type=click.Path(exists=True, path_type=Path))
 @click.option("--analyze-backend", "analyze_backend_opt",
               type=click.Choice(["gemini", "claude", "openai", "ollama"]),
-              default="gemini")
+              default=None,
+              help="LLM backend for analyze. Default: ask once and remember "
+                   "in config.toml (non-TTY → skip silently).")
 @click.option("--filter-backend", "filter_backend_opt",
               type=click.Choice(["gemini", "claude", "openai", "ollama"]),
               default="gemini")
@@ -164,8 +166,18 @@ def update_cmd(
 ) -> None:
     """Run subscribes update — fetch latest, filter, transcribe, analyze."""
     from datetime import date as _date
+    from skills.youtube_transcribe.analyze.backend_resolver import (
+        resolve_analyze_backend,
+    )
 
-    if not no_analyze:
+    # Resolve analyze backend first (flag > config > onboarding > skip).
+    # `None` here means "don't analyze".
+    resolved_analyze_backend = resolve_analyze_backend(
+        cli_flag=analyze_backend_opt, no_analyze=no_analyze,
+    )
+    effective_no_analyze = no_analyze or resolved_analyze_backend is None
+
+    if not effective_no_analyze:
         if bool(prompt_inline) == bool(prompt_file):
             _console.print(
                 "[red]При analyze on — нужен ровно один из[/red] "
@@ -199,9 +211,9 @@ def update_cmd(
             group=group,
             days=days, since=since_d, until=until_d,
             match=match, filter_text=filter_text,
-            no_rss=no_rss, yes=yes, no_analyze=no_analyze,
+            no_rss=no_rss, yes=yes, no_analyze=effective_no_analyze,
             prompt=prompt_inline, prompt_file=prompt_file,
-            analyze_backend=analyze_backend_opt,
+            analyze_backend=resolved_analyze_backend or "gemini",
             filter_backend=filter_backend_opt,
             ollama_model=ollama_model_opt or "llama3.2:3b",
             ollama_host=ollama_host_opt or "http://localhost:11434",
