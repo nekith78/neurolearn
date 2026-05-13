@@ -207,6 +207,12 @@ def _fetch_via_yt_dlp(
     except Exception as e:
         if _looks_like_channel_not_found(str(e)):
             raise ChannelNotFoundError(str(e)) from e
+        if _looks_like_yt_dlp_broken_extractor(str(e)):
+            # Don't swallow — propagate so platform-specific fetchers
+            # (e.g. _fetch_instagram) can decide whether to try a
+            # fallback like instaloader. Other callers still get a
+            # raised exception they can handle generically.
+            raise
         _console.print(
             f"[yellow]yt-dlp fetch failed for {channel_url}: {e}[/yellow]"
         )

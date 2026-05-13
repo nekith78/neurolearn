@@ -48,3 +48,5 @@ graphify-out/*
 
 # Claude Code local state (user-specific slash commands, scheduler lock)
 .claude/
+qa-out/
+ig-test/

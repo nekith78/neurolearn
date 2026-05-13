@@ -122,6 +122,18 @@ def maybe_auto_update_ytdlp(enabled: bool, *, max_age_hours: int = 24) -> bool:
 def _diagnose_ytdlp_error(stderr: str) -> str:
     """Map common yt-dlp errors to actionable hints."""
     s = stderr.lower()
+    # Upstream extractor broken — check FIRST because the broken extractor
+    # often also leaks misleading geo/country/auth signals into the stderr,
+    # which would otherwise win the more specific match below. The returned
+    # text contains "marked as broken" so subscribes pipeline's broken-
+    # extractor signature check can pick it up downstream and trigger the
+    # instaloader fallback (for Instagram).
+    if "unable to extract data" in s or "marked as broken" in s:
+        return (
+            "yt-dlp's extractor for this site is marked as broken upstream.\n"
+            "  • Instagram: install the fallback with `uv sync --extra instagram`.\n"
+            "  • Other sites: update yt-dlp with `youtube-transcribe update-deps`."
+        )
     # Instagram-specific signals first (more specific than generic YouTube ones)
     if "instagram" in s and (
         "login" in s or "session" in s or "logged" in s or "rate-limit" in s
