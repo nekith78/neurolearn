@@ -5,7 +5,7 @@ from __future__ import annotations
 import shutil
 import tempfile
 from pathlib import Path
-from typing import Iterator
+from typing import Callable, Iterator
 from contextlib import contextmanager
 
 from skills.youtube_transcribe.backends.base import (
@@ -45,6 +45,7 @@ def run_pipeline(
     *,
     backend_override: str | None = None,
     keep_audio_to: Path | None = None,
+    on_stage: Callable[[str], None] | None = None,
 ) -> TranscriptionResult:
     """One target → one TranscriptionResult.
 
@@ -52,28 +53,36 @@ def run_pipeline(
     - subtitles / smart: pass URL straight to backend, no download
     - other backends + URL: yt-dlp -x mp3 into system temp, transcribe, cleanup
     - local file: pass path straight to backend
+
+    `on_stage(msg)` is called at each phase boundary so callers can drive
+    a spinner / status line. Always optional — None means "no progress UI".
     """
     backend_name = backend_override or cfg.default_backend
+    notify = on_stage or (lambda _msg: None)
 
     # Local file → no download, no temp
     if not is_url(target.url):
         path = Path(target.url).expanduser().resolve()
         if not path.exists():
             raise BackendError(f"File not found: {path}")
+        notify(f"Transcribing via {backend_name}...")
         return _transcribe_one(backend_name, path, cfg, language=cfg.language)
 
     # URL paths
     if backend_name in ("subtitles", "smart"):
+        notify(f"Fetching via {backend_name}...")
         # Backend / smart-composer accept URL directly.
         return _transcribe_one(backend_name, target.url, cfg, language=cfg.language)
 
     # All other backends need local audio. Download → transcribe → cleanup.
     maybe_auto_update_ytdlp(cfg.yt_dlp_auto_update)
     with _audio_workdir(keep_audio=cfg.keep_audio, persist_to=keep_audio_to) as tmp:
+        notify("Downloading audio...")
         audio_path = download_audio(
             target.url, tmp,
             cookies_file=cfg.cookies_file,
         )
+        notify(f"Transcribing via {backend_name}...")
         return _transcribe_one(backend_name, audio_path, cfg, language=cfg.language)
 
 

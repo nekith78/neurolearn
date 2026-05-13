@@ -200,8 +200,18 @@ def transcribe_cmd(audio_or_url: str | None, **opts) -> None:
     output_dir = Path(opts.get("output_dir") or cfg.output_dir).expanduser()
     output_dir.mkdir(parents=True, exist_ok=True)
 
+    from skills.youtube_transcribe.shared.progress import stage_progress
     try:
-        result = run_pipeline(target, cfg, backend_override=opts.get("backend"))
+        with stage_progress(
+            console,
+            verbose=bool(opts.get("verbose")),
+            initial="Preparing...",
+        ) as stage:
+            result = run_pipeline(
+                target, cfg,
+                backend_override=opts.get("backend"),
+                on_stage=stage.update,
+            )
     except BackendNotConfigured as e:
         console.print(f"[red]Backend not configured:[/red] {e}")
         sys.exit(3)
@@ -284,46 +294,54 @@ def transcribe_cmd(audio_or_url: str | None, **opts) -> None:
         and is_url(target.url)
     )
 
-    if needs_video:
-        import tempfile
-        from skills.youtube_transcribe.utils.downloader import download_video
-        with tempfile.TemporaryDirectory(prefix="yt-visual-") as visual_tmp:
-            try:
-                video_path = download_video(
-                    target.url, Path(visual_tmp),
-                    cookies_file=cfg.cookies_file,
+    with stage_progress(
+        console,
+        verbose=bool(opts.get("verbose")),
+        initial="Post-processing...",
+    ) as post_stage:
+        if needs_video:
+            import tempfile
+            from skills.youtube_transcribe.utils.downloader import download_video
+            with tempfile.TemporaryDirectory(prefix="yt-visual-") as visual_tmp:
+                post_stage.update("Downloading video for visual analysis...")
+                try:
+                    video_path = download_video(
+                        target.url, Path(visual_tmp),
+                        cookies_file=cfg.cookies_file,
+                    )
+                except Exception as e:
+                    console.print(f"[yellow]⚠ Visual mode disabled — mp4 download failed:[/yellow] {e}",
+                                  style="dim")
+                    video_path = None
+                post_stage.update("Analyzing visuals...")
+                result = apply_v02_stages(
+                    result=result,
+                    cfg=cfg_v02,
+                    video_path=video_path,
+                    video_id=video_id,
+                    out_dir=output_dir,
+                    source=source,
+                    triggers_path=Path(triggers_path_opt) if triggers_path_opt else None,
+                    no_default_triggers=bool(opts.get("no_default_triggers")),
                 )
-            except Exception as e:
-                console.print(f"[yellow]⚠ Visual mode disabled — mp4 download failed:[/yellow] {e}",
-                              style="dim")
-                video_path = None
+        else:
+            # Local file path — use directly (already on disk).
+            local_video_path = (
+                Path(target.url).expanduser().resolve()
+                if not is_url(target.url) and cfg_v02.get("vision_backend") == "gemini"
+                else None
+            )
+            post_stage.update("Running quality / detection passes...")
             result = apply_v02_stages(
                 result=result,
                 cfg=cfg_v02,
-                video_path=video_path,
+                video_path=local_video_path,
                 video_id=video_id,
                 out_dir=output_dir,
                 source=source,
                 triggers_path=Path(triggers_path_opt) if triggers_path_opt else None,
                 no_default_triggers=bool(opts.get("no_default_triggers")),
             )
-    else:
-        # Local file path — use directly (already on disk).
-        local_video_path = (
-            Path(target.url).expanduser().resolve()
-            if not is_url(target.url) and cfg_v02.get("vision_backend") == "gemini"
-            else None
-        )
-        result = apply_v02_stages(
-            result=result,
-            cfg=cfg_v02,
-            video_path=local_video_path,
-            video_id=video_id,
-            out_dir=output_dir,
-            source=source,
-            triggers_path=Path(triggers_path_opt) if triggers_path_opt else None,
-            no_default_triggers=bool(opts.get("no_default_triggers")),
-        )
 
     base_name = sanitize_filename(_derive_basename(target))
     txt_path = output_dir / f"{base_name}.txt"
