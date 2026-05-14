@@ -504,6 +504,8 @@ def _build_video_status(
         quality=getattr(result, "quality", None),
         # === v0.7: multi-lang attribution from research/source ===
         source_language=getattr(target, "source_language", None),
+        # === v0.10: forward the budget tracker into manifest.json ===
+        budget=getattr(result, "budget", None),
     )
 
 

@@ -125,6 +125,10 @@ class BatchVideoStatus:
     # === v0.2 additions ===
     visual_segments: list = field(default_factory=list)        # list[VisualSegment]
     quality: object | None = None                               # QualityReport | None
+    # === v0.10: per-video token/USD accounting ===
+    # Populated for videos that went through Gemini vision; None otherwise.
+    # Type: skills.neurolearn.budget.BudgetTracker | None
+    budget: object | None = None
     # === v0.7 ===
     # Which language query produced this candidate in multi-lang research.
     # None for batch/analyze/subscribes flows that don't have per-candidate
@@ -282,8 +286,9 @@ def write_manifest_json(
                 "recommendation": v.quality.recommendation,
             }
         if v.visual_segments:
-            entry["visual_segments"] = [
-                {
+            vs_list = []
+            for vs in v.visual_segments:
+                vs_entry = {
                     "start": vs.start,
                     "end": vs.end,
                     "description": vs.description,
@@ -292,8 +297,28 @@ def write_manifest_json(
                     "trigger_reason": vs.trigger_reason,
                     "importance": vs.importance,
                 }
-                for vs in v.visual_segments
-            ]
+                # v0.10: confidence + needs_refinement carry the signal
+                # that drove the Claude fallback decision. Skip when the
+                # value isn't a real number/bool so MagicMock fixtures
+                # from older tests don't poison the JSON serialiser.
+                conf = getattr(vs, "confidence", None)
+                if isinstance(conf, (int, float)) and not isinstance(conf, bool):
+                    vs_entry["confidence"] = float(conf)
+                needs = getattr(vs, "needs_refinement", None)
+                if isinstance(needs, bool):
+                    vs_entry["needs_refinement"] = needs
+                vs_list.append(vs_entry)
+            entry["visual_segments"] = vs_list
+        # v0.10: per-video token usage + USD cost summary. Same
+        # type-guard against test MagicMocks.
+        budget = getattr(v, "budget", None)
+        if budget is not None and hasattr(budget, "summary"):
+            try:
+                summary = budget.summary()
+                if isinstance(summary, dict):
+                    entry["budget"] = summary
+            except Exception:
+                pass
         out.append(entry)
     for f in failures:
         out.append({

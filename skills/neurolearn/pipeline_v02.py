@@ -289,6 +289,31 @@ def apply_v02_stages(
             )
             result.visual_segments = visuals
 
+            # Capture Gemini token usage into the BudgetTracker so it
+            # surfaces in manifest.json. Only Gemini backend exposes the
+            # `last_run_usage` field (#8); Claude/OpenAI report usage via
+            # their own SDKs — wire those when we add per-model tracking.
+            try:
+                last_usage = getattr(backend, "last_run_usage", [])
+            except Exception:
+                last_usage = []
+            if last_usage:
+                from skills.neurolearn.budget import BudgetTracker
+                tracker = getattr(result, "budget", None) or BudgetTracker()
+                model_name = getattr(backend, "model", "gemini-2.5-flash")
+                for usage in last_usage:
+                    tracker.record(
+                        "vision_gemini", model_name,
+                        prompt_tokens=usage.prompt_tokens,
+                        output_tokens=usage.output_tokens,
+                        cached_tokens=usage.cached_tokens,
+                    )
+                # Attach to the result so the writer can serialize it.
+                try:
+                    object.__setattr__(result, "budget", tracker)
+                except Exception:
+                    pass
+
             # === Claude fallback on low-confidence segments ===
             # Only fires when primary is Gemini AND user opted in via
             # the tutorial preset (or `claude_fallback = true` override).
