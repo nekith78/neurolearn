@@ -75,11 +75,23 @@ def test_transcribe_prompts_when_no_url_and_tty():
 
 
 def test_batch_prompts_when_no_inputs_and_tty(tmp_path: Path):
-    """batch with no inputs, no --from-file, no --search: prompts multi-line."""
+    """batch with no inputs, no --from-file, no --search: prompts multi-line.
+
+    Mocks `run_wizard` / `load_config` so the test works on CI machines
+    that don't have a `~/.youtube-transcribe/config.toml` (otherwise
+    batch_cmd would hang on the first-run wizard's stdin prompts).
+    """
+    from unittest.mock import MagicMock
+    cfg = MagicMock(fast_path_enabled=True)
     with patch("skills.youtube_transcribe.shared.prompts._is_tty",
                return_value=True), \
          patch("skills.youtube_transcribe.shared.prompts.prompt_urls_or_die",
                return_value=["https://youtu.be/A", "https://youtu.be/B"]) as mock_prompt, \
+         patch("skills.youtube_transcribe.transcribe.run_wizard"), \
+         patch("skills.youtube_transcribe.transcribe.load_config",
+               return_value=cfg), \
+         patch("skills.youtube_transcribe.transcribe._override_config",
+               return_value=cfg), \
          patch("skills.youtube_transcribe.transcribe.resolve",
                return_value=([], [])) as mock_resolve:
         runner = CliRunner()
@@ -91,9 +103,16 @@ def test_batch_prompts_when_no_inputs_and_tty(tmp_path: Path):
 
 def test_batch_does_not_prompt_when_search_given():
     """batch --search "foo" must NOT trigger the URL prompt (search is an alternative source)."""
+    from unittest.mock import MagicMock
+    cfg = MagicMock(fast_path_enabled=True)
     with patch("skills.youtube_transcribe.shared.prompts._is_tty",
                return_value=True), \
          patch("skills.youtube_transcribe.shared.prompts.prompt_urls_or_die") as mock_prompt, \
+         patch("skills.youtube_transcribe.transcribe.run_wizard"), \
+         patch("skills.youtube_transcribe.transcribe.load_config",
+               return_value=cfg), \
+         patch("skills.youtube_transcribe.transcribe._override_config",
+               return_value=cfg), \
          patch("skills.youtube_transcribe.transcribe.resolve",
                return_value=([], [])):
         runner = CliRunner()

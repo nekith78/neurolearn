@@ -117,9 +117,12 @@ def test_resolve_cookies_file_handles_missing_destination(tmp_path: Path):
         resolve_cookies_file,
     )
     cfg = tmp_path / "config.toml"
+    # Use forward slashes so Windows paths don't accidentally include
+    # TOML escape sequences (\U, \T, \n, ...) that fail the parser.
+    ghost = (tmp_path / "ghost.txt").as_posix()
     cfg.write_text(
         'default_preset = "smart"\n\n'
-        f'[instagram]\ncookies_file = "{tmp_path / "ghost.txt"}"\n',
+        f'[instagram]\ncookies_file = "{ghost}"\n',
         encoding="utf-8",
     )
     assert resolve_cookies_file("instagram", config_path=cfg) == ""
