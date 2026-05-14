@@ -2,7 +2,7 @@
 import json
 from unittest.mock import MagicMock
 
-from skills.youtube_transcribe.utils.output_writer import Segment, write_json
+from skills.neurolearn.utils.output_writer import Segment, write_json
 
 
 def _s(start, end, text):

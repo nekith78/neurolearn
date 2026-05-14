@@ -12,8 +12,8 @@ from pathlib import Path
 
 import pytest
 
-from skills.youtube_transcribe.backends.deepgram import DeepgramBackend, _group_words_into_segments
-from skills.youtube_transcribe.backends.base import BackendError, BackendNotConfigured
+from skills.neurolearn.backends.deepgram import DeepgramBackend, _group_words_into_segments
+from skills.neurolearn.backends.base import BackendError, BackendNotConfigured
 
 
 # ---------------------------------------------------------------------------
@@ -136,14 +136,14 @@ def test_group_trailing_words_without_punctuation():
 # ---------------------------------------------------------------------------
 
 def test_is_configured_without_key():
-    with patch("skills.youtube_transcribe.backends.deepgram.get_api_key", return_value=None):
+    with patch("skills.neurolearn.backends.deepgram.get_api_key", return_value=None):
         ok, reason = DeepgramBackend(model="nova-3").is_configured()
         assert ok is False
         assert "DEEPGRAM_API_KEY" in reason
 
 
 def test_is_configured_with_key():
-    with patch("skills.youtube_transcribe.backends.deepgram.get_api_key", return_value="dg_test"):
+    with patch("skills.neurolearn.backends.deepgram.get_api_key", return_value="dg_test"):
         ok, reason = DeepgramBackend(model="nova-3").is_configured()
         assert ok is True
         assert reason is None
@@ -168,8 +168,8 @@ def test_transcribe_maps_words_to_segments(tmp_path: Path):
     fake_client = MagicMock()
     fake_client.listen.v1.media.transcribe_file.return_value = fake_response
 
-    with patch("skills.youtube_transcribe.backends.deepgram.get_api_key", return_value="x"), \
-         patch("skills.youtube_transcribe.backends.deepgram._build_client", return_value=fake_client):
+    with patch("skills.neurolearn.backends.deepgram.get_api_key", return_value="x"), \
+         patch("skills.neurolearn.backends.deepgram._build_client", return_value=fake_client):
         b = DeepgramBackend(model="nova-3")
         result = b.transcribe(audio, language="en")
 
@@ -192,8 +192,8 @@ def test_transcribe_auto_language_passes_detect_language(tmp_path: Path):
     fake_client = MagicMock()
     fake_client.listen.v1.media.transcribe_file.return_value = fake_response
 
-    with patch("skills.youtube_transcribe.backends.deepgram.get_api_key", return_value="x"), \
-         patch("skills.youtube_transcribe.backends.deepgram._build_client", return_value=fake_client):
+    with patch("skills.neurolearn.backends.deepgram.get_api_key", return_value="x"), \
+         patch("skills.neurolearn.backends.deepgram._build_client", return_value=fake_client):
         result = DeepgramBackend().transcribe(audio, language="auto")
 
     call_kwargs = fake_client.listen.v1.media.transcribe_file.call_args.kwargs
@@ -212,8 +212,8 @@ def test_transcribe_specific_language(tmp_path: Path):
     fake_client = MagicMock()
     fake_client.listen.v1.media.transcribe_file.return_value = fake_response
 
-    with patch("skills.youtube_transcribe.backends.deepgram.get_api_key", return_value="x"), \
-         patch("skills.youtube_transcribe.backends.deepgram._build_client", return_value=fake_client):
+    with patch("skills.neurolearn.backends.deepgram.get_api_key", return_value="x"), \
+         patch("skills.neurolearn.backends.deepgram._build_client", return_value=fake_client):
         result = DeepgramBackend().transcribe(audio, language="fr")
 
     call_kwargs = fake_client.listen.v1.media.transcribe_file.call_args.kwargs
@@ -229,8 +229,8 @@ def test_transcribe_empty_words(tmp_path: Path):
     fake_client = MagicMock()
     fake_client.listen.v1.media.transcribe_file.return_value = fake_response
 
-    with patch("skills.youtube_transcribe.backends.deepgram.get_api_key", return_value="x"), \
-         patch("skills.youtube_transcribe.backends.deepgram._build_client", return_value=fake_client):
+    with patch("skills.neurolearn.backends.deepgram.get_api_key", return_value="x"), \
+         patch("skills.neurolearn.backends.deepgram._build_client", return_value=fake_client):
         result = DeepgramBackend().transcribe(audio)
 
     assert result.segments == []
@@ -250,8 +250,8 @@ def test_transcribe_duration_from_last_segment(tmp_path: Path):
     fake_client = MagicMock()
     fake_client.listen.v1.media.transcribe_file.return_value = fake_response
 
-    with patch("skills.youtube_transcribe.backends.deepgram.get_api_key", return_value="x"), \
-         patch("skills.youtube_transcribe.backends.deepgram._build_client", return_value=fake_client):
+    with patch("skills.neurolearn.backends.deepgram.get_api_key", return_value="x"), \
+         patch("skills.neurolearn.backends.deepgram._build_client", return_value=fake_client):
         result = DeepgramBackend().transcribe(audio)
 
     assert result.duration_seconds == pytest.approx(3.7)
@@ -265,14 +265,14 @@ def test_transcribe_raises_backend_not_configured_when_key_missing(tmp_path: Pat
     audio = tmp_path / "nokey.mp3"
     audio.write_bytes(b"fake")
 
-    with patch("skills.youtube_transcribe.backends.deepgram.get_api_key", return_value=None):
+    with patch("skills.neurolearn.backends.deepgram.get_api_key", return_value=None):
         b = DeepgramBackend()
         with pytest.raises(BackendNotConfigured):
             b.transcribe(audio)
 
 
 def test_transcribe_raises_backend_error_for_missing_file():
-    with patch("skills.youtube_transcribe.backends.deepgram.get_api_key", return_value="x"):
+    with patch("skills.neurolearn.backends.deepgram.get_api_key", return_value="x"):
         b = DeepgramBackend()
         with pytest.raises(BackendError, match="not found"):
             b.transcribe(Path("/nonexistent/path/audio.mp3"))
@@ -285,8 +285,8 @@ def test_transcribe_raises_backend_error_on_api_exception(tmp_path: Path):
     fake_client = MagicMock()
     fake_client.listen.v1.media.transcribe_file.side_effect = RuntimeError("rate limit")
 
-    with patch("skills.youtube_transcribe.backends.deepgram.get_api_key", return_value="x"), \
-         patch("skills.youtube_transcribe.backends.deepgram._build_client", return_value=fake_client):
+    with patch("skills.neurolearn.backends.deepgram.get_api_key", return_value="x"), \
+         patch("skills.neurolearn.backends.deepgram._build_client", return_value=fake_client):
         b = DeepgramBackend()
         with pytest.raises(BackendError, match="rate limit"):
             b.transcribe(audio)
@@ -319,7 +319,7 @@ def test_backend_custom_model():
 
 def test_build_client_uses_kwarg_api_key():
     """Real SDK 7.x rejects positional api_key — verify our wrapper passes as kwarg."""
-    from skills.youtube_transcribe.backends import deepgram as dg_module
+    from skills.neurolearn.backends import deepgram as dg_module
 
     fake_dg_client = MagicMock()
     fake_module = MagicMock()

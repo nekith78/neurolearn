@@ -5,7 +5,7 @@ import sys
 import pytest
 from click.testing import CliRunner
 
-from skills.youtube_transcribe.detection.triggers_cli import triggers_cli
+from skills.neurolearn.detection.triggers_cli import triggers_cli
 
 
 @pytest.fixture

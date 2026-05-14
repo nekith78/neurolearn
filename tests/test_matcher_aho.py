@@ -1,6 +1,6 @@
 """Tests for raw/strict matching via Aho-Corasick (no language detection yet)."""
-from skills.youtube_transcribe.detection.triggers import LanguageTriggers, TriggerConfig
-from skills.youtube_transcribe.detection.matcher import (
+from skills.neurolearn.detection.triggers import LanguageTriggers, TriggerConfig
+from skills.neurolearn.detection.matcher import (
     TriggerMatch,
     _build_raw_automaton,
     _build_strict_automaton,

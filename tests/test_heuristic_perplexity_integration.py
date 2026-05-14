@@ -1,8 +1,8 @@
 """Tests for HeuristicChecker.enable_perplexity integration."""
 from unittest.mock import patch
 
-from skills.youtube_transcribe.quality.heuristic_checker import HeuristicChecker
-from skills.youtube_transcribe.utils.output_writer import Segment
+from skills.neurolearn.quality.heuristic_checker import HeuristicChecker
+from skills.neurolearn.utils.output_writer import Segment
 
 
 def _seg(start, end, text):
@@ -21,11 +21,11 @@ def test_perplexity_disabled_by_default():
 def test_perplexity_enabled_calls_brick(monkeypatch):
     """When enable_perplexity=True, brick is invoked and breakdown gets entry."""
     monkeypatch.setattr(
-        "skills.youtube_transcribe.quality.perplexity.is_perplexity_available_for_lang",
+        "skills.neurolearn.quality.perplexity.is_perplexity_available_for_lang",
         lambda lang: True,
     )
     monkeypatch.setattr(
-        "skills.youtube_transcribe.quality.perplexity.perplexity_anomaly_score",
+        "skills.neurolearn.quality.perplexity.perplexity_anomaly_score",
         lambda segs, lang: 0.1,  # normal text
     )
     checker = HeuristicChecker(enable_perplexity=True)
@@ -37,11 +37,11 @@ def test_perplexity_enabled_calls_brick(monkeypatch):
 def test_high_perplexity_lowers_score(monkeypatch):
     """ppl=1.0 should subtract 0.25 from score and add high_perplexity flag."""
     monkeypatch.setattr(
-        "skills.youtube_transcribe.quality.perplexity.is_perplexity_available_for_lang",
+        "skills.neurolearn.quality.perplexity.is_perplexity_available_for_lang",
         lambda lang: True,
     )
     monkeypatch.setattr(
-        "skills.youtube_transcribe.quality.perplexity.perplexity_anomaly_score",
+        "skills.neurolearn.quality.perplexity.perplexity_anomaly_score",
         lambda segs, lang: 1.0,  # totally garbled
     )
 
@@ -62,7 +62,7 @@ def test_high_perplexity_lowers_score(monkeypatch):
 def test_perplexity_unavailable_silently_skipped(monkeypatch):
     """If lmppl unavailable / lang unsupported → score unaffected."""
     monkeypatch.setattr(
-        "skills.youtube_transcribe.quality.perplexity.is_perplexity_available_for_lang",
+        "skills.neurolearn.quality.perplexity.is_perplexity_available_for_lang",
         lambda lang: False,  # not available
     )
     text = "Hello and welcome to today's tutorial"
@@ -79,11 +79,11 @@ def test_perplexity_unavailable_silently_skipped(monkeypatch):
 def test_negative_perplexity_does_not_penalize(monkeypatch):
     """ppl_score returning -1.0 (sentinel for failure) should not change score."""
     monkeypatch.setattr(
-        "skills.youtube_transcribe.quality.perplexity.is_perplexity_available_for_lang",
+        "skills.neurolearn.quality.perplexity.is_perplexity_available_for_lang",
         lambda lang: True,
     )
     monkeypatch.setattr(
-        "skills.youtube_transcribe.quality.perplexity.perplexity_anomaly_score",
+        "skills.neurolearn.quality.perplexity.perplexity_anomaly_score",
         lambda segs, lang: -1.0,
     )
     text = "Hello and welcome to today's tutorial"

@@ -1,5 +1,5 @@
 from pathlib import Path
-from skills.youtube_transcribe.utils.output_writer import (
+from skills.neurolearn.utils.output_writer import (
     Segment,
     write_txt_with_timestamps,
     write_txt_plain,
@@ -66,7 +66,7 @@ def test_sanitize_filename_unicode_ok():
 
 import json
 from datetime import date, datetime
-from skills.youtube_transcribe.utils.output_writer import (
+from skills.neurolearn.utils.output_writer import (
     BatchMeta,
     BatchFailure,
     BatchVideoStatus,

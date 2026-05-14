@@ -2,7 +2,7 @@ from pathlib import Path
 from unittest.mock import patch, MagicMock
 import pytest
 
-from skills.youtube_transcribe.utils.downloader import (
+from skills.neurolearn.utils.downloader import (
     is_url,
     is_youtube_url,
     extract_youtube_video_id,
@@ -80,7 +80,7 @@ def test_build_ytdlp_command_with_cookies(tmp_path: Path):
 def test_probe_input_video(tmp_path):
     fake_info = {"_type": "video", "id": "abc123", "title": "Hello",
                  "duration": 134, "upload_date": "20260420", "channel": "@anth"}
-    with patch("skills.youtube_transcribe.utils.downloader._extract_flat",
+    with patch("skills.neurolearn.utils.downloader._extract_flat",
                return_value=fake_info):
         kind, payload = probe_input("https://youtu.be/abc123")
     assert kind == "video"
@@ -95,7 +95,7 @@ def test_probe_input_playlist():
             {"id": "v2", "title": "Second", "duration": 120, "upload_date": "20260201"},
         ],
     }
-    with patch("skills.youtube_transcribe.utils.downloader._extract_flat",
+    with patch("skills.neurolearn.utils.downloader._extract_flat",
                return_value=fake_info):
         kind, payload = probe_input("https://youtube.com/@channel")
     assert kind == "playlist"
@@ -118,7 +118,7 @@ def test_expand_channel_or_playlist_applies_limit():
              "upload_date": "20260101"} for i in range(50)
         ],
     }
-    with patch("skills.youtube_transcribe.utils.downloader._extract_flat",
+    with patch("skills.neurolearn.utils.downloader._extract_flat",
                return_value=fake_info):
         entries = expand_channel_or_playlist("https://youtube.com/@channel", limit=10)
     assert len(entries) == 10
@@ -134,7 +134,7 @@ def test_expand_channel_or_playlist_handles_missing_metadata():
             {"id": "v1", "title": "Live stream"},  # no duration, no upload_date
         ],
     }
-    with patch("skills.youtube_transcribe.utils.downloader._extract_flat",
+    with patch("skills.neurolearn.utils.downloader._extract_flat",
                return_value=fake_info):
         entries = expand_channel_or_playlist("https://youtube.com/@channel", limit=10)
     assert len(entries) == 1
@@ -148,7 +148,7 @@ def test_download_audio_raises_when_yt_dlp_not_in_path(tmp_path: Path):
     target_dir = tmp_path / "out"  # does NOT exist
     with patch("shutil.which", return_value=None):
         with pytest.raises(DownloadError, match="not found"):
-            from skills.youtube_transcribe.utils.downloader import download_audio
+            from skills.neurolearn.utils.downloader import download_audio
             download_audio("https://youtu.be/abc", target_dir)
     assert not target_dir.exists()  # debris check
 
@@ -162,6 +162,6 @@ def test_extract_flat_wraps_yt_dlp_download_error():
     fake_ctx.extract_info.side_effect = YtDlpDownloadError("HTTP 403")
     fake_ydl_class.return_value.__enter__.return_value = fake_ctx
     with patch.object(yt_dlp, "YoutubeDL", fake_ydl_class):
-        from skills.youtube_transcribe.utils.downloader import _extract_flat
+        from skills.neurolearn.utils.downloader import _extract_flat
         with pytest.raises(DownloadError):
             _extract_flat("https://youtu.be/blocked")

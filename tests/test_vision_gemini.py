@@ -5,8 +5,8 @@ from unittest.mock import patch, MagicMock
 
 import pytest
 
-from skills.youtube_transcribe.detection.base import DetectionWindow
-from skills.youtube_transcribe.vision.gemini import GeminiVisionBackend
+from skills.neurolearn.detection.base import DetectionWindow
+from skills.neurolearn.vision.gemini import GeminiVisionBackend
 
 
 def _fake_segment(start, end, text):
@@ -38,10 +38,10 @@ def test_gemini_annotate_returns_visual_segments(tmp_path):
     ]
 
     with patch(
-        "skills.youtube_transcribe.vision.gemini.genai.Client",
+        "skills.neurolearn.vision.gemini.genai.Client",
         return_value=fake_client,
     ), patch(
-        "skills.youtube_transcribe.vision.frames.extract_keyframes",
+        "skills.neurolearn.vision.frames.extract_keyframes",
         return_value=[out_dir / "vid_00010.jpg"],
     ):
         backend = GeminiVisionBackend(api_key="fake", model="gemini-2.5-flash")
@@ -72,10 +72,10 @@ def test_gemini_handles_invalid_json(tmp_path):
     out_dir.mkdir()
 
     with patch(
-        "skills.youtube_transcribe.vision.gemini.genai.Client",
+        "skills.neurolearn.vision.gemini.genai.Client",
         return_value=fake_client,
     ), patch(
-        "skills.youtube_transcribe.vision.frames.extract_keyframes",
+        "skills.neurolearn.vision.frames.extract_keyframes",
         return_value=[out_dir / "vid_00010.jpg"],
     ):
         backend = GeminiVisionBackend(api_key="fake")
@@ -98,10 +98,10 @@ def test_gemini_window_with_no_keyframes_skipped(tmp_path):
     out_dir.mkdir()
 
     with patch(
-        "skills.youtube_transcribe.vision.gemini.genai.Client",
+        "skills.neurolearn.vision.gemini.genai.Client",
         return_value=fake_client,
     ), patch(
-        "skills.youtube_transcribe.vision.frames.extract_keyframes",
+        "skills.neurolearn.vision.frames.extract_keyframes",
         return_value=[],
     ):
         backend = GeminiVisionBackend(api_key="fake")

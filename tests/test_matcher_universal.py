@@ -4,8 +4,8 @@ Encoder mocked via monkeypatch — real model only in e2e."""
 import numpy as np
 import pytest
 
-from skills.youtube_transcribe.detection.triggers import TriggerConfig
-from skills.youtube_transcribe.detection import matcher
+from skills.neurolearn.detection.triggers import TriggerConfig
+from skills.neurolearn.detection import matcher
 
 
 class FakeEncoder:

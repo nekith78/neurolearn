@@ -34,7 +34,7 @@ def _make_fake_post(*, shortcode, is_video=True, duration=10,
 
 def test_unavailable_when_instaloader_not_installed():
     """Missing dep should raise InstaloaderUnavailable with install hint."""
-    from skills.youtube_transcribe.subscribes import instagram_loader
+    from skills.neurolearn.subscribes import instagram_loader
 
     with patch.object(
         instagram_loader, "_lazy_import_instaloader",
@@ -50,7 +50,7 @@ def test_unavailable_when_instaloader_not_installed():
 
 def test_fetches_video_posts_only(tmp_path: Path):
     """Image-only posts should be skipped; only is_video=True returned."""
-    from skills.youtube_transcribe.subscribes import instagram_loader
+    from skills.neurolearn.subscribes import instagram_loader
 
     posts = [
         _make_fake_post(shortcode="v1", is_video=True),
@@ -74,7 +74,7 @@ def test_fetches_video_posts_only(tmp_path: Path):
 
 def test_respects_limit(tmp_path: Path):
     """Limit caps the iteration — even if the profile has more posts."""
-    from skills.youtube_transcribe.subscribes import instagram_loader
+    from skills.neurolearn.subscribes import instagram_loader
 
     posts = [
         _make_fake_post(shortcode=f"v{i}", is_video=True) for i in range(10)
@@ -97,7 +97,7 @@ def test_respects_limit(tmp_path: Path):
 def test_cookies_loaded_into_session(tmp_path: Path):
     """When cookies_file is given, MozillaCookieJar.load is invoked and
     cookies end up in the loader's requests session."""
-    from skills.youtube_transcribe.subscribes import instagram_loader
+    from skills.neurolearn.subscribes import instagram_loader
 
     cookies_path = _make_cookies_file(tmp_path / "ig.txt")
 
@@ -128,7 +128,7 @@ def test_cookies_filtered_to_instagram_domain(tmp_path: Path):
     """Defence in depth: non-instagram cookies in the jar are stripped
     before handing them to instaloader's session — minimizes credentials
     in process memory if the user exported the wrong jar."""
-    from skills.youtube_transcribe.subscribes import instagram_loader
+    from skills.neurolearn.subscribes import instagram_loader
 
     p = tmp_path / "mixed.txt"
     p.write_text(
@@ -170,7 +170,7 @@ def test_cookies_filtered_to_instagram_domain(tmp_path: Path):
 def test_malformed_cookies_file_raises_friendly_error(tmp_path: Path):
     """Malformed Netscape file → ValueError with re-export instruction
     (caller turns this into a user-visible yellow hint)."""
-    from skills.youtube_transcribe.subscribes import instagram_loader
+    from skills.neurolearn.subscribes import instagram_loader
 
     p = tmp_path / "bad.txt"
     # Not a valid Netscape header — MozillaCookieJar will raise LoadError.
@@ -198,7 +198,7 @@ def test_malformed_cookies_file_raises_friendly_error(tmp_path: Path):
 def test_session_attribute_renamed_surfaces_clear_hint(tmp_path: Path):
     """If instaloader renames `_session` upstream we surface a clear
     'pin to <5' hint instead of an opaque AttributeError stack trace."""
-    from skills.youtube_transcribe.subscribes import instagram_loader
+    from skills.neurolearn.subscribes import instagram_loader
 
     p = _make_cookies_file(tmp_path / "ok.txt")
 
@@ -232,7 +232,7 @@ def test_session_attribute_renamed_surfaces_clear_hint(tmp_path: Path):
 def test_warning_shown_once_per_session():
     """First call prints the bulk-scraping warning; subsequent calls do
     not re-print."""
-    from skills.youtube_transcribe.subscribes import instagram_loader
+    from skills.neurolearn.subscribes import instagram_loader
 
     # Reset session state.
     instagram_loader._warning_shown_in_session = False

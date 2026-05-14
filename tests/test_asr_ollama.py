@@ -3,11 +3,11 @@ import io
 import json
 from unittest.mock import patch, MagicMock
 
-from skills.youtube_transcribe.quality.asr_corrector import (
+from skills.neurolearn.quality.asr_corrector import (
     _call_ollama,
     correct_transcript_via_llm,
 )
-from skills.youtube_transcribe.utils.output_writer import Segment
+from skills.neurolearn.utils.output_writer import Segment
 
 
 def _s(start, end, text):

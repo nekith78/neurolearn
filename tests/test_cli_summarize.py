@@ -1,11 +1,11 @@
-"""Tests for the standalone `youtube-transcribe summarize` sub-command."""
+"""Tests for the standalone `neurolearn summarize` sub-command."""
 import json
 from pathlib import Path
 from unittest.mock import patch
 
 from click.testing import CliRunner
 
-from skills.youtube_transcribe.transcribe import cli
+from skills.neurolearn.transcribe import cli
 
 
 def test_summarize_help():
@@ -23,10 +23,10 @@ def test_summarize_writes_md_next_to_source(tmp_path: Path):
     fake_summary = "## TL;DR\nA summary."
 
     with patch(
-        "skills.youtube_transcribe.quality.summarizer.summarize_transcript",
+        "skills.neurolearn.quality.summarizer.summarize_transcript",
         return_value=fake_summary,
     ), patch(
-        "skills.youtube_transcribe.transcribe.get_api_key",
+        "skills.neurolearn.transcribe.get_api_key",
         return_value="fake-key",
     ):
         runner = CliRunner()
@@ -49,10 +49,10 @@ def test_summarize_explicit_output_path(tmp_path: Path):
     custom = tmp_path / "my-summary.md"
 
     with patch(
-        "skills.youtube_transcribe.quality.summarizer.summarize_transcript",
+        "skills.neurolearn.quality.summarizer.summarize_transcript",
         return_value="## TL;DR\nx",
     ), patch(
-        "skills.youtube_transcribe.transcribe.get_api_key",
+        "skills.neurolearn.transcribe.get_api_key",
         return_value="fake-key",
     ):
         runner = CliRunner()
@@ -80,7 +80,7 @@ def test_summarize_ollama_does_not_require_api_key(tmp_path: Path):
         return "## TL;DR\nok"
 
     with patch(
-        "skills.youtube_transcribe.quality.summarizer.summarize_transcript",
+        "skills.neurolearn.quality.summarizer.summarize_transcript",
         side_effect=fake_summarize,
     ):
         runner = CliRunner()
@@ -99,7 +99,7 @@ def test_summarize_missing_api_key_exits_with_hint(tmp_path: Path):
     src.write_text("[00:00:00.000 --> 00:00:05.000] hi\n", encoding="utf-8")
 
     with patch(
-        "skills.youtube_transcribe.transcribe.get_api_key",
+        "skills.neurolearn.transcribe.get_api_key",
         return_value=None,
     ):
         runner = CliRunner()
@@ -130,7 +130,7 @@ def test_summarize_llm_returns_empty(tmp_path: Path):
     src.write_text("[00:00:00.000 --> 00:00:05.000] hi\n", encoding="utf-8")
 
     with patch(
-        "skills.youtube_transcribe.quality.summarizer.summarize_transcript",
+        "skills.neurolearn.quality.summarizer.summarize_transcript",
         return_value="",
     ):
         runner = CliRunner()

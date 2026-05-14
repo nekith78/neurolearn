@@ -1,5 +1,5 @@
 from unittest.mock import patch
-from skills.youtube_transcribe.utils.platform_detect import detect_platform, PlatformInfo
+from skills.neurolearn.utils.platform_detect import detect_platform, PlatformInfo
 
 
 def test_apple_silicon_returns_mlx():

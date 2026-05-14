@@ -4,8 +4,8 @@ from unittest.mock import patch
 
 import pytest
 
-import skills.youtube_transcribe.config as config_module
-from skills.youtube_transcribe.config import (
+import skills.neurolearn.config as config_module
+from skills.neurolearn.config import (
     Config,
     load_config,
     save_config,

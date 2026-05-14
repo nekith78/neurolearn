@@ -1,7 +1,7 @@
 """Tests for history.store — persistent log of research/subscribes runs."""
 from pathlib import Path
 
-from skills.youtube_transcribe.history.store import (
+from skills.neurolearn.history.store import (
     RunEntry,
     append_run,
     list_runs,

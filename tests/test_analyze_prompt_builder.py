@@ -2,11 +2,11 @@
 import json
 from pathlib import Path
 
-from skills.youtube_transcribe.analyze.prompt_builder import (
+from skills.neurolearn.analyze.prompt_builder import (
     SYSTEM_PROMPT,
     build_prompt,
 )
-from skills.youtube_transcribe.analyze.source_resolver import VideoSource
+from skills.neurolearn.analyze.source_resolver import VideoSource
 
 
 def test_system_prompt_is_neutral():

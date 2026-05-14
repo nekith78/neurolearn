@@ -1,11 +1,11 @@
-"""Tests for `youtube-transcribe analyze` CLI."""
+"""Tests for `neurolearn analyze` CLI."""
 import json
 from pathlib import Path
 from unittest.mock import patch
 
 from click.testing import CliRunner
 
-from skills.youtube_transcribe.transcribe import cli
+from skills.neurolearn.transcribe import cli
 
 
 def test_analyze_help():
@@ -56,7 +56,7 @@ def test_analyze_single_file_ollama(tmp_path: Path):
         return "## Result\nOK"
 
     with patch(
-        "skills.youtube_transcribe.analyze.runner.run_analysis",
+        "skills.neurolearn.analyze.runner.run_analysis",
         side_effect=fake_run,
     ):
         runner = CliRunner()
@@ -83,7 +83,7 @@ def test_analyze_missing_key_exit_4(tmp_path: Path):
     f = tmp_path / "t.txt"
     f.write_text("[00:00:00.000 --> 00:00:01.000] hi\n", encoding="utf-8")
     with patch(
-        "skills.youtube_transcribe.transcribe.get_api_key",
+        "skills.neurolearn.transcribe.get_api_key",
         return_value=None,
     ):
         runner = CliRunner()
@@ -108,7 +108,7 @@ def test_analyze_empty_llm_exit_4(tmp_path: Path):
     f = tmp_path / "t.txt"
     f.write_text("[00:00:00.000 --> 00:00:01.000] hi\n", encoding="utf-8")
     with patch(
-        "skills.youtube_transcribe.analyze.runner.run_analysis",
+        "skills.neurolearn.analyze.runner.run_analysis",
         return_value="",
     ):
         runner = CliRunner()
@@ -133,7 +133,7 @@ def test_analyze_prompt_file_read(tmp_path: Path):
         return "OK"
 
     with patch(
-        "skills.youtube_transcribe.analyze.runner.run_analysis",
+        "skills.neurolearn.analyze.runner.run_analysis",
         side_effect=fake_run,
     ):
         runner = CliRunner()
@@ -171,13 +171,13 @@ def test_analyze_latest_skips_picker(tmp_path: Path):
         return "RESULT"
 
     with patch(
-        "skills.youtube_transcribe.analyze.runner.run_analysis",
+        "skills.neurolearn.analyze.runner.run_analysis",
         side_effect=fake_run,
     ), patch(
-        "skills.youtube_transcribe.transcribe.CONFIG_PATH",
+        "skills.neurolearn.transcribe.CONFIG_PATH",
         new=tmp_path / "no-config.toml",
     ), patch(
-        "skills.youtube_transcribe.transcribe.load_config",
+        "skills.neurolearn.transcribe.load_config",
         return_value=type("Cfg", (), {"output_dir": str(tmp_path)})(),
     ):
         runner = CliRunner()
@@ -212,13 +212,13 @@ def test_analyze_picker_called_when_no_flags(tmp_path: Path):
         return videos  # accept all
 
     with patch(
-        "skills.youtube_transcribe.analyze.picker.pick_videos",
+        "skills.neurolearn.analyze.picker.pick_videos",
         side_effect=fake_pick,
     ), patch(
-        "skills.youtube_transcribe.analyze.runner.run_analysis",
+        "skills.neurolearn.analyze.runner.run_analysis",
         return_value="OK",
     ), patch(
-        "skills.youtube_transcribe.transcribe._stdin_is_tty",
+        "skills.neurolearn.transcribe._stdin_is_tty",
         return_value=True,
     ):
         runner = CliRunner()
@@ -246,13 +246,13 @@ def test_analyze_picker_cancel_exits_5(tmp_path: Path):
         }],
     }), encoding="utf-8")
 
-    from skills.youtube_transcribe.analyze.picker import PickerCancelled
+    from skills.neurolearn.analyze.picker import PickerCancelled
 
     with patch(
-        "skills.youtube_transcribe.analyze.picker.pick_videos",
+        "skills.neurolearn.analyze.picker.pick_videos",
         side_effect=PickerCancelled(),
     ), patch(
-        "skills.youtube_transcribe.transcribe._stdin_is_tty",
+        "skills.neurolearn.transcribe._stdin_is_tty",
         return_value=True,
     ):
         runner = CliRunner()
@@ -282,7 +282,7 @@ def test_analyze_no_tty_no_flags_exits_3(tmp_path: Path):
     }), encoding="utf-8")
 
     with patch(
-        "skills.youtube_transcribe.transcribe._stdin_is_tty",
+        "skills.neurolearn.transcribe._stdin_is_tty",
         return_value=False,
     ):
         runner = CliRunner()
@@ -314,7 +314,7 @@ def test_analyze_append_to_creates_new(tmp_path: Path):
     target = tmp_path / "combined.md"
 
     with patch(
-        "skills.youtube_transcribe.analyze.runner.run_analysis",
+        "skills.neurolearn.analyze.runner.run_analysis",
         return_value="FIRST",
     ):
         runner = CliRunner()
@@ -339,7 +339,7 @@ def test_analyze_append_to_existing(tmp_path: Path):
                       encoding="utf-8")
 
     with patch(
-        "skills.youtube_transcribe.analyze.runner.run_analysis",
+        "skills.neurolearn.analyze.runner.run_analysis",
         return_value="NEW",
     ):
         runner = CliRunner()
@@ -362,7 +362,7 @@ def test_analyze_explicit_output_path(tmp_path: Path):
     custom = tmp_path / "my-analysis.md"
 
     with patch(
-        "skills.youtube_transcribe.analyze.runner.run_analysis",
+        "skills.neurolearn.analyze.runner.run_analysis",
         return_value="HELLO",
     ):
         runner = CliRunner()
@@ -382,7 +382,7 @@ def test_analyze_no_stdout_suppresses_response(tmp_path: Path):
     f.write_text("[00:00:00.000 --> 00:00:01.000] hi\n", encoding="utf-8")
 
     with patch(
-        "skills.youtube_transcribe.analyze.runner.run_analysis",
+        "skills.neurolearn.analyze.runner.run_analysis",
         return_value="VERY UNIQUE STRING ZZ",
     ):
         runner = CliRunner()
@@ -416,7 +416,7 @@ def test_analyze_batch_folder_writes_inside(tmp_path: Path):
     }), encoding="utf-8")
 
     with patch(
-        "skills.youtube_transcribe.analyze.runner.run_analysis",
+        "skills.neurolearn.analyze.runner.run_analysis",
         return_value="OK",
     ):
         runner = CliRunner()

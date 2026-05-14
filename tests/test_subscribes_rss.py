@@ -5,7 +5,7 @@ from unittest.mock import patch
 
 import pytest
 
-from skills.youtube_transcribe.subscribes.rss import (
+from skills.neurolearn.subscribes.rss import (
     RssEntry,
     parse_rss,
     fetch_rss,
@@ -61,7 +61,7 @@ def test_fetch_rss_uses_urllib():
     """fetch_rss should fetch via urllib and pass body to parse_rss."""
     body = FIXTURE.read_text(encoding="utf-8")
     with patch(
-        "skills.youtube_transcribe.subscribes.rss._http_get",
+        "skills.neurolearn.subscribes.rss._http_get",
         return_value=body,
     ) as mock_get:
         out = fetch_rss("UC_abc")
@@ -74,7 +74,7 @@ def test_fetch_rss_uses_urllib():
 
 def test_fetch_rss_network_error_returns_empty():
     with patch(
-        "skills.youtube_transcribe.subscribes.rss._http_get",
+        "skills.neurolearn.subscribes.rss._http_get",
         side_effect=OSError("network down"),
     ):
         assert fetch_rss("UC_x") == []
@@ -82,7 +82,7 @@ def test_fetch_rss_network_error_returns_empty():
 
 def test_filter_after_published(tmp_path: Path):
     """Helper used by pipeline: entries newer than a reference timestamp."""
-    from skills.youtube_transcribe.subscribes.rss import entries_after
+    from skills.neurolearn.subscribes.rss import entries_after
     entries = parse_rss(FIXTURE.read_text(encoding="utf-8"))
     cutoff = datetime(2026, 5, 11, 0, 0, 0, tzinfo=timezone.utc)
     filtered = entries_after(entries, cutoff)

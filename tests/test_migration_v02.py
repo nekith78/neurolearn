@@ -2,7 +2,7 @@
 import textwrap
 from pathlib import Path
 
-from skills.youtube_transcribe.config import migrate_v01_to_v02
+from skills.neurolearn.config import migrate_v01_to_v02
 
 
 def test_v01_config_gets_default_preset_added(tmp_path):

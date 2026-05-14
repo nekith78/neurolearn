@@ -2,11 +2,11 @@
 import json
 from unittest.mock import patch, MagicMock
 
-from skills.youtube_transcribe.quality.summarizer import (
+from skills.neurolearn.quality.summarizer import (
     _format_transcript_for_summary,
     summarize_transcript,
 )
-from skills.youtube_transcribe.utils.output_writer import Segment
+from skills.neurolearn.utils.output_writer import Segment
 
 
 def _s(start, end, text):

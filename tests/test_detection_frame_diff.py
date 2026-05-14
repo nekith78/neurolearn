@@ -4,7 +4,7 @@ from unittest.mock import patch, MagicMock
 
 import pytest
 
-from skills.youtube_transcribe.detection.frame_diff import (
+from skills.neurolearn.detection.frame_diff import (
     FrameDiff,
     detect_frame_changes_in_window,
 )
@@ -25,7 +25,7 @@ def test_detect_frame_changes_returns_diffs():
     fake_hashes[2].__sub__ = MagicMock(return_value=5)
 
     with patch(
-        "skills.youtube_transcribe.detection.frame_diff._extract_frame_hashes",
+        "skills.neurolearn.detection.frame_diff._extract_frame_hashes",
         return_value=[(0.0, fake_hashes[0]), (1.0, fake_hashes[1]), (2.0, fake_hashes[2])],
     ):
         diffs = detect_frame_changes_in_window(
@@ -42,7 +42,7 @@ def test_detect_frame_changes_no_changes():
     fake_hashes[0].__sub__ = MagicMock(return_value=2)
     fake_hashes[1].__sub__ = MagicMock(return_value=2)
     with patch(
-        "skills.youtube_transcribe.detection.frame_diff._extract_frame_hashes",
+        "skills.neurolearn.detection.frame_diff._extract_frame_hashes",
         return_value=[(0.0, fake_hashes[0]), (1.0, fake_hashes[1])],
     ):
         diffs = detect_frame_changes_in_window(Path("x.mp4"), 0.0, 1.0, threshold=20)

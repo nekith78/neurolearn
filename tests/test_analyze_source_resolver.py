@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from skills.youtube_transcribe.analyze.source_resolver import (
+from skills.neurolearn.analyze.source_resolver import (
     VideoSource,
     resolve_source,
     pick_latest_batch,

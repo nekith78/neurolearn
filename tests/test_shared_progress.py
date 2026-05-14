@@ -4,7 +4,7 @@ from unittest.mock import MagicMock
 
 from rich.console import Console
 
-from skills.youtube_transcribe.shared.progress import stage_progress
+from skills.neurolearn.shared.progress import stage_progress
 
 
 def _make_capturing_console() -> tuple[Console, StringIO]:
@@ -61,9 +61,9 @@ def test_pipeline_invokes_on_stage_callback(monkeypatch, tmp_path):
     Covers the local-file branch (no download/yt-dlp involved, fastest
     path to assert callback ordering without mocking the network).
     """
-    from skills.youtube_transcribe.pipeline import run_pipeline
-    from skills.youtube_transcribe.config import Config
-    from skills.youtube_transcribe.utils.resolver import ResolvedTarget
+    from skills.neurolearn.pipeline import run_pipeline
+    from skills.neurolearn.config import Config
+    from skills.neurolearn.utils.resolver import ResolvedTarget
 
     # Create a fake local file so the local-file branch is taken.
     fake_audio = tmp_path / "x.mp3"
@@ -72,7 +72,7 @@ def test_pipeline_invokes_on_stage_callback(monkeypatch, tmp_path):
     fake_backend = MagicMock()
     fake_backend.transcribe.return_value = MagicMock(segments=[])
     monkeypatch.setattr(
-        "skills.youtube_transcribe.pipeline.build_backend",
+        "skills.neurolearn.pipeline.build_backend",
         lambda *a, **k: fake_backend,
     )
 
@@ -93,16 +93,16 @@ def test_pipeline_invokes_on_stage_callback(monkeypatch, tmp_path):
 
 def test_pipeline_no_callback_is_safe(monkeypatch, tmp_path):
     """on_stage=None must work as before — no progress, no errors."""
-    from skills.youtube_transcribe.pipeline import run_pipeline
-    from skills.youtube_transcribe.config import Config
-    from skills.youtube_transcribe.utils.resolver import ResolvedTarget
+    from skills.neurolearn.pipeline import run_pipeline
+    from skills.neurolearn.config import Config
+    from skills.neurolearn.utils.resolver import ResolvedTarget
 
     fake_audio = tmp_path / "x.mp3"
     fake_audio.write_bytes(b"\x00")
     fake_backend = MagicMock()
     fake_backend.transcribe.return_value = MagicMock(segments=[])
     monkeypatch.setattr(
-        "skills.youtube_transcribe.pipeline.build_backend",
+        "skills.neurolearn.pipeline.build_backend",
         lambda *a, **k: fake_backend,
     )
 

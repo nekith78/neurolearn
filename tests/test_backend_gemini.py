@@ -8,8 +8,8 @@ from pathlib import Path
 
 import pytest
 
-from skills.youtube_transcribe.backends.gemini import GeminiBackend
-from skills.youtube_transcribe.backends.base import BackendError, BackendNotConfigured
+from skills.neurolearn.backends.gemini import GeminiBackend
+from skills.neurolearn.backends.base import BackendError, BackendNotConfigured
 
 
 # ---------------------------------------------------------------------------
@@ -18,7 +18,7 @@ from skills.youtube_transcribe.backends.base import BackendError, BackendNotConf
 
 def test_is_configured_without_key(monkeypatch, tmp_path: Path):
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
-    with patch("skills.youtube_transcribe.backends.gemini.get_api_key", return_value=None):
+    with patch("skills.neurolearn.backends.gemini.get_api_key", return_value=None):
         b = GeminiBackend(model="gemini-2.5-flash")
         ok, reason = b.is_configured()
         assert ok is False
@@ -26,7 +26,7 @@ def test_is_configured_without_key(monkeypatch, tmp_path: Path):
 
 
 def test_is_configured_with_key():
-    with patch("skills.youtube_transcribe.backends.gemini.get_api_key", return_value="x"):
+    with patch("skills.neurolearn.backends.gemini.get_api_key", return_value="x"):
         b = GeminiBackend(model="gemini-2.5-flash")
         ok, reason = b.is_configured()
         assert ok is True
@@ -53,8 +53,8 @@ def test_transcribe_parses_json_response(tmp_path: Path):
     fake_client.files.upload.return_value = MagicMock(name="files/abc")
     fake_client.models.generate_content.return_value = fake_response
 
-    with patch("skills.youtube_transcribe.backends.gemini.get_api_key", return_value="x"), \
-         patch("skills.youtube_transcribe.backends.gemini._build_client", return_value=fake_client):
+    with patch("skills.neurolearn.backends.gemini.get_api_key", return_value="x"), \
+         patch("skills.neurolearn.backends.gemini._build_client", return_value=fake_client):
         b = GeminiBackend(model="gemini-2.5-flash")
         result = b.transcribe(audio, language="en")
 
@@ -83,8 +83,8 @@ def test_transcribe_duration_from_last_segment(tmp_path: Path):
     fake_client.files.upload.return_value = MagicMock()
     fake_client.models.generate_content.return_value = fake_response
 
-    with patch("skills.youtube_transcribe.backends.gemini.get_api_key", return_value="x"), \
-         patch("skills.youtube_transcribe.backends.gemini._build_client", return_value=fake_client):
+    with patch("skills.neurolearn.backends.gemini.get_api_key", return_value="x"), \
+         patch("skills.neurolearn.backends.gemini._build_client", return_value=fake_client):
         b = GeminiBackend(model="gemini-2.5-flash")
         result = b.transcribe(audio, language="fr")
 
@@ -107,8 +107,8 @@ def test_transcribe_strips_markdown_fences(tmp_path: Path):
     fake_client.files.upload.return_value = MagicMock()
     fake_client.models.generate_content.return_value = fake_response
 
-    with patch("skills.youtube_transcribe.backends.gemini.get_api_key", return_value="x"), \
-         patch("skills.youtube_transcribe.backends.gemini._build_client", return_value=fake_client):
+    with patch("skills.neurolearn.backends.gemini.get_api_key", return_value="x"), \
+         patch("skills.neurolearn.backends.gemini._build_client", return_value=fake_client):
         b = GeminiBackend(model="gemini-2.5-flash")
         result = b.transcribe(audio)
 
@@ -130,8 +130,8 @@ def test_transcribe_raises_backend_error_on_malformed_json(tmp_path: Path):
     fake_client.files.upload.return_value = MagicMock()
     fake_client.models.generate_content.return_value = fake_response
 
-    with patch("skills.youtube_transcribe.backends.gemini.get_api_key", return_value="x"), \
-         patch("skills.youtube_transcribe.backends.gemini._build_client", return_value=fake_client):
+    with patch("skills.neurolearn.backends.gemini.get_api_key", return_value="x"), \
+         patch("skills.neurolearn.backends.gemini._build_client", return_value=fake_client):
         b = GeminiBackend(model="gemini-2.5-flash")
         with pytest.raises(BackendError):
             b.transcribe(audio)
@@ -141,7 +141,7 @@ def test_transcribe_raises_backend_not_configured_when_key_missing(tmp_path: Pat
     audio = tmp_path / "nokey.mp3"
     audio.write_bytes(b"fake")
 
-    with patch("skills.youtube_transcribe.backends.gemini.get_api_key", return_value=None):
+    with patch("skills.neurolearn.backends.gemini.get_api_key", return_value=None):
         b = GeminiBackend(model="gemini-2.5-flash")
         with pytest.raises(BackendNotConfigured):
             b.transcribe(audio)
@@ -154,15 +154,15 @@ def test_transcribe_raises_backend_error_on_api_exception(tmp_path: Path):
     fake_client = MagicMock()
     fake_client.files.upload.side_effect = RuntimeError("network timeout")
 
-    with patch("skills.youtube_transcribe.backends.gemini.get_api_key", return_value="x"), \
-         patch("skills.youtube_transcribe.backends.gemini._build_client", return_value=fake_client):
+    with patch("skills.neurolearn.backends.gemini.get_api_key", return_value="x"), \
+         patch("skills.neurolearn.backends.gemini._build_client", return_value=fake_client):
         b = GeminiBackend(model="gemini-2.5-flash")
         with pytest.raises(BackendError, match="network timeout"):
             b.transcribe(audio)
 
 
 def test_transcribe_raises_backend_error_for_missing_file():
-    with patch("skills.youtube_transcribe.backends.gemini.get_api_key", return_value="x"):
+    with patch("skills.neurolearn.backends.gemini.get_api_key", return_value="x"):
         b = GeminiBackend(model="gemini-2.5-flash")
         with pytest.raises(BackendError, match="not found"):
             b.transcribe(Path("/nonexistent/path/audio.mp3"))

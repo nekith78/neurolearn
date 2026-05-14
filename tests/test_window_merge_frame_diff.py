@@ -5,9 +5,9 @@ Drops static windows, boosts rich ones, no-ops on ffmpeg failure.
 from pathlib import Path
 from unittest.mock import patch
 
-from skills.youtube_transcribe.detection.base import DetectionWindow
-from skills.youtube_transcribe.detection.frame_diff import FrameDiff
-from skills.youtube_transcribe.detection.window_merge import refine_with_frame_diff
+from skills.neurolearn.detection.base import DetectionWindow
+from skills.neurolearn.detection.frame_diff import FrameDiff
+from skills.neurolearn.detection.window_merge import refine_with_frame_diff
 
 
 def _w(start, end, score=0.5, reason="universal", phrase="x"):
@@ -20,7 +20,7 @@ def _w(start, end, score=0.5, reason="universal", phrase="x"):
 def test_static_window_dropped():
     """0 frame changes → drop the window (talking head, not worth Gemini call)."""
     with patch(
-        "skills.youtube_transcribe.detection.frame_diff.detect_frame_changes_in_window",
+        "skills.neurolearn.detection.frame_diff.detect_frame_changes_in_window",
         return_value=[],
     ):
         out = refine_with_frame_diff([_w(0, 5)], Path("fake.mp4"))
@@ -30,14 +30,14 @@ def test_static_window_dropped():
 def test_low_activity_window_dropped_below_min_changes():
     """Default min_changes=1: window with 0 changes dropped, 1 kept."""
     with patch(
-        "skills.youtube_transcribe.detection.frame_diff.detect_frame_changes_in_window",
+        "skills.neurolearn.detection.frame_diff.detect_frame_changes_in_window",
         return_value=[],
     ):
         out = refine_with_frame_diff([_w(0, 5)], Path("fake.mp4"), min_changes=1)
     assert out == []
 
     with patch(
-        "skills.youtube_transcribe.detection.frame_diff.detect_frame_changes_in_window",
+        "skills.neurolearn.detection.frame_diff.detect_frame_changes_in_window",
         return_value=[FrameDiff(timestamp=2.0, hamming_distance=25)],
     ):
         out = refine_with_frame_diff([_w(0, 5)], Path("fake.mp4"), min_changes=1)
@@ -48,7 +48,7 @@ def test_rich_window_gets_score_boost():
     """>=5 changes → score multiplied by rich_score_boost (default 1.3)."""
     diffs = [FrameDiff(timestamp=t, hamming_distance=25) for t in range(5)]
     with patch(
-        "skills.youtube_transcribe.detection.frame_diff.detect_frame_changes_in_window",
+        "skills.neurolearn.detection.frame_diff.detect_frame_changes_in_window",
         return_value=diffs,
     ):
         out = refine_with_frame_diff([_w(0, 10, score=0.6)], Path("fake.mp4"))
@@ -63,7 +63,7 @@ def test_score_clamped_at_one():
     """Boost should not push score above 1.0."""
     diffs = [FrameDiff(timestamp=t, hamming_distance=25) for t in range(5)]
     with patch(
-        "skills.youtube_transcribe.detection.frame_diff.detect_frame_changes_in_window",
+        "skills.neurolearn.detection.frame_diff.detect_frame_changes_in_window",
         return_value=diffs,
     ):
         out = refine_with_frame_diff([_w(0, 10, score=0.9)], Path("fake.mp4"))
@@ -75,7 +75,7 @@ def test_medium_activity_kept_unchanged():
     diffs = [FrameDiff(timestamp=1.0, hamming_distance=25),
              FrameDiff(timestamp=2.0, hamming_distance=22)]
     with patch(
-        "skills.youtube_transcribe.detection.frame_diff.detect_frame_changes_in_window",
+        "skills.neurolearn.detection.frame_diff.detect_frame_changes_in_window",
         return_value=diffs,
     ):
         out = refine_with_frame_diff([_w(0, 5, score=0.6)], Path("fake.mp4"))
@@ -86,7 +86,7 @@ def test_medium_activity_kept_unchanged():
 def test_ffmpeg_failure_keeps_window():
     """If frame_diff raises (ffmpeg hiccup), keep the window — don't lose data."""
     with patch(
-        "skills.youtube_transcribe.detection.frame_diff.detect_frame_changes_in_window",
+        "skills.neurolearn.detection.frame_diff.detect_frame_changes_in_window",
         side_effect=Exception("ffmpeg crashed"),
     ):
         out = refine_with_frame_diff([_w(0, 5, score=0.6)], Path("fake.mp4"))
@@ -103,7 +103,7 @@ def test_raw_trigger_window_never_dropped():
     """raw-reason windows are user explicit intent — never drop, never re-score."""
     w_raw = _w(0, 5, score=0.5, reason="raw", phrase="TODO")
     with patch(
-        "skills.youtube_transcribe.detection.frame_diff.detect_frame_changes_in_window",
+        "skills.neurolearn.detection.frame_diff.detect_frame_changes_in_window",
         return_value=[],  # would normally drop
     ) as mock_diff:
         out = refine_with_frame_diff([w_raw], Path("fake.mp4"))
@@ -115,7 +115,7 @@ def test_raw_trigger_window_never_dropped():
 def test_strict_lang_window_never_dropped():
     w_strict = _w(0, 5, score=0.5, reason="strict:ru", phrase="баг")
     with patch(
-        "skills.youtube_transcribe.detection.frame_diff.detect_frame_changes_in_window",
+        "skills.neurolearn.detection.frame_diff.detect_frame_changes_in_window",
         return_value=[],
     ):
         out = refine_with_frame_diff([w_strict], Path("fake.mp4"))
@@ -127,7 +127,7 @@ def test_llm_window_never_dropped():
     — frame_diff shouldn't override that, even if visuals are static."""
     w_llm = _w(0, 5, score=0.9, reason="llm_full_pass:code on screen", phrase="")
     with patch(
-        "skills.youtube_transcribe.detection.frame_diff.detect_frame_changes_in_window",
+        "skills.neurolearn.detection.frame_diff.detect_frame_changes_in_window",
         return_value=[],
     ):
         out = refine_with_frame_diff([w_llm], Path("fake.mp4"))

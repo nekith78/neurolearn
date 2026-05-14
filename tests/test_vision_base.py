@@ -1,5 +1,5 @@
 """Tests for VisualSegment dataclass and VisionBackend Protocol."""
-from skills.youtube_transcribe.backends.vision_base import VisualSegment
+from skills.neurolearn.backends.vision_base import VisualSegment
 
 
 def test_visual_segment_creation():

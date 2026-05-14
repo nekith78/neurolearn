@@ -2,8 +2,8 @@
 from datetime import date
 from unittest.mock import patch
 
-from skills.youtube_transcribe.utils.downloader import ChannelEntry, search_videos
-from skills.youtube_transcribe.utils.resolver import (
+from skills.neurolearn.utils.downloader import ChannelEntry, search_videos
+from skills.neurolearn.utils.resolver import (
     ResolverFilters,
     resolve,
 )
@@ -27,7 +27,7 @@ def test_search_videos_calls_extract_flat_with_ytsearch_url():
         ],
     }
     with patch(
-        "skills.youtube_transcribe.utils.downloader._extract_flat",
+        "skills.neurolearn.utils.downloader._extract_flat",
         return_value=fake_info,
     ) as mock_extract:
         out = search_videos("claude tutorial", limit=5)
@@ -44,7 +44,7 @@ def test_search_videos_calls_extract_flat_with_ytsearch_url():
 
 
 def test_search_videos_empty_query_raises():
-    from skills.youtube_transcribe.utils.downloader import DownloadError
+    from skills.neurolearn.utils.downloader import DownloadError
     import pytest
     with pytest.raises(DownloadError):
         search_videos("   ", limit=5)
@@ -57,7 +57,7 @@ def test_search_videos_caps_at_limit():
         "entries": [{"id": f"vid{i:08d}", "title": str(i)} for i in range(20)],
     }
     with patch(
-        "skills.youtube_transcribe.utils.downloader._extract_flat",
+        "skills.neurolearn.utils.downloader._extract_flat",
         return_value=fake_info,
     ):
         out = search_videos("query", limit=5)
@@ -74,7 +74,7 @@ def test_search_videos_skips_entries_without_id():
         ],
     }
     with patch(
-        "skills.youtube_transcribe.utils.downloader._extract_flat",
+        "skills.neurolearn.utils.downloader._extract_flat",
         return_value=fake_info,
     ):
         out = search_videos("query", limit=10)
@@ -85,7 +85,7 @@ def test_resolver_search_query_expands_to_targets(tmp_path):
     """resolve() with filters.search_query=X should call search_videos."""
     fake_entries = [_ce("aaa11111111", "From search")]
     with patch(
-        "skills.youtube_transcribe.utils.downloader.search_videos",
+        "skills.neurolearn.utils.downloader.search_videos",
         return_value=fake_entries,
     ):
         targets, failures = resolve(
@@ -109,10 +109,10 @@ def test_resolver_search_with_inline_inputs_combines():
         "channel": "Ch",
     }
     with patch(
-        "skills.youtube_transcribe.utils.downloader.search_videos",
+        "skills.neurolearn.utils.downloader.search_videos",
         return_value=fake_entries,
     ), patch(
-        "skills.youtube_transcribe.utils.resolver.probe_input",
+        "skills.neurolearn.utils.resolver.probe_input",
         return_value=("video", fake_video_info),
     ):
         targets, _ = resolve(
@@ -128,7 +128,7 @@ def test_resolver_search_with_inline_inputs_combines():
 def test_resolver_search_failure_recorded_as_resolve_failure():
     """If search_videos raises, failure goes into ResolveFailure list."""
     with patch(
-        "skills.youtube_transcribe.utils.downloader.search_videos",
+        "skills.neurolearn.utils.downloader.search_videos",
         side_effect=RuntimeError("network down"),
     ):
         targets, failures = resolve(
@@ -143,7 +143,7 @@ def test_resolver_search_failure_recorded_as_resolve_failure():
 
 def test_resolver_no_inputs_no_search_raises():
     """No inputs + no search query → CLIInputError."""
-    from skills.youtube_transcribe.utils.resolver import CLIInputError
+    from skills.neurolearn.utils.resolver import CLIInputError
     import pytest
     with pytest.raises(CLIInputError):
         resolve([], from_file=None, filters=ResolverFilters())
@@ -153,7 +153,7 @@ def test_resolver_only_search_no_inline_works():
     """Just --search with no inline URLs is valid (search-only mode)."""
     fake_entries = [_ce("aaa11111111")]
     with patch(
-        "skills.youtube_transcribe.utils.downloader.search_videos",
+        "skills.neurolearn.utils.downloader.search_videos",
         return_value=fake_entries,
     ):
         targets, _ = resolve(

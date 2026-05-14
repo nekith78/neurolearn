@@ -1,9 +1,9 @@
 """Tests for trigram_repetition_rate and non_speech_marker_ratio."""
-from skills.youtube_transcribe.quality.repetition import (
+from skills.neurolearn.quality.repetition import (
     trigram_repetition_rate,
     non_speech_marker_ratio,
 )
-from skills.youtube_transcribe.utils.output_writer import Segment
+from skills.neurolearn.utils.output_writer import Segment
 
 
 def test_repetition_clean_text():

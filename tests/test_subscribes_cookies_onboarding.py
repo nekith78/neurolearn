@@ -24,14 +24,14 @@ def _make_cookies_file(p: Path, *, with_header: bool = True) -> Path:
 
 
 def test_set_cookies_file_persists_to_config(tmp_path: Path):
-    from skills.youtube_transcribe.subscribes.cookies_onboarding import (
+    from skills.neurolearn.subscribes.cookies_onboarding import (
         set_cookies_file,
     )
     cfg = tmp_path / "config.toml"
     src = _make_cookies_file(tmp_path / "ig.txt")
 
     # Patch CONFIG_PATH so set_cookies_file writes alongside it.
-    import skills.youtube_transcribe.subscribes.cookies_onboarding as mod
+    import skills.neurolearn.subscribes.cookies_onboarding as mod
     dest = set_cookies_file("instagram", str(src), config_path=cfg)
 
     assert dest.exists()
@@ -42,7 +42,7 @@ def test_set_cookies_file_persists_to_config(tmp_path: Path):
 
 
 def test_set_cookies_file_rejects_missing(tmp_path: Path):
-    from skills.youtube_transcribe.subscribes.cookies_onboarding import (
+    from skills.neurolearn.subscribes.cookies_onboarding import (
         set_cookies_file,
     )
     cfg = tmp_path / "config.toml"
@@ -55,7 +55,7 @@ def test_set_cookies_file_rejects_missing(tmp_path: Path):
 def test_set_cookies_file_rejects_non_netscape(tmp_path: Path):
     """Refuse anything that doesn't look like Netscape cookies.txt — saves the
     user from accidentally pointing at a random text file."""
-    from skills.youtube_transcribe.subscribes.cookies_onboarding import (
+    from skills.neurolearn.subscribes.cookies_onboarding import (
         set_cookies_file,
     )
     cfg = tmp_path / "config.toml"
@@ -68,7 +68,7 @@ def test_set_cookies_file_rejects_non_netscape(tmp_path: Path):
 def test_set_cookies_file_accepts_no_header(tmp_path: Path):
     """7-tab rows without an explicit `# Netscape` header should still pass —
     some extensions omit the header."""
-    from skills.youtube_transcribe.subscribes.cookies_onboarding import (
+    from skills.neurolearn.subscribes.cookies_onboarding import (
         set_cookies_file,
     )
     cfg = tmp_path / "config.toml"
@@ -78,7 +78,7 @@ def test_set_cookies_file_accepts_no_header(tmp_path: Path):
 
 
 def test_set_cookies_file_unknown_platform_raises(tmp_path: Path):
-    from skills.youtube_transcribe.subscribes.cookies_onboarding import (
+    from skills.neurolearn.subscribes.cookies_onboarding import (
         set_cookies_file,
     )
     cfg = tmp_path / "config.toml"
@@ -88,7 +88,7 @@ def test_set_cookies_file_unknown_platform_raises(tmp_path: Path):
 
 
 def test_resolve_cookies_file_returns_path_when_set(tmp_path: Path):
-    from skills.youtube_transcribe.subscribes.cookies_onboarding import (
+    from skills.neurolearn.subscribes.cookies_onboarding import (
         resolve_cookies_file, set_cookies_file,
     )
     cfg = tmp_path / "config.toml"
@@ -102,7 +102,7 @@ def test_resolve_cookies_file_returns_path_when_set(tmp_path: Path):
 
 def test_resolve_cookies_file_returns_empty_when_unset(tmp_path: Path):
     """No prompt, no interaction — just '' so the caller proceeds anon."""
-    from skills.youtube_transcribe.subscribes.cookies_onboarding import (
+    from skills.neurolearn.subscribes.cookies_onboarding import (
         resolve_cookies_file,
     )
     cfg = tmp_path / "config.toml"
@@ -113,7 +113,7 @@ def test_resolve_cookies_file_returns_empty_when_unset(tmp_path: Path):
 def test_resolve_cookies_file_handles_missing_destination(tmp_path: Path):
     """Path in config but file got deleted → warn + return ''. Caller
     treats as 'no cookies'."""
-    from skills.youtube_transcribe.subscribes.cookies_onboarding import (
+    from skills.neurolearn.subscribes.cookies_onboarding import (
         resolve_cookies_file,
     )
     cfg = tmp_path / "config.toml"
@@ -131,7 +131,7 @@ def test_resolve_cookies_file_handles_missing_destination(tmp_path: Path):
 def test_resolve_cookies_file_youtube_always_empty(tmp_path: Path):
     """YouTube channels use public RSS — never use cookies. Even if a
     `[youtube] cookies_file` were somehow set, we'd ignore it."""
-    from skills.youtube_transcribe.subscribes.cookies_onboarding import (
+    from skills.neurolearn.subscribes.cookies_onboarding import (
         resolve_cookies_file,
     )
     cfg = tmp_path / "config.toml"
@@ -143,7 +143,7 @@ def test_resolve_cookies_file_youtube_always_empty(tmp_path: Path):
 
 def test_wizard_non_tty_returns_false(tmp_path: Path):
     """Non-TTY (CI / Claude Code / pipe) → wizard never blocks; returns False."""
-    from skills.youtube_transcribe.subscribes.cookies_onboarding import wizard
+    from skills.neurolearn.subscribes.cookies_onboarding import wizard
     cfg = tmp_path / "config.toml"
     assert wizard("instagram", config_path=cfg, is_tty=False) is False
 
@@ -151,7 +151,7 @@ def test_wizard_non_tty_returns_false(tmp_path: Path):
 def test_wizard_full_flow_persists_to_config(tmp_path: Path):
     """TTY path: platform prompt (click) + path prompt (questionary)."""
     from unittest.mock import patch
-    from skills.youtube_transcribe.subscribes import cookies_onboarding as mod
+    from skills.neurolearn.subscribes import cookies_onboarding as mod
     cfg = tmp_path / "config.toml"
     src = _make_cookies_file(tmp_path / "ig.txt")
 
@@ -171,7 +171,7 @@ def test_wizard_with_platform_skips_first_prompt(tmp_path: Path):
     """If platform already known (called from `add` or `update`), wizard
     skips the click.Choice prompt and asks only for the path."""
     from unittest.mock import patch
-    from skills.youtube_transcribe.subscribes import cookies_onboarding as mod
+    from skills.neurolearn.subscribes import cookies_onboarding as mod
     cfg = tmp_path / "config.toml"
     src = _make_cookies_file(tmp_path / "tt.txt")
 
@@ -190,7 +190,7 @@ def test_wizard_with_platform_skips_first_prompt(tmp_path: Path):
 def test_wizard_invalid_file_returns_false(tmp_path: Path):
     """Wizard surfaces validation errors and returns False without crashing."""
     from unittest.mock import patch
-    from skills.youtube_transcribe.subscribes import cookies_onboarding as mod
+    from skills.neurolearn.subscribes import cookies_onboarding as mod
     cfg = tmp_path / "config.toml"
     bad = tmp_path / "garbage.txt"
     bad.write_text("not cookies", encoding="utf-8")
@@ -209,7 +209,7 @@ def test_wizard_cancel_returns_false(tmp_path: Path):
     """Ctrl-C at the path prompt (questionary returns None) → wizard
     returns False without crashing and without partially-saving state."""
     from unittest.mock import patch
-    from skills.youtube_transcribe.subscribes import cookies_onboarding as mod
+    from skills.neurolearn.subscribes import cookies_onboarding as mod
     cfg = tmp_path / "config.toml"
 
     with patch.object(mod, "_prompt_for_path", return_value=None):
@@ -221,7 +221,7 @@ def test_prompt_for_path_strips_backslash_escaped_spaces(tmp_path: Path):
     """macOS Terminal escapes spaces with backslash on drag-and-drop;
     helper should strip that so the path resolves correctly."""
     from unittest.mock import patch
-    from skills.youtube_transcribe.subscribes.cookies_onboarding import (
+    from skills.neurolearn.subscribes.cookies_onboarding import (
         _prompt_for_path,
     )
 
@@ -238,13 +238,13 @@ def test_cookies_set_cmd_no_args_invokes_wizard(tmp_path: Path):
     """`subscribes cookies set` without args → triggers wizard in TTY."""
     from unittest.mock import patch
     from click.testing import CliRunner
-    from skills.youtube_transcribe.transcribe import cli
+    from skills.neurolearn.transcribe import cli
 
     src = _make_cookies_file(tmp_path / "ig.txt")
 
     # Replace wizard with a stub that just verifies it got called.
     with patch(
-        "skills.youtube_transcribe.subscribes.cookies_onboarding.wizard",
+        "skills.neurolearn.subscribes.cookies_onboarding.wizard",
         return_value=True,
     ) as mock_wizard:
         runner = CliRunner()

@@ -1,5 +1,5 @@
 """Tests for vision prompt template formatting."""
-from skills.youtube_transcribe.vision.prompts import (
+from skills.neurolearn.vision.prompts import (
     DEFAULT_PROMPT,
     format_prompt,
 )

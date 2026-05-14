@@ -15,7 +15,7 @@ def test_e2e_short_youtube(tmp_path: Path):
     out = tmp_path / "out"
     r = subprocess.run(
         [
-            "uv", "run", "youtube-transcribe", "transcribe",
+            "uv", "run", "neurolearn", "transcribe",
             "https://www.youtube.com/watch?v=jNQXAC9IVRw",
             "--backend", "subtitles",
             "--language", "en",
@@ -38,7 +38,7 @@ def test_e2e_batch_two_urls_via_subtitles(tmp_path: Path):
     out = tmp_path / "out"
     r = subprocess.run(
         [
-            "uv", "run", "youtube-transcribe", "batch",
+            "uv", "run", "neurolearn", "batch",
             # same short public-domain video twice — dedup should keep one
             "https://www.youtube.com/watch?v=jNQXAC9IVRw",
             "https://www.youtube.com/watch?v=jNQXAC9IVRw",

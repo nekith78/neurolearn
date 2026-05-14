@@ -1,14 +1,14 @@
 """After refactor, summarizer goes through analyze.runner."""
 from unittest.mock import patch
 
-from skills.youtube_transcribe.quality.summarizer import summarize_transcript
-from skills.youtube_transcribe.utils.output_writer import Segment
+from skills.neurolearn.quality.summarizer import summarize_transcript
+from skills.neurolearn.utils.output_writer import Segment
 
 
 def test_summarize_calls_run_analysis():
     segs = [Segment(start=0.0, end=1.0, text="hello")]
     with patch(
-        "skills.youtube_transcribe.analyze.runner.run_analysis",
+        "skills.neurolearn.analyze.runner.run_analysis",
         return_value="## TL;DR\nOK",
     ) as mock:
         out = summarize_transcript(
@@ -29,7 +29,7 @@ def test_summarize_calls_run_analysis():
 def test_summarize_ollama_path():
     segs = [Segment(start=0.0, end=1.0, text="hi")]
     with patch(
-        "skills.youtube_transcribe.analyze.runner.run_analysis",
+        "skills.neurolearn.analyze.runner.run_analysis",
         return_value="X",
     ) as mock:
         out = summarize_transcript(

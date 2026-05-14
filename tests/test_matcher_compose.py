@@ -2,9 +2,9 @@
 import numpy as np
 import pytest
 
-from skills.youtube_transcribe.detection.triggers import LanguageTriggers, TriggerConfig
-from skills.youtube_transcribe.detection import matcher
-from skills.youtube_transcribe.detection.matcher import match_segment, TriggerMatch
+from skills.neurolearn.detection.triggers import LanguageTriggers, TriggerConfig
+from skills.neurolearn.detection import matcher
+from skills.neurolearn.detection.matcher import match_segment, TriggerMatch
 
 
 class FakeEncoder:

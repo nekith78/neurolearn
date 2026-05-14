@@ -2,8 +2,8 @@
 import json
 from pathlib import Path
 
-from skills.youtube_transcribe.utils.output_writer import Segment
-from skills.youtube_transcribe.utils.transcript_loader import (
+from skills.neurolearn.utils.output_writer import Segment
+from skills.neurolearn.utils.transcript_loader import (
     load_transcript_segments,
 )
 

@@ -1,5 +1,5 @@
 """Tests for DetectionWindow dataclass and Detector Protocol."""
-from skills.youtube_transcribe.detection.base import DetectionWindow
+from skills.neurolearn.detection.base import DetectionWindow
 
 
 def test_window_creation():

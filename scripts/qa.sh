@@ -12,7 +12,7 @@
 #   scripts/qa.sh phase5.4         # history list/show
 #   scripts/qa.sh cleanup          # remove all QA artefacts
 #
-# Run from the repo root: /Users/nekith78/youtube-transcribe.
+# Run from the repo root: /Users/nekith78/neurolearn.
 
 set -u
 
@@ -27,7 +27,7 @@ fi
 QA_DIR="/tmp/yt-qa"
 mkdir -p "$QA_DIR"
 
-YT="uv run youtube-transcribe"
+YT="uv run neurolearn"
 
 step() {
   echo
@@ -48,8 +48,8 @@ note() {
 
 require_key() {
   local key_name="$1"
-  if ! grep -q "^${key_name}=" ~/.youtube-transcribe/.env 2>/dev/null; then
-    echo "${YELLOW}!${NC} ${key_name} not found in ~/.youtube-transcribe/.env"
+  if ! grep -q "^${key_name}=" ~/.neurolearn/.env 2>/dev/null; then
+    echo "${YELLOW}!${NC} ${key_name} not found in ~/.neurolearn/.env"
     echo "${DIM}  This phase requires the key. Skip it or set it via:${NC}"
     echo "${DIM}  $YT config set-key ${key_name,,}${NC}"
     return 1
@@ -267,16 +267,16 @@ phase5_3a() {
   step "Phase 5.3a — subscribes add + list"
 
   # backup user state
-  [[ -f ~/.youtube-transcribe/subscribes.toml ]] && \
-    mv ~/.youtube-transcribe/subscribes.toml ~/.youtube-transcribe/subscribes.toml.qa-bak
+  [[ -f ~/.neurolearn/subscribes.toml ]] && \
+    mv ~/.neurolearn/subscribes.toml ~/.neurolearn/subscribes.toml.qa-bak
 
   $YT subscribes add "https://www.youtube.com/@anthropic-ai" --group ai
   local code=$?
 
   if [[ $code -ne 0 ]]; then
     fail "subscribes add exit $code"
-    [[ -f ~/.youtube-transcribe/subscribes.toml.qa-bak ]] && \
-      mv ~/.youtube-transcribe/subscribes.toml.qa-bak ~/.youtube-transcribe/subscribes.toml
+    [[ -f ~/.neurolearn/subscribes.toml.qa-bak ]] && \
+      mv ~/.neurolearn/subscribes.toml.qa-bak ~/.neurolearn/subscribes.toml
     return 1
   fi
   ok "add exit 0"
@@ -284,14 +284,14 @@ phase5_3a() {
   $YT subscribes list
   ok "list works"
 
-  if grep -q "@anthropic-ai" ~/.youtube-transcribe/subscribes.toml 2>/dev/null; then
+  if grep -q "@anthropic-ai" ~/.neurolearn/subscribes.toml 2>/dev/null; then
     ok "@anthropic-ai in subscribes.toml"
   else
     fail "@anthropic-ai not written"
   fi
 
   note "subscribes.toml saved. Run phase5.3b for update."
-  note "Old file backup: ~/.youtube-transcribe/subscribes.toml.qa-bak"
+  note "Old file backup: ~/.neurolearn/subscribes.toml.qa-bak"
 }
 
 # ── Phase 5.3b: subscribes update flow ─────────────────────────────────
@@ -299,7 +299,7 @@ phase5_3b() {
   step "Phase 5.3b — subscribes update (first run + incremental)"
   require_key "GEMINI_API_KEY" || return 1
 
-  if ! grep -q "@anthropic-ai" ~/.youtube-transcribe/subscribes.toml 2>/dev/null; then
+  if ! grep -q "@anthropic-ai" ~/.neurolearn/subscribes.toml 2>/dev/null; then
     fail "subscribes.toml does not contain @anthropic-ai"
     note "First run: scripts/qa.sh phase5.3a"
     return 1
@@ -342,7 +342,7 @@ phase5_3c() {
   step "Phase 5.3c — subscribes update --no-rss (yt-dlp path)"
   require_key "GEMINI_API_KEY" || return 1
 
-  if ! grep -q "@anthropic-ai" ~/.youtube-transcribe/subscribes.toml 2>/dev/null; then
+  if ! grep -q "@anthropic-ai" ~/.neurolearn/subscribes.toml 2>/dev/null; then
     fail "subscribes.toml is empty (run phase5.3a first)"
     return 1
   fi
@@ -353,7 +353,7 @@ phase5_3c() {
   python3 - <<'PY'
 import re
 from pathlib import Path
-p = Path.home() / ".youtube-transcribe" / "subscribes.toml"
+p = Path.home() / ".neurolearn" / "subscribes.toml"
 text = p.read_text(encoding="utf-8")
 text = re.sub(r'last_seen_video_id = "[^"]*"', 'last_seen_video_id = ""', text)
 text = re.sub(r'last_seen_published = "[^"]*"', 'last_seen_published = ""', text)
@@ -380,9 +380,9 @@ phase5_3d() {
   step "Phase 5.3d — subscribes Instagram (anon fetch must fail gracefully)"
 
   # Backup existing subscribes.toml so we don't pollute user state.
-  [[ -f ~/.youtube-transcribe/subscribes.toml ]] && \
-    cp ~/.youtube-transcribe/subscribes.toml \
-       ~/.youtube-transcribe/subscribes.toml.phase5_3d-bak
+  [[ -f ~/.neurolearn/subscribes.toml ]] && \
+    cp ~/.neurolearn/subscribes.toml \
+       ~/.neurolearn/subscribes.toml.phase5_3d-bak
 
   # Use a real public account (natgeo). yt-dlp anon access to IG is broken
   # right now ("Unable to extract data") — this phase verifies the pipeline
@@ -393,14 +393,14 @@ phase5_3d() {
   local code=$?
   if [[ $code -ne 0 ]]; then
     fail "subscribes add (instagram) exit $code"
-    [[ -f ~/.youtube-transcribe/subscribes.toml.phase5_3d-bak ]] && \
-      mv ~/.youtube-transcribe/subscribes.toml.phase5_3d-bak \
-         ~/.youtube-transcribe/subscribes.toml
+    [[ -f ~/.neurolearn/subscribes.toml.phase5_3d-bak ]] && \
+      mv ~/.neurolearn/subscribes.toml.phase5_3d-bak \
+         ~/.neurolearn/subscribes.toml
     return 1
   fi
   ok "subscribes add @natgeo (instagram) exit 0"
 
-  if grep -q 'platform = "instagram"' ~/.youtube-transcribe/subscribes.toml; then
+  if grep -q 'platform = "instagram"' ~/.neurolearn/subscribes.toml; then
     ok "platform=\"instagram\" written to subscribes.toml"
   else
     fail "platform not written"
@@ -417,14 +417,14 @@ phase5_3d() {
     ok "subscribes update exit 0 (graceful handling of anonymous IG failure)"
     note "expected: yt-dlp warning or ChannelNotFoundError, no traceback"
     note "for a real IG fetch:"
-    note "  youtube-transcribe config set instagram.cookies_browser chrome"
+    note "  neurolearn config set instagram.cookies_browser chrome"
   fi
 
   # Cleanup: remove the test channel + restore user's subscribes.toml.
   $YT subscribes remove "@natgeo" >/dev/null 2>&1 || true
-  [[ -f ~/.youtube-transcribe/subscribes.toml.phase5_3d-bak ]] && \
-    mv ~/.youtube-transcribe/subscribes.toml.phase5_3d-bak \
-       ~/.youtube-transcribe/subscribes.toml
+  [[ -f ~/.neurolearn/subscribes.toml.phase5_3d-bak ]] && \
+    mv ~/.neurolearn/subscribes.toml.phase5_3d-bak \
+       ~/.neurolearn/subscribes.toml
 }
 
 # ── Phase 5.3e: TikTok channel — real end-to-end smoke ────────────────
@@ -432,9 +432,9 @@ phase5_3e() {
   step "Phase 5.3e — subscribes TikTok (@duolingo, real yt-dlp scrape)"
   require_key "GEMINI_API_KEY" || return 1
 
-  [[ -f ~/.youtube-transcribe/subscribes.toml ]] && \
-    cp ~/.youtube-transcribe/subscribes.toml \
-       ~/.youtube-transcribe/subscribes.toml.phase5_3e-bak
+  [[ -f ~/.neurolearn/subscribes.toml ]] && \
+    cp ~/.neurolearn/subscribes.toml \
+       ~/.neurolearn/subscribes.toml.phase5_3e-bak
 
   # @duolingo is the most reliably-public TikTok profile that yt-dlp can
   # scrape anonymously (confirmed during Phase 5 design probe). NASA and
@@ -444,14 +444,14 @@ phase5_3e() {
   local code=$?
   if [[ $code -ne 0 ]]; then
     fail "subscribes add (tiktok) exit $code"
-    [[ -f ~/.youtube-transcribe/subscribes.toml.phase5_3e-bak ]] && \
-      mv ~/.youtube-transcribe/subscribes.toml.phase5_3e-bak \
-         ~/.youtube-transcribe/subscribes.toml
+    [[ -f ~/.neurolearn/subscribes.toml.phase5_3e-bak ]] && \
+      mv ~/.neurolearn/subscribes.toml.phase5_3e-bak \
+         ~/.neurolearn/subscribes.toml
     return 1
   fi
   ok "subscribes add @duolingo (tiktok) exit 0"
 
-  if grep -q 'platform = "tiktok"' ~/.youtube-transcribe/subscribes.toml; then
+  if grep -q 'platform = "tiktok"' ~/.neurolearn/subscribes.toml; then
     ok "platform=\"tiktok\" written to subscribes.toml"
   else
     fail "platform not written"
@@ -479,9 +479,9 @@ phase5_3e() {
   fi
 
   $YT subscribes remove "@duolingo" >/dev/null 2>&1 || true
-  [[ -f ~/.youtube-transcribe/subscribes.toml.phase5_3e-bak ]] && \
-    mv ~/.youtube-transcribe/subscribes.toml.phase5_3e-bak \
-       ~/.youtube-transcribe/subscribes.toml
+  [[ -f ~/.neurolearn/subscribes.toml.phase5_3e-bak ]] && \
+    mv ~/.neurolearn/subscribes.toml.phase5_3e-bak \
+       ~/.neurolearn/subscribes.toml
 }
 
 # ── Phase 5.4: history ────────────────────────────────────────────────
@@ -494,7 +494,7 @@ phase5_4() {
   # column with an ellipsis ("research_2026…") so we can't parse the CLI
   # output reliably without forcing a wide terminal.
   local run_id
-  run_id=$(grep -oE 'id = "[^"]+"' ~/.youtube-transcribe/history.toml 2>/dev/null \
+  run_id=$(grep -oE 'id = "[^"]+"' ~/.neurolearn/history.toml 2>/dev/null \
            | tail -1 | sed -E 's/^id = "(.*)"$/\1/')
   if [[ -n "$run_id" ]]; then
     echo
@@ -514,10 +514,10 @@ phase8a() {
 
   # Back up real config + cookies if present — restore at end so the test
   # doesn't trash the user's setup.
-  local cfg=~/.youtube-transcribe/config.toml
-  local ig_file=~/.youtube-transcribe/instagram-cookies.txt
-  local tt_file=~/.youtube-transcribe/tiktok-cookies.txt
-  local yt_file=~/.youtube-transcribe/youtube-cookies.txt
+  local cfg=~/.neurolearn/config.toml
+  local ig_file=~/.neurolearn/instagram-cookies.txt
+  local tt_file=~/.neurolearn/tiktok-cookies.txt
+  local yt_file=~/.neurolearn/youtube-cookies.txt
   [[ -f $cfg ]]     && cp "$cfg" "$tmp/config.toml.bak"
   [[ -f $ig_file ]] && cp "$ig_file" "$tmp/ig.bak"
   [[ -f $tt_file ]] && cp "$tt_file" "$tmp/tt.bak"
@@ -566,7 +566,7 @@ CKEOF
 
   # === 5. file copied to canonical location ===
   if [[ -f $ig_file ]]; then
-    ok "5. ~/.youtube-transcribe/instagram-cookies.txt created"
+    ok "5. ~/.neurolearn/instagram-cookies.txt created"
   else
     fail "5. canonical IG cookies file missing"
   fi
@@ -630,7 +630,7 @@ cookies_browser = "chrome"
 TOMLEOF
   if uv run python -c "
 from pathlib import Path
-from skills.youtube_transcribe.config import load_config
+from skills.neurolearn.config import load_config
 cfg = load_config(Path('$legacy_cfg'))
 assert cfg.cookies_file == '', f'cookies_file should be empty, got: {cfg.cookies_file!r}'
 print('legacy-load-ok')
@@ -668,25 +668,25 @@ phase8b() {
     fail "First register IG cookies:"
     note "  1. Install the 'Get cookies.txt LOCALLY' extension in your browser"
     note "  2. Open instagram.com (logged in) → Export → ~/Downloads/ig.txt"
-    note "  3. youtube-transcribe subscribes cookies set instagram ~/Downloads/ig.txt"
+    note "  3. neurolearn subscribes cookies set instagram ~/Downloads/ig.txt"
     note "Then re-run phase8b."
     return 1
   fi
   ok "instagram cookies registered"
 
   # Back up subscribes.toml
-  [[ -f ~/.youtube-transcribe/subscribes.toml ]] && \
-    cp ~/.youtube-transcribe/subscribes.toml \
-       ~/.youtube-transcribe/subscribes.toml.phase8b-bak
+  [[ -f ~/.neurolearn/subscribes.toml ]] && \
+    cp ~/.neurolearn/subscribes.toml \
+       ~/.neurolearn/subscribes.toml.phase8b-bak
 
   # Add a public IG channel
   $YT subscribes add "https://www.instagram.com/natgeo/" --group qa-ig8b
   local code=$?
   if [[ $code -ne 0 ]]; then
     fail "subscribes add (instagram) exit $code"
-    [[ -f ~/.youtube-transcribe/subscribes.toml.phase8b-bak ]] && \
-      mv ~/.youtube-transcribe/subscribes.toml.phase8b-bak \
-         ~/.youtube-transcribe/subscribes.toml
+    [[ -f ~/.neurolearn/subscribes.toml.phase8b-bak ]] && \
+      mv ~/.neurolearn/subscribes.toml.phase8b-bak \
+         ~/.neurolearn/subscribes.toml
     return 1
   fi
   ok "subscribes add @natgeo (instagram) — ok"
@@ -717,17 +717,17 @@ phase8b() {
 
   # Cleanup
   $YT subscribes remove "@natgeo" >/dev/null 2>&1 || true
-  [[ -f ~/.youtube-transcribe/subscribes.toml.phase8b-bak ]] && \
-    mv ~/.youtube-transcribe/subscribes.toml.phase8b-bak \
-       ~/.youtube-transcribe/subscribes.toml
+  [[ -f ~/.neurolearn/subscribes.toml.phase8b-bak ]] && \
+    mv ~/.neurolearn/subscribes.toml.phase8b-bak \
+       ~/.neurolearn/subscribes.toml
 }
 
 # ── cleanup ───────────────────────────────────────────────────────────
 cleanup() {
   step "Cleanup — removing $QA_DIR and restoring subscribes.toml"
   rm -rf "$QA_DIR"
-  [[ -f ~/.youtube-transcribe/subscribes.toml.qa-bak ]] && \
-    mv ~/.youtube-transcribe/subscribes.toml.qa-bak ~/.youtube-transcribe/subscribes.toml
+  [[ -f ~/.neurolearn/subscribes.toml.qa-bak ]] && \
+    mv ~/.neurolearn/subscribes.toml.qa-bak ~/.neurolearn/subscribes.toml
   ok "done"
 }
 
@@ -752,7 +752,7 @@ Usage: scripts/qa.sh <phase>
   cleanup        — remove all QA artefacts + restore subscribes.toml
 
 Each phase is self-contained and reports PASS/FAIL.
-Run from repo root: cd /Users/nekith78/youtube-transcribe && scripts/qa.sh <phase>
+Run from repo root: cd /Users/nekith78/neurolearn && scripts/qa.sh <phase>
 EOF
 }
 

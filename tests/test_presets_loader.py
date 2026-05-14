@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from skills.youtube_transcribe.presets.loader import (
+from skills.neurolearn.presets.loader import (
     load_preset_values,
     list_preset_names,
 )

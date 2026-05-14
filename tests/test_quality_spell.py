@@ -1,5 +1,5 @@
 """Tests for out_of_vocab_ratio."""
-from skills.youtube_transcribe.quality.spell import (
+from skills.neurolearn.quality.spell import (
     out_of_vocab_ratio,
     is_language_supported,
 )

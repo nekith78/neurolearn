@@ -8,7 +8,7 @@ import pytest
 
 def _channel(handle="@A", channel_id="UC_a", last_id=None, last_pub=None,
              group=None, platform="youtube"):
-    from skills.youtube_transcribe.subscribes.store import Channel
+    from skills.neurolearn.subscribes.store import Channel
     base_url = {
         "youtube": "https://www.youtube.com",
         "instagram": "https://www.instagram.com",
@@ -23,7 +23,7 @@ def _channel(handle="@A", channel_id="UC_a", last_id=None, last_pub=None,
 
 
 def _rss(vid, pub_iso="2026-05-11T14:00:00+00:00"):
-    from skills.youtube_transcribe.subscribes.rss import RssEntry
+    from skills.neurolearn.subscribes.rss import RssEntry
     return RssEntry(
         video_id=vid, url=f"https://www.youtube.com/watch?v={vid}",
         title=f"Title {vid}", channel_id="UC_a",
@@ -33,12 +33,12 @@ def _rss(vid, pub_iso="2026-05-11T14:00:00+00:00"):
 
 def test_first_run_requires_window(tmp_path: Path):
     """If a channel has no state and no override window — exit 2 via raise."""
-    from skills.youtube_transcribe.subscribes.pipeline import (
+    from skills.neurolearn.subscribes.pipeline import (
         run_subscribes_update, SubscribesError,
     )
     sub_path = tmp_path / "subscribes.toml"
     with patch(
-        "skills.youtube_transcribe.subscribes.pipeline.load_subscribes",
+        "skills.neurolearn.subscribes.pipeline.load_subscribes",
         return_value=[_channel(last_id=None)],
     ):
         with pytest.raises(SubscribesError, match="initial"):
@@ -59,28 +59,28 @@ def test_first_run_requires_window(tmp_path: Path):
 
 def test_stateful_default_uses_last_seen(tmp_path: Path):
     """Channel with state: pipeline filters entries where published > last_seen."""
-    from skills.youtube_transcribe.subscribes.pipeline import run_subscribes_update
+    from skills.neurolearn.subscribes.pipeline import run_subscribes_update
     sub_path = tmp_path / "subscribes.toml"
     ch = _channel(last_id="oldvid", last_pub="2026-05-10T00:00:00+00:00")
     entries = [_rss("new1", "2026-05-12T00:00:00+00:00"),
                _rss("old1", "2026-05-09T00:00:00+00:00")]
 
     with patch(
-        "skills.youtube_transcribe.subscribes.pipeline.load_subscribes",
+        "skills.neurolearn.subscribes.pipeline.load_subscribes",
         return_value=[ch],
     ), patch(
-        "skills.youtube_transcribe.subscribes.pipeline.fetch_rss",
+        "skills.neurolearn.subscribes.pipeline.fetch_rss",
         return_value=entries,
     ), patch(
-        "skills.youtube_transcribe.subscribes.pipeline._run_batch_pipeline",
+        "skills.neurolearn.subscribes.pipeline._run_batch_pipeline",
         return_value=tmp_path / "out",
     ), patch(
-        "skills.youtube_transcribe.subscribes.pipeline.update_last_seen",
+        "skills.neurolearn.subscribes.pipeline.update_last_seen",
     ) as mock_state, patch(
-        "skills.youtube_transcribe.subscribes.pipeline._stdin_is_tty",
+        "skills.neurolearn.subscribes.pipeline._stdin_is_tty",
         return_value=False,
     ), patch(
-        "skills.youtube_transcribe.subscribes.pipeline._append_history",
+        "skills.neurolearn.subscribes.pipeline._append_history",
     ):
         run_subscribes_update(
             subscribes_path=sub_path,
@@ -108,27 +108,27 @@ def test_bootstrap_first_run_initializes_state(tmp_path: Path):
     incremental call kept asking for --days. Now bootstrap is recognized
     separately and the state is seeded.
     """
-    from skills.youtube_transcribe.subscribes.pipeline import run_subscribes_update
+    from skills.neurolearn.subscribes.pipeline import run_subscribes_update
     sub_path = tmp_path / "subscribes.toml"
     ch = _channel(last_id=None, last_pub=None)  # ← no state yet
     entries = [_rss("v1", "2026-05-12T00:00:00+00:00")]
 
     with patch(
-        "skills.youtube_transcribe.subscribes.pipeline.load_subscribes",
+        "skills.neurolearn.subscribes.pipeline.load_subscribes",
         return_value=[ch],
     ), patch(
-        "skills.youtube_transcribe.subscribes.pipeline.fetch_rss",
+        "skills.neurolearn.subscribes.pipeline.fetch_rss",
         return_value=entries,
     ), patch(
-        "skills.youtube_transcribe.subscribes.pipeline._run_batch_pipeline",
+        "skills.neurolearn.subscribes.pipeline._run_batch_pipeline",
         return_value=tmp_path / "out",
     ), patch(
-        "skills.youtube_transcribe.subscribes.pipeline.update_last_seen",
+        "skills.neurolearn.subscribes.pipeline.update_last_seen",
     ) as mock_state, patch(
-        "skills.youtube_transcribe.subscribes.pipeline._stdin_is_tty",
+        "skills.neurolearn.subscribes.pipeline._stdin_is_tty",
         return_value=False,
     ), patch(
-        "skills.youtube_transcribe.subscribes.pipeline._append_history",
+        "skills.neurolearn.subscribes.pipeline._append_history",
     ):
         run_subscribes_update(
             subscribes_path=sub_path,
@@ -151,27 +151,27 @@ def test_state_advances_when_transcribe_batch_returns_none(tmp_path: Path):
     """Variant 2: state must advance even if _run_batch_pipeline returns None
     (e.g. catastrophic transcribe failure). Otherwise a temporary blip would
     pin the channel forever."""
-    from skills.youtube_transcribe.subscribes.pipeline import run_subscribes_update
+    from skills.neurolearn.subscribes.pipeline import run_subscribes_update
     sub_path = tmp_path / "subscribes.toml"
     ch = _channel(last_id="oldvid", last_pub="2026-05-10T00:00:00+00:00")
     entries = [_rss("recent", "2026-05-12T00:00:00+00:00")]
 
     with patch(
-        "skills.youtube_transcribe.subscribes.pipeline.load_subscribes",
+        "skills.neurolearn.subscribes.pipeline.load_subscribes",
         return_value=[ch],
     ), patch(
-        "skills.youtube_transcribe.subscribes.pipeline.fetch_rss",
+        "skills.neurolearn.subscribes.pipeline.fetch_rss",
         return_value=entries,
     ), patch(
-        "skills.youtube_transcribe.subscribes.pipeline._run_batch_pipeline",
+        "skills.neurolearn.subscribes.pipeline._run_batch_pipeline",
         return_value=None,  # ← simulate batch failure
     ), patch(
-        "skills.youtube_transcribe.subscribes.pipeline.update_last_seen",
+        "skills.neurolearn.subscribes.pipeline.update_last_seen",
     ) as mock_state, patch(
-        "skills.youtube_transcribe.subscribes.pipeline._stdin_is_tty",
+        "skills.neurolearn.subscribes.pipeline._stdin_is_tty",
         return_value=False,
     ), patch(
-        "skills.youtube_transcribe.subscribes.pipeline._append_history",
+        "skills.neurolearn.subscribes.pipeline._append_history",
     ):
         run_subscribes_update(
             subscribes_path=sub_path,
@@ -190,27 +190,27 @@ def test_state_advances_when_transcribe_batch_returns_none(tmp_path: Path):
 
 def test_override_days_skips_state_update(tmp_path: Path):
     """When --days override is used, state must NOT be updated."""
-    from skills.youtube_transcribe.subscribes.pipeline import run_subscribes_update
+    from skills.neurolearn.subscribes.pipeline import run_subscribes_update
     sub_path = tmp_path / "subscribes.toml"
     ch = _channel(last_id="oldvid", last_pub="2026-05-10T00:00:00+00:00")
     entries = [_rss("v1", "2026-05-12T00:00:00+00:00")]
 
     with patch(
-        "skills.youtube_transcribe.subscribes.pipeline.load_subscribes",
+        "skills.neurolearn.subscribes.pipeline.load_subscribes",
         return_value=[ch],
     ), patch(
-        "skills.youtube_transcribe.subscribes.pipeline.fetch_rss",
+        "skills.neurolearn.subscribes.pipeline.fetch_rss",
         return_value=entries,
     ), patch(
-        "skills.youtube_transcribe.subscribes.pipeline._run_batch_pipeline",
+        "skills.neurolearn.subscribes.pipeline._run_batch_pipeline",
         return_value=tmp_path / "out",
     ), patch(
-        "skills.youtube_transcribe.subscribes.pipeline.update_last_seen",
+        "skills.neurolearn.subscribes.pipeline.update_last_seen",
     ) as mock_state, patch(
-        "skills.youtube_transcribe.subscribes.pipeline._stdin_is_tty",
+        "skills.neurolearn.subscribes.pipeline._stdin_is_tty",
         return_value=False,
     ), patch(
-        "skills.youtube_transcribe.subscribes.pipeline._append_history",
+        "skills.neurolearn.subscribes.pipeline._append_history",
     ):
         run_subscribes_update(
             subscribes_path=sub_path,
@@ -229,7 +229,7 @@ def test_override_days_skips_state_update(tmp_path: Path):
 
 def test_no_rss_uses_yt_dlp_fallback(tmp_path: Path):
     """--no-rss flag routes per-channel fetch through yt-dlp, not RSS."""
-    from skills.youtube_transcribe.subscribes.pipeline import (
+    from skills.neurolearn.subscribes.pipeline import (
         run_subscribes_update, _ChannelVideo,
     )
     sub_path = tmp_path / "subscribes.toml"
@@ -243,21 +243,21 @@ def test_no_rss_uses_yt_dlp_fallback(tmp_path: Path):
     ]
 
     with patch(
-        "skills.youtube_transcribe.subscribes.pipeline.load_subscribes",
+        "skills.neurolearn.subscribes.pipeline.load_subscribes",
         return_value=[ch],
     ), patch(
-        "skills.youtube_transcribe.subscribes.pipeline.fetch_rss",
+        "skills.neurolearn.subscribes.pipeline.fetch_rss",
     ) as mock_rss, patch(
-        "skills.youtube_transcribe.subscribes.pipeline._fetch_via_yt_dlp",
+        "skills.neurolearn.subscribes.pipeline._fetch_via_yt_dlp",
         return_value=fake_yt_dlp_entries,
     ) as mock_yt, patch(
-        "skills.youtube_transcribe.subscribes.pipeline._run_batch_pipeline",
+        "skills.neurolearn.subscribes.pipeline._run_batch_pipeline",
         return_value=tmp_path / "out",
     ), patch(
-        "skills.youtube_transcribe.subscribes.pipeline._stdin_is_tty",
+        "skills.neurolearn.subscribes.pipeline._stdin_is_tty",
         return_value=False,
     ), patch(
-        "skills.youtube_transcribe.subscribes.pipeline._append_history",
+        "skills.neurolearn.subscribes.pipeline._append_history",
     ):
         run_subscribes_update(
             subscribes_path=sub_path,
@@ -279,7 +279,7 @@ def test_no_rss_uses_yt_dlp_fallback(tmp_path: Path):
 
 def test_no_rss_returns_duration(tmp_path: Path):
     """When --no-rss is used, candidates carry duration_sec from yt-dlp."""
-    from skills.youtube_transcribe.subscribes.pipeline import (
+    from skills.neurolearn.subscribes.pipeline import (
         run_subscribes_update, _ChannelVideo,
     )
     sub_path = tmp_path / "subscribes.toml"
@@ -298,19 +298,19 @@ def test_no_rss_returns_duration(tmp_path: Path):
         return tmp_path / "out"
 
     with patch(
-        "skills.youtube_transcribe.subscribes.pipeline.load_subscribes",
+        "skills.neurolearn.subscribes.pipeline.load_subscribes",
         return_value=[ch],
     ), patch(
-        "skills.youtube_transcribe.subscribes.pipeline._fetch_via_yt_dlp",
+        "skills.neurolearn.subscribes.pipeline._fetch_via_yt_dlp",
         return_value=fake_yt_dlp_entries,
     ), patch(
-        "skills.youtube_transcribe.subscribes.pipeline._run_batch_pipeline",
+        "skills.neurolearn.subscribes.pipeline._run_batch_pipeline",
         side_effect=capture_batch,
     ), patch(
-        "skills.youtube_transcribe.subscribes.pipeline._stdin_is_tty",
+        "skills.neurolearn.subscribes.pipeline._stdin_is_tty",
         return_value=False,
     ), patch(
-        "skills.youtube_transcribe.subscribes.pipeline._append_history",
+        "skills.neurolearn.subscribes.pipeline._append_history",
     ):
         run_subscribes_update(
             subscribes_path=sub_path,
@@ -330,7 +330,7 @@ def test_no_rss_returns_duration(tmp_path: Path):
 
 def test_group_filters_channels(tmp_path: Path):
     """--group ai-research should only fetch RSS for matching channels."""
-    from skills.youtube_transcribe.subscribes.pipeline import run_subscribes_update
+    from skills.neurolearn.subscribes.pipeline import run_subscribes_update
     sub_path = tmp_path / "subscribes.toml"
     channels = [
         _channel(handle="@AI1", channel_id="UC_ai1", last_id="x",
@@ -339,16 +339,16 @@ def test_group_filters_channels(tmp_path: Path):
                  last_pub="2026-01-01T00:00:00+00:00", group="philosophy"),
     ]
     with patch(
-        "skills.youtube_transcribe.subscribes.pipeline.load_subscribes",
+        "skills.neurolearn.subscribes.pipeline.load_subscribes",
         return_value=channels,
     ), patch(
-        "skills.youtube_transcribe.subscribes.pipeline.fetch_rss",
+        "skills.neurolearn.subscribes.pipeline.fetch_rss",
         return_value=[],
     ) as mock_rss, patch(
-        "skills.youtube_transcribe.subscribes.pipeline._stdin_is_tty",
+        "skills.neurolearn.subscribes.pipeline._stdin_is_tty",
         return_value=False,
     ), patch(
-        "skills.youtube_transcribe.subscribes.pipeline._append_history",
+        "skills.neurolearn.subscribes.pipeline._append_history",
     ):
         run_subscribes_update(
             subscribes_path=sub_path,
@@ -372,7 +372,7 @@ def test_group_filters_channels(tmp_path: Path):
 def test_instagram_channel_uses_yt_dlp_with_cookies(tmp_path: Path):
     """Instagram channels NEVER hit RSS — always go through yt-dlp with the
     user's configured cookies_browser."""
-    from skills.youtube_transcribe.subscribes.pipeline import (
+    from skills.neurolearn.subscribes.pipeline import (
         run_subscribes_update, _ChannelVideo,
     )
     sub_path = tmp_path / "subscribes.toml"
@@ -395,22 +395,22 @@ def test_instagram_channel_uses_yt_dlp_with_cookies(tmp_path: Path):
         return fake_videos
 
     with patch(
-        "skills.youtube_transcribe.subscribes.pipeline.load_subscribes",
+        "skills.neurolearn.subscribes.pipeline.load_subscribes",
         return_value=[ch],
     ), patch(
-        "skills.youtube_transcribe.subscribes.pipeline.fetch_rss",
+        "skills.neurolearn.subscribes.pipeline.fetch_rss",
         side_effect=AssertionError("RSS must NOT be used for Instagram"),
     ), patch(
-        "skills.youtube_transcribe.subscribes.pipeline._fetch_via_yt_dlp",
+        "skills.neurolearn.subscribes.pipeline._fetch_via_yt_dlp",
         side_effect=fake_fetch,
     ), patch(
-        "skills.youtube_transcribe.subscribes.pipeline._run_batch_pipeline",
+        "skills.neurolearn.subscribes.pipeline._run_batch_pipeline",
         return_value=tmp_path / "batch",
     ), patch(
-        "skills.youtube_transcribe.subscribes.pipeline._stdin_is_tty",
+        "skills.neurolearn.subscribes.pipeline._stdin_is_tty",
         return_value=False,
     ), patch(
-        "skills.youtube_transcribe.subscribes.pipeline._append_history",
+        "skills.neurolearn.subscribes.pipeline._append_history",
     ):
         run_subscribes_update(
             subscribes_path=sub_path,
@@ -430,7 +430,7 @@ def test_instagram_channel_uses_yt_dlp_with_cookies(tmp_path: Path):
 def test_username_change_surfaces_friendly_error(tmp_path: Path, capsys):
     """When yt-dlp reports 'user not found', the loop prints a hint and
     moves on without aborting the run."""
-    from skills.youtube_transcribe.subscribes.pipeline import (
+    from skills.neurolearn.subscribes.pipeline import (
         run_subscribes_update, ChannelNotFoundError, _ChannelVideo,
     )
     sub_path = tmp_path / "subscribes.toml"
@@ -450,24 +450,24 @@ def test_username_change_surfaces_friendly_error(tmp_path: Path, capsys):
         raise ChannelNotFoundError("user does not exist")
 
     with patch(
-        "skills.youtube_transcribe.subscribes.pipeline.load_subscribes",
+        "skills.neurolearn.subscribes.pipeline.load_subscribes",
         return_value=[ig_ch, yt_ch],
     ), patch(
-        "skills.youtube_transcribe.subscribes.pipeline.fetch_rss",
+        "skills.neurolearn.subscribes.pipeline.fetch_rss",
         return_value=yt_rss,
     ), patch(
-        "skills.youtube_transcribe.subscribes.pipeline._fetch_via_yt_dlp",
+        "skills.neurolearn.subscribes.pipeline._fetch_via_yt_dlp",
         side_effect=fake_fetch,
     ), patch(
-        "skills.youtube_transcribe.subscribes.pipeline._run_batch_pipeline",
+        "skills.neurolearn.subscribes.pipeline._run_batch_pipeline",
         return_value=tmp_path / "batch",
     ) as mock_batch, patch(
-        "skills.youtube_transcribe.subscribes.pipeline.update_last_seen",
+        "skills.neurolearn.subscribes.pipeline.update_last_seen",
     ) as mock_state, patch(
-        "skills.youtube_transcribe.subscribes.pipeline._stdin_is_tty",
+        "skills.neurolearn.subscribes.pipeline._stdin_is_tty",
         return_value=False,
     ), patch(
-        "skills.youtube_transcribe.subscribes.pipeline._append_history",
+        "skills.neurolearn.subscribes.pipeline._append_history",
     ):
         run_subscribes_update(
             subscribes_path=sub_path,
@@ -491,7 +491,7 @@ def test_username_change_surfaces_friendly_error(tmp_path: Path, capsys):
 
 
 def test_looks_like_channel_not_found_matches_common_signatures():
-    from skills.youtube_transcribe.subscribes.pipeline import (
+    from skills.neurolearn.subscribes.pipeline import (
         _looks_like_channel_not_found,
     )
     assert _looks_like_channel_not_found("ERROR: user not found")
@@ -508,7 +508,7 @@ def test_looks_like_channel_not_found_matches_common_signatures():
 def test_tiktok_channel_uses_yt_dlp_with_tiktok_cookies(tmp_path: Path):
     """TikTok routes the same as Instagram, but with its own cookies setting.
     Verifies the per-platform cookies plumbing doesn't cross-contaminate."""
-    from skills.youtube_transcribe.subscribes.pipeline import (
+    from skills.neurolearn.subscribes.pipeline import (
         run_subscribes_update, _ChannelVideo,
     )
     sub_path = tmp_path / "subscribes.toml"
@@ -530,22 +530,22 @@ def test_tiktok_channel_uses_yt_dlp_with_tiktok_cookies(tmp_path: Path):
         return fake_videos
 
     with patch(
-        "skills.youtube_transcribe.subscribes.pipeline.load_subscribes",
+        "skills.neurolearn.subscribes.pipeline.load_subscribes",
         return_value=[ch],
     ), patch(
-        "skills.youtube_transcribe.subscribes.pipeline.fetch_rss",
+        "skills.neurolearn.subscribes.pipeline.fetch_rss",
         side_effect=AssertionError("RSS must NOT be used for TikTok"),
     ), patch(
-        "skills.youtube_transcribe.subscribes.pipeline._fetch_via_yt_dlp",
+        "skills.neurolearn.subscribes.pipeline._fetch_via_yt_dlp",
         side_effect=fake_fetch,
     ), patch(
-        "skills.youtube_transcribe.subscribes.pipeline._run_batch_pipeline",
+        "skills.neurolearn.subscribes.pipeline._run_batch_pipeline",
         return_value=tmp_path / "batch",
     ), patch(
-        "skills.youtube_transcribe.subscribes.pipeline._stdin_is_tty",
+        "skills.neurolearn.subscribes.pipeline._stdin_is_tty",
         return_value=False,
     ), patch(
-        "skills.youtube_transcribe.subscribes.pipeline._append_history",
+        "skills.neurolearn.subscribes.pipeline._append_history",
     ):
         run_subscribes_update(
             subscribes_path=sub_path,
@@ -567,7 +567,7 @@ def test_tiktok_dedup_via_last_seen_video_id(tmp_path: Path):
     """For IG/TikTok the date window is bypassed — dedup is by
     last_seen_video_id. yt-dlp returns entries newest-first; we walk
     until we hit the previously-seen id and stop."""
-    from skills.youtube_transcribe.subscribes.pipeline import (
+    from skills.neurolearn.subscribes.pipeline import (
         run_subscribes_update, _ChannelVideo,
     )
     sub_path = tmp_path / "subscribes.toml"
@@ -594,19 +594,19 @@ def test_tiktok_dedup_via_last_seen_video_id(tmp_path: Path):
         return tmp_path / "batch"
 
     with patch(
-        "skills.youtube_transcribe.subscribes.pipeline.load_subscribes",
+        "skills.neurolearn.subscribes.pipeline.load_subscribes",
         return_value=[ch],
     ), patch(
-        "skills.youtube_transcribe.subscribes.pipeline._fetch_via_yt_dlp",
+        "skills.neurolearn.subscribes.pipeline._fetch_via_yt_dlp",
         return_value=fake_videos,
     ), patch(
-        "skills.youtube_transcribe.subscribes.pipeline._run_batch_pipeline",
+        "skills.neurolearn.subscribes.pipeline._run_batch_pipeline",
         side_effect=capture_batch,
     ), patch(
-        "skills.youtube_transcribe.subscribes.pipeline._stdin_is_tty",
+        "skills.neurolearn.subscribes.pipeline._stdin_is_tty",
         return_value=False,
     ), patch(
-        "skills.youtube_transcribe.subscribes.pipeline._append_history",
+        "skills.neurolearn.subscribes.pipeline._append_history",
     ):
         run_subscribes_update(
             subscribes_path=sub_path,
@@ -625,7 +625,7 @@ def test_tiktok_dedup_via_last_seen_video_id(tmp_path: Path):
 
 def test_platform_filter_restricts_to_one_platform(tmp_path: Path):
     """--platform tiktok updates ONLY TikTok channels, skipping YT and IG."""
-    from skills.youtube_transcribe.subscribes.pipeline import (
+    from skills.neurolearn.subscribes.pipeline import (
         run_subscribes_update, _ChannelVideo,
     )
     sub_path = tmp_path / "subscribes.toml"
@@ -649,22 +649,22 @@ def test_platform_filter_restricts_to_one_platform(tmp_path: Path):
         return fake_videos
 
     with patch(
-        "skills.youtube_transcribe.subscribes.pipeline.load_subscribes",
+        "skills.neurolearn.subscribes.pipeline.load_subscribes",
         return_value=channels,
     ), patch(
-        "skills.youtube_transcribe.subscribes.pipeline.fetch_rss",
+        "skills.neurolearn.subscribes.pipeline.fetch_rss",
         side_effect=AssertionError("RSS must NOT be called: only TT in scope"),
     ), patch(
-        "skills.youtube_transcribe.subscribes.pipeline._fetch_via_yt_dlp",
+        "skills.neurolearn.subscribes.pipeline._fetch_via_yt_dlp",
         side_effect=fake_fetch,
     ), patch(
-        "skills.youtube_transcribe.subscribes.pipeline._run_batch_pipeline",
+        "skills.neurolearn.subscribes.pipeline._run_batch_pipeline",
         return_value=tmp_path / "batch",
     ), patch(
-        "skills.youtube_transcribe.subscribes.pipeline._stdin_is_tty",
+        "skills.neurolearn.subscribes.pipeline._stdin_is_tty",
         return_value=False,
     ), patch(
-        "skills.youtube_transcribe.subscribes.pipeline._append_history",
+        "skills.neurolearn.subscribes.pipeline._append_history",
     ):
         run_subscribes_update(
             subscribes_path=sub_path,
@@ -685,7 +685,7 @@ def test_platform_filter_restricts_to_one_platform(tmp_path: Path):
 
 def test_platform_filter_combined_with_group(tmp_path: Path):
     """--platform tiktok --group ai → only TikTok channels in group 'ai'."""
-    from skills.youtube_transcribe.subscribes.pipeline import (
+    from skills.neurolearn.subscribes.pipeline import (
         run_subscribes_update, _ChannelVideo,
     )
     sub_path = tmp_path / "subscribes.toml"
@@ -711,19 +711,19 @@ def test_platform_filter_combined_with_group(tmp_path: Path):
         )]
 
     with patch(
-        "skills.youtube_transcribe.subscribes.pipeline.load_subscribes",
+        "skills.neurolearn.subscribes.pipeline.load_subscribes",
         return_value=channels,
     ), patch(
-        "skills.youtube_transcribe.subscribes.pipeline._fetch_via_yt_dlp",
+        "skills.neurolearn.subscribes.pipeline._fetch_via_yt_dlp",
         side_effect=fake_fetch,
     ), patch(
-        "skills.youtube_transcribe.subscribes.pipeline._run_batch_pipeline",
+        "skills.neurolearn.subscribes.pipeline._run_batch_pipeline",
         return_value=tmp_path / "batch",
     ), patch(
-        "skills.youtube_transcribe.subscribes.pipeline._stdin_is_tty",
+        "skills.neurolearn.subscribes.pipeline._stdin_is_tty",
         return_value=False,
     ), patch(
-        "skills.youtube_transcribe.subscribes.pipeline._append_history",
+        "skills.neurolearn.subscribes.pipeline._append_history",
     ):
         run_subscribes_update(
             subscribes_path=sub_path,
@@ -744,7 +744,7 @@ def test_platform_filter_combined_with_group(tmp_path: Path):
 
 def test_platform_filter_empty_intersection_returns_none(tmp_path: Path):
     """--platform tiktok with no TikTok channels in subscribes → no-op."""
-    from skills.youtube_transcribe.subscribes.pipeline import (
+    from skills.neurolearn.subscribes.pipeline import (
         run_subscribes_update,
     )
     sub_path = tmp_path / "subscribes.toml"
@@ -753,10 +753,10 @@ def test_platform_filter_empty_intersection_returns_none(tmp_path: Path):
                  last_pub="2026-01-01T00:00:00+00:00", platform="youtube"),
     ]
     with patch(
-        "skills.youtube_transcribe.subscribes.pipeline.load_subscribes",
+        "skills.neurolearn.subscribes.pipeline.load_subscribes",
         return_value=channels,
     ), patch(
-        "skills.youtube_transcribe.subscribes.pipeline._run_batch_pipeline",
+        "skills.neurolearn.subscribes.pipeline._run_batch_pipeline",
         side_effect=AssertionError("batch must NOT run when filter empty"),
     ):
         result = run_subscribes_update(

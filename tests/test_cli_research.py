@@ -1,10 +1,10 @@
-"""Tests for `youtube-transcribe research` CLI."""
+"""Tests for `neurolearn research` CLI."""
 from pathlib import Path
 from unittest.mock import patch
 
 from click.testing import CliRunner
 
-from skills.youtube_transcribe.transcribe import cli
+from skills.neurolearn.transcribe import cli
 
 
 def test_research_help():
@@ -31,7 +31,7 @@ def test_research_requires_query_or_in_subscribes():
 
 def test_research_calls_pipeline(tmp_path: Path):
     with patch(
-        "skills.youtube_transcribe.research.pipeline.run_research",
+        "skills.neurolearn.research.pipeline.run_research",
         return_value=tmp_path / "fake_batch",
     ) as mock_pipe:
         runner = CliRunner()
@@ -65,7 +65,7 @@ def test_research_backend_flag_lands_in_batch_opts(tmp_path: Path):
     not 'backend_opt', so _run_batch_pipeline.opts.get('backend') picks
     it up instead of falling back to cfg.default_backend."""
     with patch(
-        "skills.youtube_transcribe.research.pipeline.run_research",
+        "skills.neurolearn.research.pipeline.run_research",
         return_value=None,
     ) as mock_pipe:
         runner = CliRunner()
@@ -102,7 +102,7 @@ def test_research_mutex_prompt_and_prompt_file_when_analyze(tmp_path: Path):
 
 def test_research_languages_default_ru_en():
     with patch(
-        "skills.youtube_transcribe.research.pipeline.run_research",
+        "skills.neurolearn.research.pipeline.run_research",
         return_value=None,
     ) as mock_pipe:
         runner = CliRunner()
@@ -116,7 +116,7 @@ def test_research_languages_default_ru_en():
 
 def test_research_days_default_30():
     with patch(
-        "skills.youtube_transcribe.research.pipeline.run_research",
+        "skills.neurolearn.research.pipeline.run_research",
         return_value=None,
     ) as mock_pipe:
         runner = CliRunner()
@@ -129,7 +129,7 @@ def test_research_days_default_30():
 
 def test_research_limit_default_20():
     with patch(
-        "skills.youtube_transcribe.research.pipeline.run_research",
+        "skills.neurolearn.research.pipeline.run_research",
         return_value=None,
     ) as mock_pipe:
         runner = CliRunner()
@@ -142,7 +142,7 @@ def test_research_limit_default_20():
 
 def test_research_in_subscribes_calls_pipeline_with_flag(tmp_path: Path):
     with patch(
-        "skills.youtube_transcribe.research.pipeline.run_research",
+        "skills.neurolearn.research.pipeline.run_research",
         return_value=None,
     ) as mock_pipe:
         runner = CliRunner()
@@ -176,7 +176,7 @@ def test_research_days_and_since_mutex(tmp_path: Path):
 def test_research_query_lang_override(tmp_path: Path):
     """--query-lang flag passes through to pipeline as source_lang_hint."""
     with patch(
-        "skills.youtube_transcribe.research.pipeline.run_research",
+        "skills.neurolearn.research.pipeline.run_research",
         return_value=None,
     ) as mock_pipe:
         runner = CliRunner()
@@ -194,7 +194,7 @@ def test_research_query_lang_override(tmp_path: Path):
 def test_research_without_query_lang_defaults_to_none(tmp_path: Path):
     """No --query-lang flag → source_lang_hint=None (auto-detect script)."""
     with patch(
-        "skills.youtube_transcribe.research.pipeline.run_research",
+        "skills.neurolearn.research.pipeline.run_research",
         return_value=None,
     ) as mock_pipe:
         runner = CliRunner()
@@ -208,7 +208,7 @@ def test_research_without_query_lang_defaults_to_none(tmp_path: Path):
 
 def test_research_in_subscribes_without_query_works(tmp_path: Path):
     with patch(
-        "skills.youtube_transcribe.research.pipeline.run_research",
+        "skills.neurolearn.research.pipeline.run_research",
         return_value=None,
     ) as mock_pipe:
         runner = CliRunner()

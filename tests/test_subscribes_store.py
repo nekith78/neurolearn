@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from skills.youtube_transcribe.subscribes.store import (
+from skills.neurolearn.subscribes.store import (
     Channel,
     load_subscribes,
     save_subscribes,

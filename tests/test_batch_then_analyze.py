@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 from click.testing import CliRunner
 
-from skills.youtube_transcribe.transcribe import cli, _run_then_analyze
+from skills.neurolearn.transcribe import cli, _run_then_analyze
 
 
 def _make_fake_batch(tmp_path: Path) -> Path:
@@ -38,7 +38,7 @@ def test_run_then_analyze_writes_file(tmp_path: Path):
         return "ANALYZED"
 
     with patch(
-        "skills.youtube_transcribe.analyze.runner.run_analysis",
+        "skills.neurolearn.analyze.runner.run_analysis",
         side_effect=fake_run,
     ):
         _run_then_analyze(
@@ -66,7 +66,7 @@ def test_run_then_analyze_uses_prompt_file(tmp_path: Path):
         return "OK"
 
     with patch(
-        "skills.youtube_transcribe.analyze.runner.run_analysis",
+        "skills.neurolearn.analyze.runner.run_analysis",
         side_effect=fake_run,
     ):
         _run_then_analyze(
@@ -82,7 +82,7 @@ def test_run_then_analyze_uses_prompt_file(tmp_path: Path):
 def test_run_then_analyze_missing_key_exits_4(tmp_path: Path):
     batch = _make_fake_batch(tmp_path)
     with patch(
-        "skills.youtube_transcribe.transcribe.get_api_key",
+        "skills.neurolearn.transcribe.get_api_key",
         return_value=None,
     ):
         try:
@@ -100,7 +100,7 @@ def test_run_then_analyze_missing_key_exits_4(tmp_path: Path):
 def test_run_then_analyze_empty_response_no_file(tmp_path: Path):
     batch = _make_fake_batch(tmp_path)
     with patch(
-        "skills.youtube_transcribe.analyze.runner.run_analysis",
+        "skills.neurolearn.analyze.runner.run_analysis",
         return_value="",
     ):
         _run_then_analyze(
@@ -128,9 +128,9 @@ def test_then_analyze_cli_requires_prompt(tmp_path: Path):
 
 def test_select_analyze_backends_primary_first():
     """User's choice comes first; rest follow gemini→claude→openai→ollama."""
-    from skills.youtube_transcribe.transcribe import _select_analyze_backends
+    from skills.neurolearn.transcribe import _select_analyze_backends
     with patch(
-        "skills.youtube_transcribe.transcribe.get_api_key",
+        "skills.neurolearn.transcribe.get_api_key",
         return_value="fake-key",
     ):
         chain = _select_analyze_backends("claude")
@@ -142,13 +142,13 @@ def test_select_analyze_backends_primary_first():
 
 def test_select_analyze_backends_skips_missing_keys():
     """Backends without an API key are excluded (except ollama, no key needed)."""
-    from skills.youtube_transcribe.transcribe import _select_analyze_backends
+    from skills.neurolearn.transcribe import _select_analyze_backends
 
     def fake_key(name):
         return "fake-key" if name == "gemini" else None
 
     with patch(
-        "skills.youtube_transcribe.transcribe.get_api_key",
+        "skills.neurolearn.transcribe.get_api_key",
         side_effect=fake_key,
     ):
         chain = _select_analyze_backends("gemini")
@@ -160,9 +160,9 @@ def test_select_analyze_backends_primary_without_key_returns_empty():
     """Primary backend explicitly chosen but has no API key → empty chain.
     Caller exits 4 — we don't silently swap in a different backend the
     user didn't ask for."""
-    from skills.youtube_transcribe.transcribe import _select_analyze_backends
+    from skills.neurolearn.transcribe import _select_analyze_backends
     with patch(
-        "skills.youtube_transcribe.transcribe.get_api_key",
+        "skills.neurolearn.transcribe.get_api_key",
         return_value=None,
     ):
         # primary=gemini without key → don't substitute, exit 4 is correct
@@ -172,9 +172,9 @@ def test_select_analyze_backends_primary_without_key_returns_empty():
 def test_select_analyze_backends_ollama_primary_always_ok():
     """Ollama as primary never needs a key — chain non-empty even without
     any cloud key configured."""
-    from skills.youtube_transcribe.transcribe import _select_analyze_backends
+    from skills.neurolearn.transcribe import _select_analyze_backends
     with patch(
-        "skills.youtube_transcribe.transcribe.get_api_key",
+        "skills.neurolearn.transcribe.get_api_key",
         return_value=None,
     ):
         chain = _select_analyze_backends("ollama")
@@ -192,10 +192,10 @@ def test_then_analyze_falls_back_when_primary_returns_empty(tmp_path: Path):
         return "" if backend == "gemini" else "ANALYZED BY FALLBACK"
 
     with patch(
-        "skills.youtube_transcribe.transcribe.get_api_key",
+        "skills.neurolearn.transcribe.get_api_key",
         return_value="fake-key",
     ), patch(
-        "skills.youtube_transcribe.analyze.runner.run_analysis",
+        "skills.neurolearn.analyze.runner.run_analysis",
         side_effect=fake_run,
     ):
         _run_then_analyze(
@@ -215,10 +215,10 @@ def test_then_analyze_all_backends_empty_writes_no_file(tmp_path: Path):
     """Every backend in the chain returns '' → no analysis file, no crash."""
     batch = _make_fake_batch(tmp_path)
     with patch(
-        "skills.youtube_transcribe.transcribe.get_api_key",
+        "skills.neurolearn.transcribe.get_api_key",
         return_value="fake-key",
     ), patch(
-        "skills.youtube_transcribe.analyze.runner.run_analysis",
+        "skills.neurolearn.analyze.runner.run_analysis",
         return_value="",
     ):
         _run_then_analyze(
@@ -239,8 +239,8 @@ def test_download_error_becomes_batch_failure_not_traceback(tmp_path: Path):
     with stage="download", so the loop continues through remaining videos.
     """
     from unittest.mock import MagicMock
-    from skills.youtube_transcribe.transcribe import _run_batch_pipeline
-    from skills.youtube_transcribe.utils.downloader import DownloadError
+    from skills.neurolearn.transcribe import _run_batch_pipeline
+    from skills.neurolearn.utils.downloader import DownloadError
 
     def fake_run_pipeline(target, cfg, **kw):
         if "broken" in target.url:
@@ -268,7 +268,7 @@ def test_download_error_becomes_batch_failure_not_traceback(tmp_path: Path):
         )
         targets.append(t)
 
-    from skills.youtube_transcribe.config import Config
+    from skills.neurolearn.config import Config
     cfg = Config(
         default_backend="subtitles",
         output_dir=str(tmp_path),
@@ -285,7 +285,7 @@ def test_download_error_becomes_batch_failure_not_traceback(tmp_path: Path):
     }
 
     with patch(
-        "skills.youtube_transcribe.transcribe.run_pipeline",
+        "skills.neurolearn.transcribe.run_pipeline",
         side_effect=fake_run_pipeline,
     ):
         batch_dir = _run_batch_pipeline(targets=targets, cfg=cfg, opts=opts)

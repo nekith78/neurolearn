@@ -1,8 +1,8 @@
 """Tests for soft (lemmatized) per-language matching."""
 import pytest
 
-from skills.youtube_transcribe.detection.triggers import LanguageTriggers, TriggerConfig
-from skills.youtube_transcribe.detection.matcher import _match_soft
+from skills.neurolearn.detection.triggers import LanguageTriggers, TriggerConfig
+from skills.neurolearn.detection.matcher import _match_soft
 
 
 def _make_cfg_ru():

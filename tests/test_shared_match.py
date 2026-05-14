@@ -1,7 +1,7 @@
 """Tests for shared.match — case-insensitive substring filter."""
 from dataclasses import dataclass
 
-from skills.youtube_transcribe.shared.match import match_titles
+from skills.neurolearn.shared.match import match_titles
 
 
 @dataclass

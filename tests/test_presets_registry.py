@@ -1,5 +1,5 @@
 """Tests for OptionField + REGISTRY."""
-from skills.youtube_transcribe.presets.registry import (
+from skills.neurolearn.presets.registry import (
     OptionField,
     REGISTRY,
     get_field,

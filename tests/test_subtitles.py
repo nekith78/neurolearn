@@ -1,8 +1,8 @@
 import sys
 import pytest
 from unittest.mock import patch, MagicMock
-from skills.youtube_transcribe.backends.subtitles import SubtitlesBackend
-from skills.youtube_transcribe.backends.base import BackendError
+from skills.neurolearn.backends.subtitles import SubtitlesBackend
+from skills.neurolearn.backends.base import BackendError
 
 
 def test_supports_url_true():
@@ -24,7 +24,7 @@ def test_transcribe_returns_result():
     fake_api.get_transcript.return_value = fake_segments
 
     with patch(
-        "skills.youtube_transcribe.backends.subtitles._get_transcript_api",
+        "skills.neurolearn.backends.subtitles._get_transcript_api",
         return_value=fake_api,
     ):
         b = SubtitlesBackend()
@@ -42,7 +42,7 @@ def test_transcribe_empty_subtitles_raises_backend_error():
     fake_api.get_transcript.return_value = []
 
     with patch(
-        "skills.youtube_transcribe.backends.subtitles._get_transcript_api",
+        "skills.neurolearn.backends.subtitles._get_transcript_api",
         return_value=fake_api,
     ):
         b = SubtitlesBackend()

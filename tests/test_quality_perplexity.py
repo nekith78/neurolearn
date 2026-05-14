@@ -1,13 +1,13 @@
 """Tests for perplexity brick (opt-in). transformers / torch mocked."""
 from unittest.mock import MagicMock, patch
 
-from skills.youtube_transcribe.quality import perplexity
-from skills.youtube_transcribe.quality.perplexity import (
+from skills.neurolearn.quality import perplexity
+from skills.neurolearn.quality.perplexity import (
     _LANG_MODELS,
     is_perplexity_available_for_lang,
     perplexity_anomaly_score,
 )
-from skills.youtube_transcribe.utils.output_writer import Segment
+from skills.neurolearn.utils.output_writer import Segment
 
 
 def _seg(text: str) -> Segment:
@@ -174,12 +174,12 @@ def test_russian_perplexity_uses_correct_model(monkeypatch):
             return m
 
     monkeypatch.setattr(
-        "skills.youtube_transcribe.quality.perplexity.AutoTokenizer",
+        "skills.neurolearn.quality.perplexity.AutoTokenizer",
         FakeTok,
         raising=False,
     )
     monkeypatch.setattr(
-        "skills.youtube_transcribe.quality.perplexity.AutoModelForCausalLM",
+        "skills.neurolearn.quality.perplexity.AutoModelForCausalLM",
         FakeModel,
         raising=False,
     )

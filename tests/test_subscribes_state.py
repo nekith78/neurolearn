@@ -1,10 +1,10 @@
 """Tests for subscribes.state — last-seen tracking per channel."""
 from pathlib import Path
 
-from skills.youtube_transcribe.subscribes.store import (
+from skills.neurolearn.subscribes.store import (
     Channel, add_channel, load_subscribes,
 )
-from skills.youtube_transcribe.subscribes.state import (
+from skills.neurolearn.subscribes.state import (
     needs_initial_run,
     update_last_seen,
     channels_without_state,

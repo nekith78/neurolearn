@@ -1,7 +1,7 @@
 """Tests for subscribes.schedule — cross-OS snippet generation."""
 import pytest
 
-from skills.youtube_transcribe.subscribes.schedule import (
+from skills.neurolearn.subscribes.schedule import (
     detect_platform, parse_interval,
     generate_cron_line, generate_systemd_units,
     generate_launchd_plist, generate_taskscheduler_xml,
@@ -60,12 +60,12 @@ def test_parse_interval_zero_raises():
 
 def test_cron_line_hourly():
     line = generate_cron_line(
-        command_argv=["/usr/local/bin/youtube-transcribe", "subscribes",
+        command_argv=["/usr/local/bin/neurolearn", "subscribes",
                        "update"],
         every_seconds=3600,
     )
     assert line.startswith("0 * * * *")
-    assert "/usr/local/bin/youtube-transcribe" in line
+    assert "/usr/local/bin/neurolearn" in line
 
 
 def test_cron_line_every_15min():

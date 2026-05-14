@@ -3,8 +3,8 @@ import json
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 
-from skills.youtube_transcribe.detection.base import DetectionWindow
-from skills.youtube_transcribe.vision.claude_vision import ClaudeVisionBackend
+from skills.neurolearn.detection.base import DetectionWindow
+from skills.neurolearn.vision.claude_vision import ClaudeVisionBackend
 
 
 def _fake_resp(json_text: str):
@@ -40,7 +40,7 @@ def test_claude_annotate_returns_visual_segments(tmp_path):
         "anthropic.Anthropic",
         return_value=fake_client,
     ), patch(
-        "skills.youtube_transcribe.vision.frames.extract_keyframes",
+        "skills.neurolearn.vision.frames.extract_keyframes",
         return_value=[fake_frame],
     ):
         backend = ClaudeVisionBackend(api_key="fake", frames_per_window=1)
@@ -82,7 +82,7 @@ def test_claude_handles_invalid_json(tmp_path):
         "anthropic.Anthropic",
         return_value=fake_client,
     ), patch(
-        "skills.youtube_transcribe.vision.frames.extract_keyframes",
+        "skills.neurolearn.vision.frames.extract_keyframes",
         return_value=[fake_frame],
     ):
         backend = ClaudeVisionBackend(api_key="fake")
@@ -114,7 +114,7 @@ def test_claude_strips_code_fences(tmp_path):
         "anthropic.Anthropic",
         return_value=fake_client,
     ), patch(
-        "skills.youtube_transcribe.vision.frames.extract_keyframes",
+        "skills.neurolearn.vision.frames.extract_keyframes",
         return_value=[fake_frame],
     ):
         backend = ClaudeVisionBackend(api_key="fake")
@@ -136,7 +136,7 @@ def test_claude_empty_keyframes_skipped(tmp_path):
         "anthropic.Anthropic",
         return_value=MagicMock(),
     ), patch(
-        "skills.youtube_transcribe.vision.frames.extract_keyframes",
+        "skills.neurolearn.vision.frames.extract_keyframes",
         return_value=[],
     ):
         backend = ClaudeVisionBackend(api_key="fake")
@@ -163,7 +163,7 @@ def test_claude_api_failure_returns_error_description(tmp_path):
         "anthropic.Anthropic",
         return_value=fake_client,
     ), patch(
-        "skills.youtube_transcribe.vision.frames.extract_keyframes",
+        "skills.neurolearn.vision.frames.extract_keyframes",
         return_value=[fake_frame],
     ), patch(
         "time.sleep", lambda x: None,  # speed up retry backoff

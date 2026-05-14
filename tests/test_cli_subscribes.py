@@ -1,14 +1,14 @@
-"""Tests for `youtube-transcribe subscribes` CLI."""
+"""Tests for `neurolearn subscribes` CLI."""
 from pathlib import Path
 from unittest.mock import patch
 
 from click.testing import CliRunner
 
-from skills.youtube_transcribe.transcribe import cli
+from skills.neurolearn.transcribe import cli
 
 
 def _resolved(url, channel_id="UC_abc"):
-    from skills.youtube_transcribe.subscribes.channel_resolver import (
+    from skills.neurolearn.subscribes.channel_resolver import (
         ResolvedChannel,
     )
     return ResolvedChannel(
@@ -17,7 +17,7 @@ def _resolved(url, channel_id="UC_abc"):
 
 
 def _ig_resolved(url):
-    from skills.youtube_transcribe.subscribes.channel_resolver import (
+    from skills.neurolearn.subscribes.channel_resolver import (
         ResolvedChannel,
     )
     return ResolvedChannel(
@@ -27,7 +27,7 @@ def _ig_resolved(url):
 
 
 def _tt_resolved(url):
-    from skills.youtube_transcribe.subscribes.channel_resolver import (
+    from skills.neurolearn.subscribes.channel_resolver import (
         ResolvedChannel,
     )
     return ResolvedChannel(
@@ -47,10 +47,10 @@ def test_subscribes_help():
 def test_add_persists_channel(tmp_path: Path):
     sub_path = tmp_path / "subscribes.toml"
     with patch(
-        "skills.youtube_transcribe.subscribes.cli.SUBSCRIBES_PATH",
+        "skills.neurolearn.subscribes.cli.SUBSCRIBES_PATH",
         new=sub_path,
     ), patch(
-        "skills.youtube_transcribe.subscribes.cli.resolve_channel",
+        "skills.neurolearn.subscribes.cli.resolve_channel",
         return_value=_resolved("https://www.youtube.com/@A"),
     ):
         runner = CliRunner()
@@ -68,13 +68,13 @@ def test_add_instagram_runs_cookies_onboarding(tmp_path: Path):
     """First Instagram add triggers the cookies prompt resolver."""
     sub_path = tmp_path / "subscribes.toml"
     with patch(
-        "skills.youtube_transcribe.subscribes.cli.SUBSCRIBES_PATH",
+        "skills.neurolearn.subscribes.cli.SUBSCRIBES_PATH",
         new=sub_path,
     ), patch(
-        "skills.youtube_transcribe.subscribes.cli.resolve_channel",
+        "skills.neurolearn.subscribes.cli.resolve_channel",
         return_value=_ig_resolved("https://www.instagram.com/anthropic"),
     ), patch(
-        "skills.youtube_transcribe.subscribes.cookies_onboarding"
+        "skills.neurolearn.subscribes.cookies_onboarding"
         ".resolve_cookies_file",
         return_value="chrome",
     ) as mock_cookies:
@@ -92,13 +92,13 @@ def test_add_instagram_runs_cookies_onboarding(tmp_path: Path):
 def test_add_tiktok_runs_cookies_onboarding(tmp_path: Path):
     sub_path = tmp_path / "subscribes.toml"
     with patch(
-        "skills.youtube_transcribe.subscribes.cli.SUBSCRIBES_PATH",
+        "skills.neurolearn.subscribes.cli.SUBSCRIBES_PATH",
         new=sub_path,
     ), patch(
-        "skills.youtube_transcribe.subscribes.cli.resolve_channel",
+        "skills.neurolearn.subscribes.cli.resolve_channel",
         return_value=_tt_resolved("https://www.tiktok.com/@duolingo"),
     ), patch(
-        "skills.youtube_transcribe.subscribes.cookies_onboarding"
+        "skills.neurolearn.subscribes.cookies_onboarding"
         ".resolve_cookies_file",
         return_value="chrome",
     ) as mock_cookies:
@@ -116,13 +116,13 @@ def test_add_youtube_skips_cookies_onboarding(tmp_path: Path):
     """YouTube uses public RSS — no cookies prompt on add."""
     sub_path = tmp_path / "subscribes.toml"
     with patch(
-        "skills.youtube_transcribe.subscribes.cli.SUBSCRIBES_PATH",
+        "skills.neurolearn.subscribes.cli.SUBSCRIBES_PATH",
         new=sub_path,
     ), patch(
-        "skills.youtube_transcribe.subscribes.cli.resolve_channel",
+        "skills.neurolearn.subscribes.cli.resolve_channel",
         return_value=_resolved("https://www.youtube.com/@A"),
     ), patch(
-        "skills.youtube_transcribe.subscribes.cookies_onboarding"
+        "skills.neurolearn.subscribes.cookies_onboarding"
         ".resolve_cookies_file",
         side_effect=AssertionError("must not call for YouTube"),
     ):
@@ -136,10 +136,10 @@ def test_add_youtube_skips_cookies_onboarding(tmp_path: Path):
 def test_add_resolution_failure_exits_3(tmp_path: Path):
     sub_path = tmp_path / "subscribes.toml"
     with patch(
-        "skills.youtube_transcribe.subscribes.cli.SUBSCRIBES_PATH",
+        "skills.neurolearn.subscribes.cli.SUBSCRIBES_PATH",
         new=sub_path,
     ), patch(
-        "skills.youtube_transcribe.subscribes.cli.resolve_channel",
+        "skills.neurolearn.subscribes.cli.resolve_channel",
         side_effect=ValueError("not a channel"),
     ):
         runner = CliRunner()
@@ -150,7 +150,7 @@ def test_add_resolution_failure_exits_3(tmp_path: Path):
 
 
 def test_list_shows_channels(tmp_path: Path):
-    from skills.youtube_transcribe.subscribes.store import (
+    from skills.neurolearn.subscribes.store import (
         Channel, add_channel,
     )
     sub_path = tmp_path / "subscribes.toml"
@@ -163,7 +163,7 @@ def test_list_shows_channels(tmp_path: Path):
         added="2026-05-12",
     ))
     with patch(
-        "skills.youtube_transcribe.subscribes.cli.SUBSCRIBES_PATH",
+        "skills.neurolearn.subscribes.cli.SUBSCRIBES_PATH",
         new=sub_path,
     ):
         runner = CliRunner()
@@ -175,7 +175,7 @@ def test_list_shows_channels(tmp_path: Path):
 
 def test_list_groups_by_platform(tmp_path: Path):
     """v0.8 — list prints separate tables for YouTube / Instagram / TikTok."""
-    from skills.youtube_transcribe.subscribes.store import (
+    from skills.neurolearn.subscribes.store import (
         Channel, add_channel,
     )
     sub_path = tmp_path / "subscribes.toml"
@@ -192,7 +192,7 @@ def test_list_groups_by_platform(tmp_path: Path):
         group=None, added="x", platform="tiktok",
     ))
     with patch(
-        "skills.youtube_transcribe.subscribes.cli.SUBSCRIBES_PATH",
+        "skills.neurolearn.subscribes.cli.SUBSCRIBES_PATH",
         new=sub_path,
     ):
         runner = CliRunner()
@@ -208,7 +208,7 @@ def test_list_groups_by_platform(tmp_path: Path):
 
 
 def test_list_platform_filter(tmp_path: Path):
-    from skills.youtube_transcribe.subscribes.store import (
+    from skills.neurolearn.subscribes.store import (
         Channel, add_channel,
     )
     sub_path = tmp_path / "subscribes.toml"
@@ -221,7 +221,7 @@ def test_list_platform_filter(tmp_path: Path):
         group=None, added="x", platform="instagram",
     ))
     with patch(
-        "skills.youtube_transcribe.subscribes.cli.SUBSCRIBES_PATH",
+        "skills.neurolearn.subscribes.cli.SUBSCRIBES_PATH",
         new=sub_path,
     ):
         runner = CliRunner()
@@ -234,7 +234,7 @@ def test_list_platform_filter(tmp_path: Path):
 
 
 def test_list_filter_by_group(tmp_path: Path):
-    from skills.youtube_transcribe.subscribes.store import (
+    from skills.neurolearn.subscribes.store import (
         Channel, add_channel,
     )
     sub_path = tmp_path / "subscribes.toml"
@@ -245,7 +245,7 @@ def test_list_filter_by_group(tmp_path: Path):
         url="u2", handle="@B", channel_id="UC_b", group="philosophy", added="x",
     ))
     with patch(
-        "skills.youtube_transcribe.subscribes.cli.SUBSCRIBES_PATH",
+        "skills.neurolearn.subscribes.cli.SUBSCRIBES_PATH",
         new=sub_path,
     ):
         runner = CliRunner()
@@ -256,7 +256,7 @@ def test_list_filter_by_group(tmp_path: Path):
 
 
 def test_remove_existing(tmp_path: Path):
-    from skills.youtube_transcribe.subscribes.store import (
+    from skills.neurolearn.subscribes.store import (
         Channel, add_channel,
     )
     sub_path = tmp_path / "subscribes.toml"
@@ -264,7 +264,7 @@ def test_remove_existing(tmp_path: Path):
         url="u", handle="@A", channel_id="UC_a", group=None, added="x",
     ))
     with patch(
-        "skills.youtube_transcribe.subscribes.cli.SUBSCRIBES_PATH",
+        "skills.neurolearn.subscribes.cli.SUBSCRIBES_PATH",
         new=sub_path,
     ):
         runner = CliRunner()
@@ -276,7 +276,7 @@ def test_remove_existing(tmp_path: Path):
 def test_remove_missing_exits_3(tmp_path: Path):
     sub_path = tmp_path / "subscribes.toml"
     with patch(
-        "skills.youtube_transcribe.subscribes.cli.SUBSCRIBES_PATH",
+        "skills.neurolearn.subscribes.cli.SUBSCRIBES_PATH",
         new=sub_path,
     ):
         runner = CliRunner()
@@ -290,7 +290,7 @@ def test_edit_uses_env_editor(tmp_path: Path, monkeypatch):
     sub_path.write_text("# empty\n", encoding="utf-8")
     monkeypatch.setenv("EDITOR", "true")  # Unix /usr/bin/true exits 0
     with patch(
-        "skills.youtube_transcribe.subscribes.cli.SUBSCRIBES_PATH",
+        "skills.neurolearn.subscribes.cli.SUBSCRIBES_PATH",
         new=sub_path,
     ):
         runner = CliRunner()
@@ -302,10 +302,10 @@ def test_update_delegates_to_pipeline(tmp_path: Path):
     sub_path = tmp_path / "subscribes.toml"
     sub_path.write_text("# empty\n", encoding="utf-8")
     with patch(
-        "skills.youtube_transcribe.subscribes.cli.SUBSCRIBES_PATH",
+        "skills.neurolearn.subscribes.cli.SUBSCRIBES_PATH",
         new=sub_path,
     ), patch(
-        "skills.youtube_transcribe.subscribes.pipeline.run_subscribes_update",
+        "skills.neurolearn.subscribes.pipeline.run_subscribes_update",
         return_value=tmp_path / "fake",
     ) as mock_pipe:
         runner = CliRunner()
@@ -333,10 +333,10 @@ def test_update_backend_and_language_use_canonical_keys(tmp_path: Path):
     sub_path = tmp_path / "subscribes.toml"
     sub_path.write_text("# empty\n", encoding="utf-8")
     with patch(
-        "skills.youtube_transcribe.subscribes.cli.SUBSCRIBES_PATH",
+        "skills.neurolearn.subscribes.cli.SUBSCRIBES_PATH",
         new=sub_path,
     ), patch(
-        "skills.youtube_transcribe.subscribes.pipeline.run_subscribes_update",
+        "skills.neurolearn.subscribes.pipeline.run_subscribes_update",
         return_value=None,
     ) as mock_pipe:
         runner = CliRunner()
@@ -355,13 +355,13 @@ def test_update_backend_and_language_use_canonical_keys(tmp_path: Path):
 
 
 def test_update_subscribes_error_exits_2(tmp_path: Path):
-    from skills.youtube_transcribe.subscribes.pipeline import SubscribesError
+    from skills.neurolearn.subscribes.pipeline import SubscribesError
     sub_path = tmp_path / "subscribes.toml"
     with patch(
-        "skills.youtube_transcribe.subscribes.cli.SUBSCRIBES_PATH",
+        "skills.neurolearn.subscribes.cli.SUBSCRIBES_PATH",
         new=sub_path,
     ), patch(
-        "skills.youtube_transcribe.subscribes.pipeline.run_subscribes_update",
+        "skills.neurolearn.subscribes.pipeline.run_subscribes_update",
         side_effect=SubscribesError("--days required for: @X"),
     ):
         runner = CliRunner()
@@ -379,7 +379,7 @@ def test_update_analyze_requires_prompt(tmp_path: Path):
     sub_path = tmp_path / "subscribes.toml"
     sub_path.write_text("# empty\n", encoding="utf-8")
     with patch(
-        "skills.youtube_transcribe.subscribes.cli.SUBSCRIBES_PATH",
+        "skills.neurolearn.subscribes.cli.SUBSCRIBES_PATH",
         new=sub_path,
     ):
         runner = CliRunner()
@@ -405,7 +405,7 @@ def test_schedule_help():
 
 def test_schedule_install_prints_launchd_on_macos():
     with patch(
-        "skills.youtube_transcribe.subscribes.cli.detect_platform",
+        "skills.neurolearn.subscribes.cli.detect_platform",
         return_value="launchd",
     ):
         runner = CliRunner()
@@ -420,7 +420,7 @@ def test_schedule_install_prints_launchd_on_macos():
 
 def test_schedule_install_prints_cron_on_linux():
     with patch(
-        "skills.youtube_transcribe.subscribes.cli.detect_platform",
+        "skills.neurolearn.subscribes.cli.detect_platform",
         return_value="cron",
     ):
         runner = CliRunner()
@@ -434,7 +434,7 @@ def test_schedule_install_prints_cron_on_linux():
 
 def test_schedule_install_prints_systemd():
     with patch(
-        "skills.youtube_transcribe.subscribes.cli.detect_platform",
+        "skills.neurolearn.subscribes.cli.detect_platform",
         return_value="systemd",
     ):
         runner = CliRunner()
@@ -449,7 +449,7 @@ def test_schedule_install_prints_systemd():
 
 def test_schedule_install_prints_taskscheduler_on_windows():
     with patch(
-        "skills.youtube_transcribe.subscribes.cli.detect_platform",
+        "skills.neurolearn.subscribes.cli.detect_platform",
         return_value="taskscheduler",
     ):
         runner = CliRunner()

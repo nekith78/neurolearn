@@ -1,5 +1,5 @@
 """Tests for QualityReport dataclass and QualityChecker Protocol."""
-from skills.youtube_transcribe.quality.base import (
+from skills.neurolearn.quality.base import (
     QualityReport,
     Recommendation,
 )

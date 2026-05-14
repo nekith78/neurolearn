@@ -11,8 +11,8 @@ from pathlib import Path
 
 import pytest
 
-from skills.youtube_transcribe.backends.assemblyai import AssemblyAIBackend
-from skills.youtube_transcribe.backends.base import BackendError, BackendNotConfigured
+from skills.neurolearn.backends.assemblyai import AssemblyAIBackend
+from skills.neurolearn.backends.base import BackendError, BackendNotConfigured
 
 
 # ---------------------------------------------------------------------------
@@ -20,14 +20,14 @@ from skills.youtube_transcribe.backends.base import BackendError, BackendNotConf
 # ---------------------------------------------------------------------------
 
 def test_is_configured_without_key():
-    with patch("skills.youtube_transcribe.backends.assemblyai.get_api_key", return_value=None):
+    with patch("skills.neurolearn.backends.assemblyai.get_api_key", return_value=None):
         ok, reason = AssemblyAIBackend(model="best").is_configured()
         assert ok is False
         assert "ASSEMBLYAI_API_KEY" in reason
 
 
 def test_is_configured_with_key():
-    with patch("skills.youtube_transcribe.backends.assemblyai.get_api_key", return_value="aai_test"):
+    with patch("skills.neurolearn.backends.assemblyai.get_api_key", return_value="aai_test"):
         ok, reason = AssemblyAIBackend(model="best").is_configured()
         assert ok is True
         assert reason is None
@@ -54,8 +54,8 @@ def test_transcribe_uses_utterances(tmp_path: Path):
     fake_transcriber = MagicMock()
     fake_transcriber.transcribe.return_value = fake_transcript
 
-    with patch("skills.youtube_transcribe.backends.assemblyai.get_api_key", return_value="x"), \
-         patch("skills.youtube_transcribe.backends.assemblyai._build_transcriber", return_value=fake_transcriber):
+    with patch("skills.neurolearn.backends.assemblyai.get_api_key", return_value="x"), \
+         patch("skills.neurolearn.backends.assemblyai._build_transcriber", return_value=fake_transcriber):
         b = AssemblyAIBackend(model="best")
         result = b.transcribe(audio, language="en")
 
@@ -86,8 +86,8 @@ def test_transcribe_ms_to_seconds_conversion(tmp_path: Path):
     fake_transcriber = MagicMock()
     fake_transcriber.transcribe.return_value = fake_transcript
 
-    with patch("skills.youtube_transcribe.backends.assemblyai.get_api_key", return_value="x"), \
-         patch("skills.youtube_transcribe.backends.assemblyai._build_transcriber", return_value=fake_transcriber):
+    with patch("skills.neurolearn.backends.assemblyai.get_api_key", return_value="x"), \
+         patch("skills.neurolearn.backends.assemblyai._build_transcriber", return_value=fake_transcriber):
         result = AssemblyAIBackend().transcribe(audio)
 
     # 5000 ms → 5.0 s, 10500 ms → 10.5 s
@@ -109,8 +109,8 @@ def test_transcribe_auto_language(tmp_path: Path):
     fake_transcriber = MagicMock()
     fake_transcriber.transcribe.return_value = fake_transcript
 
-    with patch("skills.youtube_transcribe.backends.assemblyai.get_api_key", return_value="x"), \
-         patch("skills.youtube_transcribe.backends.assemblyai._build_transcriber", return_value=fake_transcriber):
+    with patch("skills.neurolearn.backends.assemblyai.get_api_key", return_value="x"), \
+         patch("skills.neurolearn.backends.assemblyai._build_transcriber", return_value=fake_transcriber):
         result = AssemblyAIBackend().transcribe(audio, language="auto")
 
     assert result.language_detected == "es"
@@ -132,8 +132,8 @@ def test_transcribe_empty_utterances(tmp_path: Path):
     fake_transcriber = MagicMock()
     fake_transcriber.transcribe.return_value = fake_transcript
 
-    with patch("skills.youtube_transcribe.backends.assemblyai.get_api_key", return_value="x"), \
-         patch("skills.youtube_transcribe.backends.assemblyai._build_transcriber", return_value=fake_transcriber):
+    with patch("skills.neurolearn.backends.assemblyai.get_api_key", return_value="x"), \
+         patch("skills.neurolearn.backends.assemblyai._build_transcriber", return_value=fake_transcriber):
         result = AssemblyAIBackend().transcribe(audio)
 
     assert result.segments == []
@@ -155,8 +155,8 @@ def test_transcribe_duration_from_audio_duration(tmp_path: Path):
     fake_transcriber = MagicMock()
     fake_transcriber.transcribe.return_value = fake_transcript
 
-    with patch("skills.youtube_transcribe.backends.assemblyai.get_api_key", return_value="x"), \
-         patch("skills.youtube_transcribe.backends.assemblyai._build_transcriber", return_value=fake_transcriber):
+    with patch("skills.neurolearn.backends.assemblyai.get_api_key", return_value="x"), \
+         patch("skills.neurolearn.backends.assemblyai._build_transcriber", return_value=fake_transcriber):
         result = AssemblyAIBackend().transcribe(audio)
 
     assert result.duration_seconds == pytest.approx(42.7)
@@ -176,8 +176,8 @@ def test_transcribe_utterances_none_fallback(tmp_path: Path):
     fake_transcriber = MagicMock()
     fake_transcriber.transcribe.return_value = fake_transcript
 
-    with patch("skills.youtube_transcribe.backends.assemblyai.get_api_key", return_value="x"), \
-         patch("skills.youtube_transcribe.backends.assemblyai._build_transcriber", return_value=fake_transcriber):
+    with patch("skills.neurolearn.backends.assemblyai.get_api_key", return_value="x"), \
+         patch("skills.neurolearn.backends.assemblyai._build_transcriber", return_value=fake_transcriber):
         result = AssemblyAIBackend().transcribe(audio)
 
     assert result.segments == []
@@ -192,14 +192,14 @@ def test_transcribe_raises_backend_not_configured_when_key_missing(tmp_path: Pat
     audio = tmp_path / "nokey.mp3"
     audio.write_bytes(b"fake")
 
-    with patch("skills.youtube_transcribe.backends.assemblyai.get_api_key", return_value=None):
+    with patch("skills.neurolearn.backends.assemblyai.get_api_key", return_value=None):
         b = AssemblyAIBackend()
         with pytest.raises(BackendNotConfigured):
             b.transcribe(audio)
 
 
 def test_transcribe_raises_backend_error_for_missing_file():
-    with patch("skills.youtube_transcribe.backends.assemblyai.get_api_key", return_value="x"):
+    with patch("skills.neurolearn.backends.assemblyai.get_api_key", return_value="x"):
         b = AssemblyAIBackend()
         with pytest.raises(BackendError, match="not found"):
             b.transcribe(Path("/nonexistent/path/audio.mp3"))
@@ -212,8 +212,8 @@ def test_transcribe_raises_backend_error_on_api_exception(tmp_path: Path):
     fake_transcriber = MagicMock()
     fake_transcriber.transcribe.side_effect = RuntimeError("rate limited")
 
-    with patch("skills.youtube_transcribe.backends.assemblyai.get_api_key", return_value="x"), \
-         patch("skills.youtube_transcribe.backends.assemblyai._build_transcriber", return_value=fake_transcriber):
+    with patch("skills.neurolearn.backends.assemblyai.get_api_key", return_value="x"), \
+         patch("skills.neurolearn.backends.assemblyai._build_transcriber", return_value=fake_transcriber):
         b = AssemblyAIBackend()
         with pytest.raises(BackendError, match="rate limited"):
             b.transcribe(audio)
@@ -234,8 +234,8 @@ def test_transcribe_raises_backend_error_on_transcript_error(tmp_path: Path):
     fake_transcriber = MagicMock()
     fake_transcriber.transcribe.return_value = fake_transcript
 
-    with patch("skills.youtube_transcribe.backends.assemblyai.get_api_key", return_value="x"), \
-         patch("skills.youtube_transcribe.backends.assemblyai._build_transcriber", return_value=fake_transcriber):
+    with patch("skills.neurolearn.backends.assemblyai.get_api_key", return_value="x"), \
+         patch("skills.neurolearn.backends.assemblyai._build_transcriber", return_value=fake_transcriber):
         b = AssemblyAIBackend()
         with pytest.raises(BackendError, match="Audio file could not be transcribed"):
             b.transcribe(audio)

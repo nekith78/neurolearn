@@ -4,7 +4,7 @@ from unittest.mock import patch, MagicMock
 
 from click.testing import CliRunner
 
-from skills.youtube_transcribe.transcribe import cli
+from skills.neurolearn.transcribe import cli
 
 
 def test_with_visuals_triggers_download_video(tmp_path, monkeypatch):
@@ -34,15 +34,15 @@ def test_with_visuals_triggers_download_video(tmp_path, monkeypatch):
 
     runner = CliRunner()
     monkeypatch.setattr(
-        "skills.youtube_transcribe.transcribe.run_pipeline",
+        "skills.neurolearn.transcribe.run_pipeline",
         lambda *a, **kw: fake_result,
     )
     monkeypatch.setattr(
-        "skills.youtube_transcribe.utils.downloader.download_video",
+        "skills.neurolearn.utils.downloader.download_video",
         fake_download_video,
     )
     monkeypatch.setattr(
-        "skills.youtube_transcribe.config.get_api_key",
+        "skills.neurolearn.config.get_api_key",
         lambda backend, env_path=None: "fake_key" if backend == "gemini" else None,
     )
     # apply_v02_stages should be called with non-None video_path.
@@ -54,13 +54,13 @@ def test_with_visuals_triggers_download_video(tmp_path, monkeypatch):
         return kwargs["result"]
 
     monkeypatch.setattr(
-        "skills.youtube_transcribe.pipeline_v02.apply_v02_stages",
+        "skills.neurolearn.pipeline_v02.apply_v02_stages",
         fake_apply,
     )
 
     # Avoid wizard (config exists check)
     monkeypatch.setattr(
-        "skills.youtube_transcribe.transcribe.CONFIG_PATH",
+        "skills.neurolearn.transcribe.CONFIG_PATH",
         tmp_path / "config.toml",
     )
     (tmp_path / "config.toml").write_text("default_preset = \"smart\"\n", encoding="utf-8")

@@ -10,16 +10,16 @@ from unittest.mock import patch, MagicMock
 
 from click.testing import CliRunner
 
-from skills.youtube_transcribe.transcribe import cli
+from skills.neurolearn.transcribe import cli
 
 
 def test_research_prompts_when_no_query_and_tty():
     """research with no query: in TTY, prompt is consulted; value flows to run_research."""
-    with patch("skills.youtube_transcribe.shared.prompts._is_tty",
+    with patch("skills.neurolearn.shared.prompts._is_tty",
                return_value=True), \
-         patch("skills.youtube_transcribe.shared.prompts.prompt_url_or_die",
+         patch("skills.neurolearn.shared.prompts.prompt_url_or_die",
                return_value="Claude updates") as mock_prompt, \
-         patch("skills.youtube_transcribe.research.pipeline.run_research",
+         patch("skills.neurolearn.research.pipeline.run_research",
                return_value=Path("/tmp/fake_batch")) as mock_pipe:
         runner = CliRunner()
         res = runner.invoke(cli, [
@@ -41,13 +41,13 @@ def test_subscribes_add_prompts_when_no_url_and_tty():
         handle="anth",
         channel_id="UCabc",
     )
-    with patch("skills.youtube_transcribe.shared.prompts._is_tty",
+    with patch("skills.neurolearn.shared.prompts._is_tty",
                return_value=True), \
-         patch("skills.youtube_transcribe.shared.prompts.prompt_url_or_die",
+         patch("skills.neurolearn.shared.prompts.prompt_url_or_die",
                return_value="https://www.youtube.com/@anth") as mock_prompt, \
-         patch("skills.youtube_transcribe.subscribes.cli.resolve_channel",
+         patch("skills.neurolearn.subscribes.cli.resolve_channel",
                return_value=fake_resolved), \
-         patch("skills.youtube_transcribe.subscribes.cli.add_channel"):
+         patch("skills.neurolearn.subscribes.cli.add_channel"):
         runner = CliRunner()
         runner.invoke(cli, ["subscribes", "add"])
     mock_prompt.assert_called_once()
@@ -56,16 +56,16 @@ def test_subscribes_add_prompts_when_no_url_and_tty():
 def test_transcribe_prompts_when_no_url_and_tty():
     """transcribe with no URL: prompt is consulted; resolver receives prompted value."""
     cfg = MagicMock(fast_path_enabled=True)
-    with patch("skills.youtube_transcribe.shared.prompts._is_tty",
+    with patch("skills.neurolearn.shared.prompts._is_tty",
                return_value=True), \
-         patch("skills.youtube_transcribe.shared.prompts.prompt_url_or_die",
+         patch("skills.neurolearn.shared.prompts.prompt_url_or_die",
                return_value="https://youtu.be/PROMPTED") as mock_prompt, \
-         patch("skills.youtube_transcribe.transcribe.run_wizard"), \
-         patch("skills.youtube_transcribe.transcribe.load_config",
+         patch("skills.neurolearn.transcribe.run_wizard"), \
+         patch("skills.neurolearn.transcribe.load_config",
                return_value=cfg), \
-         patch("skills.youtube_transcribe.transcribe._override_config",
+         patch("skills.neurolearn.transcribe._override_config",
                return_value=cfg), \
-         patch("skills.youtube_transcribe.transcribe.resolve",
+         patch("skills.neurolearn.transcribe.resolve",
                return_value=([], [])) as mock_resolve:
         runner = CliRunner()
         runner.invoke(cli, ["transcribe"])
@@ -78,21 +78,21 @@ def test_batch_prompts_when_no_inputs_and_tty(tmp_path: Path):
     """batch with no inputs, no --from-file, no --search: prompts multi-line.
 
     Mocks `run_wizard` / `load_config` so the test works on CI machines
-    that don't have a `~/.youtube-transcribe/config.toml` (otherwise
+    that don't have a `~/.neurolearn/config.toml` (otherwise
     batch_cmd would hang on the first-run wizard's stdin prompts).
     """
     from unittest.mock import MagicMock
     cfg = MagicMock(fast_path_enabled=True)
-    with patch("skills.youtube_transcribe.shared.prompts._is_tty",
+    with patch("skills.neurolearn.shared.prompts._is_tty",
                return_value=True), \
-         patch("skills.youtube_transcribe.shared.prompts.prompt_urls_or_die",
+         patch("skills.neurolearn.shared.prompts.prompt_urls_or_die",
                return_value=["https://youtu.be/A", "https://youtu.be/B"]) as mock_prompt, \
-         patch("skills.youtube_transcribe.transcribe.run_wizard"), \
-         patch("skills.youtube_transcribe.transcribe.load_config",
+         patch("skills.neurolearn.transcribe.run_wizard"), \
+         patch("skills.neurolearn.transcribe.load_config",
                return_value=cfg), \
-         patch("skills.youtube_transcribe.transcribe._override_config",
+         patch("skills.neurolearn.transcribe._override_config",
                return_value=cfg), \
-         patch("skills.youtube_transcribe.transcribe.resolve",
+         patch("skills.neurolearn.transcribe.resolve",
                return_value=([], [])) as mock_resolve:
         runner = CliRunner()
         runner.invoke(cli, ["batch"])
@@ -105,15 +105,15 @@ def test_batch_does_not_prompt_when_search_given():
     """batch --search "foo" must NOT trigger the URL prompt (search is an alternative source)."""
     from unittest.mock import MagicMock
     cfg = MagicMock(fast_path_enabled=True)
-    with patch("skills.youtube_transcribe.shared.prompts._is_tty",
+    with patch("skills.neurolearn.shared.prompts._is_tty",
                return_value=True), \
-         patch("skills.youtube_transcribe.shared.prompts.prompt_urls_or_die") as mock_prompt, \
-         patch("skills.youtube_transcribe.transcribe.run_wizard"), \
-         patch("skills.youtube_transcribe.transcribe.load_config",
+         patch("skills.neurolearn.shared.prompts.prompt_urls_or_die") as mock_prompt, \
+         patch("skills.neurolearn.transcribe.run_wizard"), \
+         patch("skills.neurolearn.transcribe.load_config",
                return_value=cfg), \
-         patch("skills.youtube_transcribe.transcribe._override_config",
+         patch("skills.neurolearn.transcribe._override_config",
                return_value=cfg), \
-         patch("skills.youtube_transcribe.transcribe.resolve",
+         patch("skills.neurolearn.transcribe.resolve",
                return_value=([], [])):
         runner = CliRunner()
         runner.invoke(cli, ["batch", "--search", "claude features",

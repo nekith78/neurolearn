@@ -1,6 +1,6 @@
 """Tests for --vision-prompt custom template loading."""
-from skills.youtube_transcribe.pipeline_v02 import _load_vision_prompt
-from skills.youtube_transcribe.vision.prompts import DEFAULT_PROMPT
+from skills.neurolearn.pipeline_v02 import _load_vision_prompt
+from skills.neurolearn.vision.prompts import DEFAULT_PROMPT
 
 
 def test_no_path_returns_default():

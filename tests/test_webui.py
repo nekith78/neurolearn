@@ -26,14 +26,14 @@ except ImportError:
 
 
 def test_build_ui_returns_blocks():
-    from skills.youtube_transcribe.webui.app import build_ui
+    from skills.neurolearn.webui.app import build_ui
     demo = build_ui()
     # gradio.Blocks instance
     assert isinstance(demo, gradio.Blocks)
 
 
 def test_run_one_empty_input_returns_hint():
-    from skills.youtube_transcribe.webui.app import _run_one
+    from skills.neurolearn.webui.app import _run_one
     transcript, visual, quality, outdir = _run_one(
         url_or_path="",
         preset_name="smart",
@@ -51,7 +51,7 @@ def test_run_one_empty_input_returns_hint():
 def test_run_one_resolve_failure(monkeypatch, tmp_path):
     """Bad URL → caught and reported in transcript field, no crash."""
     monkeypatch.setattr(
-        "skills.youtube_transcribe.webui.app.resolve_with_env_checks",
+        "skills.neurolearn.webui.app.resolve_with_env_checks",
         lambda preset, cli_overrides=None: ({"vision_backend": "off"}, []),
         raising=False,
     )
@@ -60,15 +60,15 @@ def test_run_one_resolve_failure(monkeypatch, tmp_path):
         return [], [type("F", (), {"error": "yt-dlp got 404"})()]
 
     monkeypatch.setattr(
-        "skills.youtube_transcribe.utils.resolver.resolve",
+        "skills.neurolearn.utils.resolver.resolve",
         fake_resolve,
     )
     monkeypatch.setattr(
-        "skills.youtube_transcribe.config.load_config",
+        "skills.neurolearn.config.load_config",
         lambda: type("C", (), {"language": "auto"})(),
     )
 
-    from skills.youtube_transcribe.webui.app import _run_one
+    from skills.neurolearn.webui.app import _run_one
     transcript, _v, _q, outdir = _run_one(
         url_or_path="https://invalid/x",
         preset_name="smart",
@@ -83,14 +83,14 @@ def test_run_one_resolve_failure(monkeypatch, tmp_path):
 
 def test_webui_cli_present():
     """CLI sub-command 'webui' must be registered on the main cli group."""
-    from skills.youtube_transcribe.transcribe import cli
+    from skills.neurolearn.transcribe import cli
     assert "webui" in cli.commands
 
 
 def test_webui_cli_help_runs():
-    """`youtube-transcribe webui --help` should succeed."""
+    """`neurolearn webui --help` should succeed."""
     from click.testing import CliRunner
-    from skills.youtube_transcribe.transcribe import cli
+    from skills.neurolearn.transcribe import cli
     runner = CliRunner()
     res = runner.invoke(cli, ["webui", "--help"])
     assert res.exit_code == 0

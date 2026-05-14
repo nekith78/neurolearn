@@ -3,12 +3,12 @@ from unittest.mock import MagicMock
 
 from click.testing import CliRunner
 
-from skills.youtube_transcribe.transcribe import cli
+from skills.neurolearn.transcribe import cli
 
 
 def _setup(tmp_path, monkeypatch):
     monkeypatch.setattr(
-        "skills.youtube_transcribe.transcribe.CONFIG_PATH",
+        "skills.neurolearn.transcribe.CONFIG_PATH",
         tmp_path / "config.toml",
     )
     (tmp_path / "config.toml").write_text(
@@ -39,11 +39,11 @@ def test_transcribe_correct_asr_flag_sets_overrides(tmp_path, monkeypatch):
         return ({"vision_backend": "off"}, [])
 
     monkeypatch.setattr(
-        "skills.youtube_transcribe.presets.loader.resolve_with_env_checks",
+        "skills.neurolearn.presets.loader.resolve_with_env_checks",
         fake_resolve_with_env_checks,
     )
     monkeypatch.setattr(
-        "skills.youtube_transcribe.transcribe.resolve",
+        "skills.neurolearn.transcribe.resolve",
         lambda i, f, fi: ([MagicMock(
             url="https://youtu.be/x", title="X", video_id="x",
             upload_date=None, duration_sec=60, channel="C", source="inline",
@@ -58,11 +58,11 @@ def test_transcribe_correct_asr_flag_sets_overrides(tmp_path, monkeypatch):
     fake_result.quality = None
     fake_result.visual_segments = []
     monkeypatch.setattr(
-        "skills.youtube_transcribe.transcribe.run_pipeline",
+        "skills.neurolearn.transcribe.run_pipeline",
         lambda *a, **kw: fake_result,
     )
     monkeypatch.setattr(
-        "skills.youtube_transcribe.pipeline_v02.apply_v02_stages",
+        "skills.neurolearn.pipeline_v02.apply_v02_stages",
         lambda **kw: kw["result"],
     )
     _setup(tmp_path, monkeypatch)
@@ -97,12 +97,12 @@ def test_correct_asr_does_not_force_quality_when_explicitly_off(tmp_path, monkey
     """
     captured = {}
     monkeypatch.setattr(
-        "skills.youtube_transcribe.presets.loader.resolve_with_env_checks",
+        "skills.neurolearn.presets.loader.resolve_with_env_checks",
         lambda p, **kw: (captured.setdefault("cli_overrides", kw.get("cli_overrides")),
                          ({"vision_backend": "off"}, []))[1],
     )
     monkeypatch.setattr(
-        "skills.youtube_transcribe.transcribe.resolve",
+        "skills.neurolearn.transcribe.resolve",
         lambda i, f, fi: ([MagicMock(
             url="https://youtu.be/x", title="X", video_id="x",
             upload_date=None, duration_sec=60, channel="C", source="inline",
@@ -117,11 +117,11 @@ def test_correct_asr_does_not_force_quality_when_explicitly_off(tmp_path, monkey
     fake_result.quality = None
     fake_result.visual_segments = []
     monkeypatch.setattr(
-        "skills.youtube_transcribe.transcribe.run_pipeline",
+        "skills.neurolearn.transcribe.run_pipeline",
         lambda *a, **kw: fake_result,
     )
     monkeypatch.setattr(
-        "skills.youtube_transcribe.pipeline_v02.apply_v02_stages",
+        "skills.neurolearn.pipeline_v02.apply_v02_stages",
         lambda **kw: kw["result"],
     )
     _setup(tmp_path, monkeypatch)

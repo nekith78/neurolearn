@@ -3,12 +3,12 @@ from unittest.mock import patch
 
 import pytest
 
-from skills.youtube_transcribe.analyze.runner import run_analysis
+from skills.neurolearn.analyze.runner import run_analysis
 
 
 def test_gemini_called_with_prompt():
     with patch(
-        "skills.youtube_transcribe.analyze.runner._call_gemini",
+        "skills.neurolearn.analyze.runner._call_gemini",
         return_value="ANSWER",
     ) as mock:
         out = run_analysis("PROMPT", backend="gemini", api_key="sk-abc")
@@ -18,7 +18,7 @@ def test_gemini_called_with_prompt():
 
 def test_claude_called_with_prompt():
     with patch(
-        "skills.youtube_transcribe.analyze.runner._call_claude",
+        "skills.neurolearn.analyze.runner._call_claude",
         return_value="A",
     ) as mock:
         out = run_analysis("P", backend="claude", api_key="key")
@@ -28,7 +28,7 @@ def test_claude_called_with_prompt():
 
 def test_openai_called_with_prompt():
     with patch(
-        "skills.youtube_transcribe.analyze.runner._call_openai",
+        "skills.neurolearn.analyze.runner._call_openai",
         return_value="A",
     ) as mock:
         out = run_analysis("P", backend="openai", api_key="key")
@@ -38,7 +38,7 @@ def test_openai_called_with_prompt():
 
 def test_ollama_passes_model_and_host():
     with patch(
-        "skills.youtube_transcribe.analyze.runner._call_ollama",
+        "skills.neurolearn.analyze.runner._call_ollama",
         return_value="A",
     ) as mock:
         out = run_analysis(
@@ -59,7 +59,7 @@ def test_unknown_backend_raises():
 
 def test_exception_returns_empty():
     with patch(
-        "skills.youtube_transcribe.analyze.runner._call_gemini",
+        "skills.neurolearn.analyze.runner._call_gemini",
         side_effect=RuntimeError("boom"),
     ):
         out = run_analysis("P", backend="gemini", api_key="key")
@@ -68,7 +68,7 @@ def test_exception_returns_empty():
 
 def test_empty_response_returned_as_is():
     with patch(
-        "skills.youtube_transcribe.analyze.runner._call_gemini",
+        "skills.neurolearn.analyze.runner._call_gemini",
         return_value="",
     ):
         out = run_analysis("P", backend="gemini", api_key="k")

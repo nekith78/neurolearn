@@ -14,7 +14,7 @@ def _read_config_field(p: Path, *, section: str, key: str):
 
 def test_no_analyze_short_circuits(tmp_path: Path):
     """`--no-analyze` always wins, even with a saved config preference."""
-    from skills.youtube_transcribe.analyze.backend_resolver import (
+    from skills.neurolearn.analyze.backend_resolver import (
         resolve_analyze_backend,
     )
     cfg = tmp_path / "config.toml"
@@ -28,7 +28,7 @@ def test_no_analyze_short_circuits(tmp_path: Path):
 
 
 def test_cli_flag_wins_over_config(tmp_path: Path):
-    from skills.youtube_transcribe.analyze.backend_resolver import (
+    from skills.neurolearn.analyze.backend_resolver import (
         resolve_analyze_backend,
     )
     cfg = tmp_path / "config.toml"
@@ -43,7 +43,7 @@ def test_cli_flag_wins_over_config(tmp_path: Path):
 
 def test_config_skip_returns_none(tmp_path: Path):
     """`analyze.backend = "skip"` in config → never auto-analyze."""
-    from skills.youtube_transcribe.analyze.backend_resolver import (
+    from skills.neurolearn.analyze.backend_resolver import (
         resolve_analyze_backend,
     )
     cfg = tmp_path / "config.toml"
@@ -57,7 +57,7 @@ def test_config_skip_returns_none(tmp_path: Path):
 
 
 def test_config_named_backend_used(tmp_path: Path):
-    from skills.youtube_transcribe.analyze.backend_resolver import (
+    from skills.neurolearn.analyze.backend_resolver import (
         resolve_analyze_backend,
     )
     cfg = tmp_path / "config.toml"
@@ -72,7 +72,7 @@ def test_config_named_backend_used(tmp_path: Path):
 
 def test_non_tty_no_config_returns_none(tmp_path: Path):
     """Non-TTY + no preference saved → silent skip (Claude Code path)."""
-    from skills.youtube_transcribe.analyze.backend_resolver import (
+    from skills.neurolearn.analyze.backend_resolver import (
         resolve_analyze_backend,
     )
     cfg = tmp_path / "config.toml"  # doesn't exist
@@ -85,7 +85,7 @@ def test_non_tty_no_config_returns_none(tmp_path: Path):
 
 def test_tty_prompt_skip_saves_and_returns_none(tmp_path: Path):
     """TTY + no preference + user picks `skip` → save 'skip', return None."""
-    from skills.youtube_transcribe.analyze import backend_resolver
+    from skills.neurolearn.analyze import backend_resolver
     cfg = tmp_path / "config.toml"
 
     with patch("click.prompt", return_value="1"):
@@ -97,7 +97,7 @@ def test_tty_prompt_skip_saves_and_returns_none(tmp_path: Path):
 
 
 def test_tty_prompt_gemini_saves_and_returns(tmp_path: Path):
-    from skills.youtube_transcribe.analyze import backend_resolver
+    from skills.neurolearn.analyze import backend_resolver
     cfg = tmp_path / "config.toml"
 
     with patch("click.prompt", return_value="2"):
@@ -112,7 +112,7 @@ def test_tty_prompt_options_cover_all_four_backends(tmp_path: Path):
     """Each numeric choice maps to the correct backend. We reset the config
     between iterations because a saved preference short-circuits the prompt
     on subsequent calls (that's the test_saved_preference_persists case)."""
-    from skills.youtube_transcribe.analyze import backend_resolver
+    from skills.neurolearn.analyze import backend_resolver
 
     table = {"3": "claude", "4": "openai", "5": "ollama"}
     for choice_num, backend in table.items():
@@ -130,7 +130,7 @@ def test_tty_prompt_options_cover_all_four_backends(tmp_path: Path):
 
 def test_saved_preference_persists_across_calls(tmp_path: Path):
     """Once saved, no more prompts on subsequent invocations."""
-    from skills.youtube_transcribe.analyze import backend_resolver
+    from skills.neurolearn.analyze import backend_resolver
     cfg = tmp_path / "config.toml"
 
     # First call: prompts and saves.

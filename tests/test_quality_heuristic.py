@@ -1,6 +1,6 @@
 """Tests for HeuristicChecker — composite quality assessment."""
-from skills.youtube_transcribe.quality.heuristic_checker import HeuristicChecker
-from skills.youtube_transcribe.utils.output_writer import Segment
+from skills.neurolearn.quality.heuristic_checker import HeuristicChecker
+from skills.neurolearn.utils.output_writer import Segment
 
 
 def _seg(start, end, text):

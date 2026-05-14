@@ -7,8 +7,8 @@ from pathlib import Path
 
 import pytest
 
-from skills.youtube_transcribe.backends.groq import GroqBackend
-from skills.youtube_transcribe.backends.base import BackendError, BackendNotConfigured
+from skills.neurolearn.backends.groq import GroqBackend
+from skills.neurolearn.backends.base import BackendError, BackendNotConfigured
 
 
 # ---------------------------------------------------------------------------
@@ -16,14 +16,14 @@ from skills.youtube_transcribe.backends.base import BackendError, BackendNotConf
 # ---------------------------------------------------------------------------
 
 def test_is_configured_without_key():
-    with patch("skills.youtube_transcribe.backends.groq.get_api_key", return_value=None):
+    with patch("skills.neurolearn.backends.groq.get_api_key", return_value=None):
         ok, reason = GroqBackend(model="whisper-large-v3-turbo").is_configured()
         assert ok is False
         assert "GROQ_API_KEY" in reason
 
 
 def test_is_configured_with_key():
-    with patch("skills.youtube_transcribe.backends.groq.get_api_key", return_value="gsk_test"):
+    with patch("skills.neurolearn.backends.groq.get_api_key", return_value="gsk_test"):
         ok, reason = GroqBackend(model="whisper-large-v3-turbo").is_configured()
         assert ok is True
         assert reason is None
@@ -49,8 +49,8 @@ def test_transcribe_maps_response(tmp_path: Path):
     fake_client = MagicMock()
     fake_client.audio.transcriptions.create.return_value = fake_resp
 
-    with patch("skills.youtube_transcribe.backends.groq.get_api_key", return_value="x"), \
-         patch("skills.youtube_transcribe.backends.groq._build_client", return_value=fake_client):
+    with patch("skills.neurolearn.backends.groq.get_api_key", return_value="x"), \
+         patch("skills.neurolearn.backends.groq._build_client", return_value=fake_client):
         b = GroqBackend(model="whisper-large-v3-turbo")
         result = b.transcribe(audio, language="en")
 
@@ -76,8 +76,8 @@ def test_transcribe_auto_language(tmp_path: Path):
     fake_client = MagicMock()
     fake_client.audio.transcriptions.create.return_value = fake_resp
 
-    with patch("skills.youtube_transcribe.backends.groq.get_api_key", return_value="x"), \
-         patch("skills.youtube_transcribe.backends.groq._build_client", return_value=fake_client):
+    with patch("skills.neurolearn.backends.groq.get_api_key", return_value="x"), \
+         patch("skills.neurolearn.backends.groq._build_client", return_value=fake_client):
         b = GroqBackend()
         b.transcribe(audio, language="auto")
 
@@ -93,8 +93,8 @@ def test_transcribe_empty_segments(tmp_path: Path):
     fake_client = MagicMock()
     fake_client.audio.transcriptions.create.return_value = fake_resp
 
-    with patch("skills.youtube_transcribe.backends.groq.get_api_key", return_value="x"), \
-         patch("skills.youtube_transcribe.backends.groq._build_client", return_value=fake_client):
+    with patch("skills.neurolearn.backends.groq.get_api_key", return_value="x"), \
+         patch("skills.neurolearn.backends.groq._build_client", return_value=fake_client):
         result = GroqBackend().transcribe(audio)
 
     assert result.segments == []
@@ -112,8 +112,8 @@ def test_transcribe_segments_as_objects(tmp_path: Path):
     fake_client = MagicMock()
     fake_client.audio.transcriptions.create.return_value = fake_resp
 
-    with patch("skills.youtube_transcribe.backends.groq.get_api_key", return_value="x"), \
-         patch("skills.youtube_transcribe.backends.groq._build_client", return_value=fake_client):
+    with patch("skills.neurolearn.backends.groq.get_api_key", return_value="x"), \
+         patch("skills.neurolearn.backends.groq._build_client", return_value=fake_client):
         result = GroqBackend().transcribe(audio)
 
     assert result.segments[0].text == "object segment"
@@ -129,14 +129,14 @@ def test_transcribe_raises_backend_not_configured_when_key_missing(tmp_path: Pat
     audio = tmp_path / "nokey.mp3"
     audio.write_bytes(b"fake")
 
-    with patch("skills.youtube_transcribe.backends.groq.get_api_key", return_value=None):
+    with patch("skills.neurolearn.backends.groq.get_api_key", return_value=None):
         b = GroqBackend()
         with pytest.raises(BackendNotConfigured):
             b.transcribe(audio)
 
 
 def test_transcribe_raises_backend_error_for_missing_file():
-    with patch("skills.youtube_transcribe.backends.groq.get_api_key", return_value="x"):
+    with patch("skills.neurolearn.backends.groq.get_api_key", return_value="x"):
         b = GroqBackend()
         with pytest.raises(BackendError, match="not found"):
             b.transcribe(Path("/nonexistent/path/audio.mp3"))
@@ -149,8 +149,8 @@ def test_transcribe_raises_backend_error_on_api_exception(tmp_path: Path):
     fake_client = MagicMock()
     fake_client.audio.transcriptions.create.side_effect = RuntimeError("rate limit")
 
-    with patch("skills.youtube_transcribe.backends.groq.get_api_key", return_value="x"), \
-         patch("skills.youtube_transcribe.backends.groq._build_client", return_value=fake_client):
+    with patch("skills.neurolearn.backends.groq.get_api_key", return_value="x"), \
+         patch("skills.neurolearn.backends.groq._build_client", return_value=fake_client):
         b = GroqBackend()
         with pytest.raises(BackendError, match="rate limit"):
             b.transcribe(audio)

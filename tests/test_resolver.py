@@ -3,8 +3,8 @@ from pathlib import Path
 from unittest.mock import patch
 import pytest
 
-from skills.youtube_transcribe.utils.downloader import ChannelEntry
-from skills.youtube_transcribe.utils.resolver import (
+from skills.neurolearn.utils.downloader import ChannelEntry
+from skills.neurolearn.utils.resolver import (
     ResolvedTarget,
     ResolveFailure,
     ResolverFilters,
@@ -32,7 +32,7 @@ def _channel_entries(*pairs: tuple[str, str]) -> list[ChannelEntry]:
 
 
 def test_resolve_inline_single_url(tmp_path):
-    with patch("skills.youtube_transcribe.utils.resolver.probe_input",
+    with patch("skills.neurolearn.utils.resolver.probe_input",
                return_value=_video_info("aaa")):
         targets, failures = resolve(["https://youtu.be/aaa"], None, ResolverFilters())
     assert failures == []
@@ -44,10 +44,10 @@ def test_resolve_inline_single_url(tmp_path):
 
 def test_resolve_channel_applies_limit():
     pairs = [(f"v{i}", f"Video {i}") for i in range(50)]
-    with patch("skills.youtube_transcribe.utils.resolver.probe_input",
+    with patch("skills.neurolearn.utils.resolver.probe_input",
                return_value=_playlist_info("@anth",
                                            [(v, t) for v, t in pairs])), \
-         patch("skills.youtube_transcribe.utils.resolver.expand_channel_or_playlist",
+         patch("skills.neurolearn.utils.resolver.expand_channel_or_playlist",
                return_value=_channel_entries(*pairs[:10])):
         targets, failures = resolve(["https://youtube.com/@anth"], None,
                                     ResolverFilters(limit=10))
@@ -59,10 +59,10 @@ def test_resolve_channel_applies_limit():
 
 def test_resolve_dedup_inline_and_channel_keeps_first():
     """Inline video + same video from a channel → only inline is kept."""
-    with patch("skills.youtube_transcribe.utils.resolver.probe_input",
+    with patch("skills.neurolearn.utils.resolver.probe_input",
                side_effect=[_video_info("v0"), _playlist_info("@anth",
                                                               [("v0", "v0"), ("v1", "v1")])]), \
-         patch("skills.youtube_transcribe.utils.resolver.expand_channel_or_playlist",
+         patch("skills.neurolearn.utils.resolver.expand_channel_or_playlist",
                return_value=_channel_entries(("v0", "v0"), ("v1", "v1"))):
         targets, failures = resolve(
             ["https://youtu.be/v0", "https://youtube.com/@anth"],
@@ -82,7 +82,7 @@ def test_resolve_no_inputs_raises():
 
 def test_resolve_unresolvable_url_collected_as_failure():
     """Per spec §5: yt-dlp probe failure is collected, doesn't abort the resolve."""
-    with patch("skills.youtube_transcribe.utils.resolver.probe_input",
+    with patch("skills.neurolearn.utils.resolver.probe_input",
                side_effect=Exception("HTTP 403")):
         targets, failures = resolve(["https://youtu.be/blocked"], None, ResolverFilters())
     assert targets == []
@@ -98,7 +98,7 @@ def test_resolve_partial_failure_keeps_good_inputs():
             raise Exception("HTTP 403")
         return ("video", {"id": "good", "title": "Hello", "duration": 60,
                           "upload_date": "20260420", "channel": "@x"})
-    with patch("skills.youtube_transcribe.utils.resolver.probe_input",
+    with patch("skills.neurolearn.utils.resolver.probe_input",
                side_effect=fake_probe):
         targets, failures = resolve(
             ["https://youtu.be/blocked", "https://youtu.be/good"],
@@ -134,7 +134,7 @@ def test_parse_from_file_missing_raises(tmp_path):
 def test_resolve_from_file_only(tmp_path):
     f = tmp_path / "urls.txt"
     f.write_text("https://youtu.be/AAA\nhttps://youtu.be/BBB\n", encoding="utf-8")
-    with patch("skills.youtube_transcribe.utils.resolver.probe_input",
+    with patch("skills.neurolearn.utils.resolver.probe_input",
                side_effect=[_video_info("AAA"), _video_info("BBB")]):
         targets, failures = resolve([], f, ResolverFilters())
     assert failures == []
@@ -146,7 +146,7 @@ def test_resolve_from_file_only(tmp_path):
 def test_resolve_local_path(tmp_path):
     audio = tmp_path / "x.mp3"
     audio.write_bytes(b"f")
-    with patch("skills.youtube_transcribe.utils.resolver.probe_input",
+    with patch("skills.neurolearn.utils.resolver.probe_input",
                return_value=("local", {"path": str(audio)})):
         targets, failures = resolve([str(audio)], None, ResolverFilters())
     assert failures == []

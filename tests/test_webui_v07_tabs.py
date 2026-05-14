@@ -18,21 +18,21 @@ except ImportError:
 def test_research_tab_builder_callable():
     if not _GRADIO:
         pytest.skip("gradio not installed (webui extra)")
-    from skills.youtube_transcribe.webui.app import build_research_tab
+    from skills.neurolearn.webui.app import build_research_tab
     assert callable(build_research_tab)
 
 
 def test_subscribes_tab_builder_callable():
     if not _GRADIO:
         pytest.skip("gradio not installed (webui extra)")
-    from skills.youtube_transcribe.webui.app import build_subscribes_tab
+    from skills.neurolearn.webui.app import build_subscribes_tab
     assert callable(build_subscribes_tab)
 
 
 def test_research_handler_delegates_to_pipeline():
-    from skills.youtube_transcribe.webui.app import _handle_research_submit
+    from skills.neurolearn.webui.app import _handle_research_submit
     with patch(
-        "skills.youtube_transcribe.research.pipeline.run_research",
+        "skills.neurolearn.research.pipeline.run_research",
         return_value=Path("/tmp/fake"),
     ) as mock_pipe:
         out = _handle_research_submit(
@@ -54,20 +54,20 @@ def test_research_handler_delegates_to_pipeline():
 
 
 def test_subscribes_add_handler():
-    from skills.youtube_transcribe.subscribes.channel_resolver import (
+    from skills.neurolearn.subscribes.channel_resolver import (
         ResolvedChannel,
     )
-    from skills.youtube_transcribe.webui.app import _handle_subscribes_add
+    from skills.neurolearn.webui.app import _handle_subscribes_add
     with patch(
-        "skills.youtube_transcribe.subscribes.cli.resolve_channel",
+        "skills.neurolearn.subscribes.cli.resolve_channel",
         return_value=ResolvedChannel(
             url="https://www.youtube.com/@A", handle="@A",
             channel_id="UC_a", title="A",
         ),
     ), patch(
-        "skills.youtube_transcribe.subscribes.cli.add_channel",
+        "skills.neurolearn.subscribes.cli.add_channel",
     ) as mock_add, patch(
-        "skills.youtube_transcribe.webui.app._handle_subscribes_list",
+        "skills.neurolearn.webui.app._handle_subscribes_list",
         return_value="@A  [—]  last_seen=—",
     ):
         msg = _handle_subscribes_add(
@@ -78,9 +78,9 @@ def test_subscribes_add_handler():
 
 
 def test_subscribes_update_handler_delegates():
-    from skills.youtube_transcribe.webui.app import _handle_subscribes_update
+    from skills.neurolearn.webui.app import _handle_subscribes_update
     with patch(
-        "skills.youtube_transcribe.subscribes.pipeline.run_subscribes_update",
+        "skills.neurolearn.subscribes.pipeline.run_subscribes_update",
         return_value=Path("/tmp/fake"),
     ) as mock_pipe:
         out = _handle_subscribes_update(

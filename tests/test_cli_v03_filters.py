@@ -3,7 +3,7 @@ from unittest.mock import patch, MagicMock
 
 from click.testing import CliRunner
 
-from skills.youtube_transcribe.transcribe import cli
+from skills.neurolearn.transcribe import cli
 
 
 def test_batch_help_shows_v03_filters():
@@ -19,7 +19,7 @@ def test_batch_help_shows_v03_filters():
 
 def test_invalid_since_format_rejected(tmp_path, monkeypatch):
     monkeypatch.setattr(
-        "skills.youtube_transcribe.transcribe.CONFIG_PATH",
+        "skills.neurolearn.transcribe.CONFIG_PATH",
         tmp_path / "config.toml",
     )
     (tmp_path / "config.toml").write_text(
@@ -45,11 +45,11 @@ def test_filters_passed_to_resolver(tmp_path, monkeypatch):
         return [], []
 
     monkeypatch.setattr(
-        "skills.youtube_transcribe.transcribe.resolve",
+        "skills.neurolearn.transcribe.resolve",
         fake_resolve,
     )
     monkeypatch.setattr(
-        "skills.youtube_transcribe.transcribe.CONFIG_PATH",
+        "skills.neurolearn.transcribe.CONFIG_PATH",
         tmp_path / "config.toml",
     )
     (tmp_path / "config.toml").write_text(
@@ -87,11 +87,11 @@ def test_default_filters_are_permissive(tmp_path, monkeypatch):
         return [], []
 
     monkeypatch.setattr(
-        "skills.youtube_transcribe.transcribe.resolve",
+        "skills.neurolearn.transcribe.resolve",
         fake_resolve,
     )
     monkeypatch.setattr(
-        "skills.youtube_transcribe.transcribe.CONFIG_PATH",
+        "skills.neurolearn.transcribe.CONFIG_PATH",
         tmp_path / "config.toml",
     )
     (tmp_path / "config.toml").write_text(

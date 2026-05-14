@@ -4,7 +4,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from skills.youtube_transcribe.shared import prompts
+from skills.neurolearn.shared import prompts
 
 
 def test_prompt_url_exits_2_when_non_tty():

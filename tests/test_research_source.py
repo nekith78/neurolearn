@@ -2,7 +2,7 @@
 from datetime import date
 from unittest.mock import patch
 
-from skills.youtube_transcribe.research.source import (
+from skills.neurolearn.research.source import (
     SearchCandidate,
     _build_search_url,
     _pick_sp_preset,
@@ -22,7 +22,7 @@ def test_search_single_language():
     """Single language, no date filter → uses ytsearchN: shortcut."""
     fake_results = {"entries": [_entry("v1", "First"), _entry("v2", "Second")]}
     with patch(
-        "skills.youtube_transcribe.research.source._extract",
+        "skills.neurolearn.research.source._extract",
         return_value=fake_results,
     ) as mock:
         out = search_multi_language(
@@ -49,7 +49,7 @@ def test_search_multi_language_dedup():
         return {"entries": []}
 
     with patch(
-        "skills.youtube_transcribe.research.source._extract",
+        "skills.neurolearn.research.source._extract",
         side_effect=fake_extract,
     ):
         out = search_multi_language(
@@ -68,7 +68,7 @@ def test_search_skip_entries_without_id():
     fake = {"entries": [_entry("v1", "OK"), {"id": None, "title": "broken"},
                         None]}
     with patch(
-        "skills.youtube_transcribe.research.source._extract",
+        "skills.neurolearn.research.source._extract",
         return_value=fake,
     ):
         out = search_multi_language({"en": "x"}, limit=10)
@@ -79,7 +79,7 @@ def test_search_skip_entries_without_id():
 def test_search_parses_upload_date():
     fake = {"entries": [_entry("v1", "T", upload="20240115")]}
     with patch(
-        "skills.youtube_transcribe.research.source._extract",
+        "skills.neurolearn.research.source._extract",
         return_value=fake,
     ):
         out = search_multi_language({"en": "x"}, limit=5)
@@ -90,7 +90,7 @@ def test_search_handles_missing_upload_date():
     fake = {"entries": [{"id": "v1", "title": "T", "url": "u", "channel": "c",
                           "duration": 100}]}
     with patch(
-        "skills.youtube_transcribe.research.source._extract",
+        "skills.neurolearn.research.source._extract",
         return_value=fake,
     ):
         out = search_multi_language({"en": "x"}, limit=5)
@@ -106,7 +106,7 @@ def test_search_attaches_language_to_candidates():
     """Each candidate remembers which language search produced it (for diagnostics)."""
     fake = {"entries": [_entry("v1", "T")]}
     with patch(
-        "skills.youtube_transcribe.research.source._extract",
+        "skills.neurolearn.research.source._extract",
         return_value=fake,
     ):
         out = search_multi_language({"en": "x"}, limit=5)
@@ -168,7 +168,7 @@ def test_search_uses_sp_url_when_days_set_and_exact_preset():
     """--days 30 → exact 1mo preset → SP URL, flat extract (fast path)."""
     fake_results = {"entries": [_entry("v1", "Recent")]}
     with patch(
-        "skills.youtube_transcribe.research.source._extract",
+        "skills.neurolearn.research.source._extract",
         return_value=fake_results,
     ) as mock:
         out = search_multi_language(
@@ -186,7 +186,7 @@ def test_search_uses_full_extract_when_days_not_exact_preset():
     """--days 14 → nearest preset 1mo, but tighter → full extract for upload_date."""
     fake_results = {"entries": [_entry("v1", "Recent")]}
     with patch(
-        "skills.youtube_transcribe.research.source._extract",
+        "skills.neurolearn.research.source._extract",
         return_value=fake_results,
     ) as mock:
         search_multi_language(
@@ -201,7 +201,7 @@ def test_search_no_days_keeps_ytsearch_shortcut():
     """No days → fast ytsearchN: shortcut, no SP filter."""
     fake_results = {"entries": [_entry("v1", "T")]}
     with patch(
-        "skills.youtube_transcribe.research.source._extract",
+        "skills.neurolearn.research.source._extract",
         return_value=fake_results,
     ) as mock:
         search_multi_language({"en": "x"}, limit=5)
@@ -213,7 +213,7 @@ def test_search_days_over_year_falls_back_to_ytsearch():
     """--days 730 has no SP equivalent → use ytsearchN: shortcut."""
     fake_results = {"entries": [_entry("v1", "T")]}
     with patch(
-        "skills.youtube_transcribe.research.source._extract",
+        "skills.neurolearn.research.source._extract",
         return_value=fake_results,
     ) as mock:
         search_multi_language({"en": "x"}, limit=5, days=730)

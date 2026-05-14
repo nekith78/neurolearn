@@ -2,7 +2,7 @@
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 
-from skills.youtube_transcribe.vision.frames import extract_keyframes
+from skills.neurolearn.vision.frames import extract_keyframes
 
 
 def test_extract_keyframes_calls_ffmpeg(tmp_path):

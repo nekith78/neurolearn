@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from skills.youtube_transcribe.detection.triggers import (
+from skills.neurolearn.detection.triggers import (
     TriggerConfig,
     load_triggers,
     parse_phrase_entry,

@@ -7,8 +7,8 @@ from pathlib import Path
 
 import pytest
 
-from skills.youtube_transcribe.backends.custom import CustomBackend
-from skills.youtube_transcribe.backends.base import BackendError, BackendNotConfigured
+from skills.neurolearn.backends.custom import CustomBackend
+from skills.neurolearn.backends.base import BackendError, BackendNotConfigured
 
 
 # ---------------------------------------------------------------------------
@@ -16,7 +16,7 @@ from skills.youtube_transcribe.backends.base import BackendError, BackendNotConf
 # ---------------------------------------------------------------------------
 
 def test_is_configured_requires_base_url():
-    with patch("skills.youtube_transcribe.backends.custom.get_api_key", return_value="x"):
+    with patch("skills.neurolearn.backends.custom.get_api_key", return_value="x"):
         b = CustomBackend(base_url="", model="m")
         ok, reason = b.is_configured()
         assert ok is False
@@ -24,7 +24,7 @@ def test_is_configured_requires_base_url():
 
 
 def test_is_configured_requires_model():
-    with patch("skills.youtube_transcribe.backends.custom.get_api_key", return_value="x"):
+    with patch("skills.neurolearn.backends.custom.get_api_key", return_value="x"):
         b = CustomBackend(base_url="https://api.example.com/v1", model="")
         ok, reason = b.is_configured()
         assert ok is False
@@ -32,7 +32,7 @@ def test_is_configured_requires_model():
 
 
 def test_is_configured_requires_key():
-    with patch("skills.youtube_transcribe.backends.custom.get_api_key", return_value=None):
+    with patch("skills.neurolearn.backends.custom.get_api_key", return_value=None):
         b = CustomBackend(base_url="https://api.example.com/v1", model="my-whisper")
         ok, reason = b.is_configured()
         assert ok is False
@@ -40,7 +40,7 @@ def test_is_configured_requires_key():
 
 
 def test_is_configured_all_set():
-    with patch("skills.youtube_transcribe.backends.custom.get_api_key", return_value="x"):
+    with patch("skills.neurolearn.backends.custom.get_api_key", return_value="x"):
         b = CustomBackend(base_url="https://api.example.com/v1", model="my-whisper")
         ok, reason = b.is_configured()
         assert ok is True
@@ -59,8 +59,8 @@ def test_transcribe_uses_openai_sdk_with_base_url(tmp_path: Path):
     fake_client = MagicMock()
     fake_client.audio.transcriptions.create.return_value = fake_resp
 
-    with patch("skills.youtube_transcribe.backends.custom.get_api_key", return_value="x"), \
-         patch("skills.youtube_transcribe.backends.custom._build_client", return_value=fake_client) as mock_build:
+    with patch("skills.neurolearn.backends.custom.get_api_key", return_value="x"), \
+         patch("skills.neurolearn.backends.custom._build_client", return_value=fake_client) as mock_build:
         b = CustomBackend(base_url="https://api.example.com/v1", model="my-whisper")
         result = b.transcribe(audio, language="en")
 
@@ -85,8 +85,8 @@ def test_transcribe_maps_response(tmp_path: Path):
     fake_client = MagicMock()
     fake_client.audio.transcriptions.create.return_value = fake_resp
 
-    with patch("skills.youtube_transcribe.backends.custom.get_api_key", return_value="sk-x"), \
-         patch("skills.youtube_transcribe.backends.custom._build_client", return_value=fake_client):
+    with patch("skills.neurolearn.backends.custom.get_api_key", return_value="sk-x"), \
+         patch("skills.neurolearn.backends.custom._build_client", return_value=fake_client):
         b = CustomBackend(base_url="https://api.example.com/v1", model="my-whisper")
         result = b.transcribe(audio, language="en")
 
@@ -111,8 +111,8 @@ def test_transcribe_auto_language_passes_none(tmp_path: Path):
     fake_client = MagicMock()
     fake_client.audio.transcriptions.create.return_value = fake_resp
 
-    with patch("skills.youtube_transcribe.backends.custom.get_api_key", return_value="sk-x"), \
-         patch("skills.youtube_transcribe.backends.custom._build_client", return_value=fake_client):
+    with patch("skills.neurolearn.backends.custom.get_api_key", return_value="sk-x"), \
+         patch("skills.neurolearn.backends.custom._build_client", return_value=fake_client):
         b = CustomBackend(base_url="https://api.example.com/v1", model="my-whisper")
         b.transcribe(audio, language="auto")
 
@@ -130,8 +130,8 @@ def test_transcribe_segments_as_objects(tmp_path: Path):
     fake_client = MagicMock()
     fake_client.audio.transcriptions.create.return_value = fake_resp
 
-    with patch("skills.youtube_transcribe.backends.custom.get_api_key", return_value="sk-x"), \
-         patch("skills.youtube_transcribe.backends.custom._build_client", return_value=fake_client):
+    with patch("skills.neurolearn.backends.custom.get_api_key", return_value="sk-x"), \
+         patch("skills.neurolearn.backends.custom._build_client", return_value=fake_client):
         result = CustomBackend(base_url="https://api.example.com/v1", model="my-whisper").transcribe(audio)
 
     assert result.segments[0].text == "object segment"
@@ -144,7 +144,7 @@ def test_transcribe_segments_as_objects(tmp_path: Path):
 # ---------------------------------------------------------------------------
 
 def test_transcribe_raises_backend_error_for_missing_file():
-    with patch("skills.youtube_transcribe.backends.custom.get_api_key", return_value="sk-x"):
+    with patch("skills.neurolearn.backends.custom.get_api_key", return_value="sk-x"):
         b = CustomBackend(base_url="https://api.example.com/v1", model="my-whisper")
         with pytest.raises(BackendError, match="not found"):
             b.transcribe(Path("/nonexistent/path/audio.mp3"))
@@ -154,7 +154,7 @@ def test_transcribe_raises_backend_not_configured_when_key_missing(tmp_path: Pat
     audio = tmp_path / "nokey.mp3"
     audio.write_bytes(b"fake")
 
-    with patch("skills.youtube_transcribe.backends.custom.get_api_key", return_value=None):
+    with patch("skills.neurolearn.backends.custom.get_api_key", return_value=None):
         b = CustomBackend(base_url="https://api.example.com/v1", model="my-whisper")
         with pytest.raises(BackendNotConfigured):
             b.transcribe(audio)
@@ -164,7 +164,7 @@ def test_transcribe_raises_backend_not_configured_when_base_url_missing(tmp_path
     audio = tmp_path / "nourl.mp3"
     audio.write_bytes(b"fake")
 
-    with patch("skills.youtube_transcribe.backends.custom.get_api_key", return_value="sk-x"):
+    with patch("skills.neurolearn.backends.custom.get_api_key", return_value="sk-x"):
         b = CustomBackend(base_url="", model="my-whisper")
         with pytest.raises(BackendNotConfigured):
             b.transcribe(audio)
@@ -174,7 +174,7 @@ def test_transcribe_raises_backend_not_configured_when_model_missing(tmp_path: P
     audio = tmp_path / "nomodel.mp3"
     audio.write_bytes(b"fake")
 
-    with patch("skills.youtube_transcribe.backends.custom.get_api_key", return_value="sk-x"):
+    with patch("skills.neurolearn.backends.custom.get_api_key", return_value="sk-x"):
         b = CustomBackend(base_url="https://api.example.com/v1", model="")
         with pytest.raises(BackendNotConfigured):
             b.transcribe(audio)
@@ -187,8 +187,8 @@ def test_transcribe_raises_backend_error_on_api_exception(tmp_path: Path):
     fake_client = MagicMock()
     fake_client.audio.transcriptions.create.side_effect = RuntimeError("upstream down")
 
-    with patch("skills.youtube_transcribe.backends.custom.get_api_key", return_value="sk-x"), \
-         patch("skills.youtube_transcribe.backends.custom._build_client", return_value=fake_client):
+    with patch("skills.neurolearn.backends.custom.get_api_key", return_value="sk-x"), \
+         patch("skills.neurolearn.backends.custom._build_client", return_value=fake_client):
         b = CustomBackend(base_url="https://api.example.com/v1", model="my-whisper")
         with pytest.raises(BackendError, match="upstream down"):
             b.transcribe(audio)

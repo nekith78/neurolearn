@@ -1,7 +1,7 @@
 """Tests for Instagram URL detection + error diagnostics."""
 import pytest
 
-from skills.youtube_transcribe.utils.downloader import (
+from skills.neurolearn.utils.downloader import (
     extract_instagram_shortcode,
     is_instagram_url,
     is_url,

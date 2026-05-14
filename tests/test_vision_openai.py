@@ -3,8 +3,8 @@ import json
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 
-from skills.youtube_transcribe.detection.base import DetectionWindow
-from skills.youtube_transcribe.vision.openai_vision import OpenAIVisionBackend
+from skills.neurolearn.detection.base import DetectionWindow
+from skills.neurolearn.vision.openai_vision import OpenAIVisionBackend
 
 
 def _fake_resp(text: str):
@@ -39,7 +39,7 @@ def test_openai_annotate_returns_visual_segments(tmp_path):
         "openai.OpenAI",
         return_value=fake_client,
     ), patch(
-        "skills.youtube_transcribe.vision.frames.extract_keyframes",
+        "skills.neurolearn.vision.frames.extract_keyframes",
         return_value=[fake_frame],
     ):
         backend = OpenAIVisionBackend(api_key="fake", frames_per_window=1)
@@ -78,7 +78,7 @@ def test_openai_handles_invalid_json(tmp_path):
         "openai.OpenAI",
         return_value=fake_client,
     ), patch(
-        "skills.youtube_transcribe.vision.frames.extract_keyframes",
+        "skills.neurolearn.vision.frames.extract_keyframes",
         return_value=[fake_frame],
     ):
         backend = OpenAIVisionBackend(api_key="fake")
@@ -107,7 +107,7 @@ def test_openai_strips_code_fences(tmp_path):
         "openai.OpenAI",
         return_value=fake_client,
     ), patch(
-        "skills.youtube_transcribe.vision.frames.extract_keyframes",
+        "skills.neurolearn.vision.frames.extract_keyframes",
         return_value=[fake_frame],
     ):
         backend = OpenAIVisionBackend(api_key="fake")
@@ -128,7 +128,7 @@ def test_openai_empty_keyframes_skipped(tmp_path):
         "openai.OpenAI",
         return_value=MagicMock(),
     ), patch(
-        "skills.youtube_transcribe.vision.frames.extract_keyframes",
+        "skills.neurolearn.vision.frames.extract_keyframes",
         return_value=[],
     ):
         backend = OpenAIVisionBackend(api_key="fake")

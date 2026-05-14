@@ -1,10 +1,10 @@
-"""Tests for `youtube-transcribe triggers` CLI sub-group."""
+"""Tests for `neurolearn triggers` CLI sub-group."""
 from pathlib import Path
 
 import pytest
 from click.testing import CliRunner
 
-from skills.youtube_transcribe.detection.triggers_cli import triggers_cli
+from skills.neurolearn.detection.triggers_cli import triggers_cli
 
 
 @pytest.fixture

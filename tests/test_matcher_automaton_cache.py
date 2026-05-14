@@ -1,11 +1,11 @@
 """Verify Aho-Corasick automaton caching: same phrase set → same automaton."""
-from skills.youtube_transcribe.detection import matcher
-from skills.youtube_transcribe.detection.matcher import (
+from skills.neurolearn.detection import matcher
+from skills.neurolearn.detection.matcher import (
     _build_automaton_cached,
     _build_raw_automaton,
     _build_strict_automaton,
 )
-from skills.youtube_transcribe.detection.triggers import LanguageTriggers, TriggerConfig
+from skills.neurolearn.detection.triggers import LanguageTriggers, TriggerConfig
 
 
 def setup_function(_func):

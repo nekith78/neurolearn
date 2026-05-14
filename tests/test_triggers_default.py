@@ -1,5 +1,5 @@
 """Verify built-in triggers_default.toml has expected content."""
-from skills.youtube_transcribe.detection.triggers import load_triggers
+from skills.neurolearn.detection.triggers import load_triggers
 
 
 def test_builtin_has_at_least_20_universal_phrases():

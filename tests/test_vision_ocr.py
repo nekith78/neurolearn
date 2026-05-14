@@ -2,7 +2,7 @@
 from pathlib import Path
 from unittest.mock import patch
 
-from skills.youtube_transcribe.vision.ocr import ocr_keyframes
+from skills.neurolearn.vision.ocr import ocr_keyframes
 
 
 def test_ocr_returns_strings_per_keyframe(tmp_path):
@@ -12,7 +12,7 @@ def test_ocr_returns_strings_per_keyframe(tmp_path):
     kf2.write_bytes(b"fake jpeg")
 
     with patch(
-        "skills.youtube_transcribe.vision.ocr._run_tesseract",
+        "skills.neurolearn.vision.ocr._run_tesseract",
         side_effect=["import anthropic", "function call"],
     ):
         results = ocr_keyframes([kf1, kf2])
@@ -24,7 +24,7 @@ def test_ocr_skips_unreadable_files(tmp_path):
     kf = tmp_path / "broken.jpg"
     kf.write_bytes(b"")
     with patch(
-        "skills.youtube_transcribe.vision.ocr._run_tesseract",
+        "skills.neurolearn.vision.ocr._run_tesseract",
         side_effect=Exception("can't read"),
     ):
         results = ocr_keyframes([kf])

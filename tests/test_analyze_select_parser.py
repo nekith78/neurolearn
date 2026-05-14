@@ -1,7 +1,7 @@
 """Tests for analyze.select_parser — parse 1-based comma/range strings."""
 import pytest
 
-from skills.youtube_transcribe.analyze.select_parser import parse_select
+from skills.neurolearn.analyze.select_parser import parse_select
 
 
 def test_single_index():

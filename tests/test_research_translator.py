@@ -4,7 +4,7 @@ from unittest.mock import patch
 
 import pytest
 
-from skills.youtube_transcribe.research.translator import (
+from skills.neurolearn.research.translator import (
     detect_script,
     pick_anchor_language,
     translate_query,
@@ -128,7 +128,7 @@ def test_anchor_hint_overrides_even_wrong_script():
 
 def test_translate_query_skip_same_language():
     with patch(
-        "skills.youtube_transcribe.research.translator.run_analysis",
+        "skills.neurolearn.research.translator.run_analysis",
     ) as mock_run:
         out = translate_query("Claude new features", target="en", source="en",
                               backend="gemini", api_key="k")
@@ -138,7 +138,7 @@ def test_translate_query_skip_same_language():
 
 def test_translate_query_calls_llm():
     with patch(
-        "skills.youtube_transcribe.research.translator.run_analysis",
+        "skills.neurolearn.research.translator.run_analysis",
         return_value="Клод новинки",
     ) as mock_run:
         out = translate_query("Claude new features", target="ru", source="en",
@@ -152,7 +152,7 @@ def test_translate_query_calls_llm():
 
 def test_translate_query_empty_llm_returns_original():
     with patch(
-        "skills.youtube_transcribe.research.translator.run_analysis",
+        "skills.neurolearn.research.translator.run_analysis",
         return_value="",
     ):
         out = translate_query("Claude", target="ru", source="en",
@@ -162,7 +162,7 @@ def test_translate_query_empty_llm_returns_original():
 
 def test_translate_query_strips_quotes_from_llm_output():
     with patch(
-        "skills.youtube_transcribe.research.translator.run_analysis",
+        "skills.neurolearn.research.translator.run_analysis",
         return_value='"Клод новинки"',
     ):
         out = translate_query("Claude features", target="ru", source="en",
@@ -176,7 +176,7 @@ def test_translate_query_strips_quotes_from_llm_output():
 def test_build_queries_anchor_uses_query_as_is():
     """Cyrillic query + ru,en → ru anchor, en translated."""
     with patch(
-        "skills.youtube_transcribe.research.translator.run_analysis",
+        "skills.neurolearn.research.translator.run_analysis",
         return_value="Claude новости",
     ):
         out = build_queries_per_language(
@@ -190,7 +190,7 @@ def test_build_queries_anchor_uses_query_as_is():
 def test_build_queries_with_explicit_hint():
     """--query-lang ru overrides script detection even when text is latin."""
     with patch(
-        "skills.youtube_transcribe.research.translator.run_analysis",
+        "skills.neurolearn.research.translator.run_analysis",
         return_value="<<en-translated>>",
     ) as mock_run:
         out = build_queries_per_language(
@@ -214,7 +214,7 @@ def test_build_queries_empty_languages():
 def test_build_queries_single_language_no_llm_call():
     """If only one language and query matches its script — no LLM call."""
     with patch(
-        "skills.youtube_transcribe.research.translator.run_analysis",
+        "skills.neurolearn.research.translator.run_analysis",
     ) as mock_run:
         out = build_queries_per_language(
             "Клод новости", languages=["ru"],

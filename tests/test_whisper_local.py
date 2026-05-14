@@ -3,7 +3,7 @@ from pathlib import Path
 from types import ModuleType
 from unittest.mock import patch, MagicMock
 
-from skills.youtube_transcribe.backends.whisper_local import WhisperLocalBackend
+from skills.neurolearn.backends.whisper_local import WhisperLocalBackend
 
 
 def _make_fake_faster_whisper_module() -> ModuleType:
@@ -45,7 +45,7 @@ def test_transcribe_calls_faster_whisper(tmp_path: Path):
 
     fake_fw = _make_fake_faster_whisper_module()
     with patch.dict(sys.modules, {"faster_whisper": fake_fw}), patch(
-        "skills.youtube_transcribe.backends.whisper_local._load_faster_whisper_model",
+        "skills.neurolearn.backends.whisper_local._load_faster_whisper_model",
         return_value=fake_model,
     ):
         b = WhisperLocalBackend(model="turbo", device="cuda", compute_type="float16", impl="faster")

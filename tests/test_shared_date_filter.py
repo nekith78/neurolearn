@@ -3,7 +3,7 @@ from datetime import date, datetime, timedelta, timezone
 
 import pytest
 
-from skills.youtube_transcribe.shared.date_filter import (
+from skills.neurolearn.shared.date_filter import (
     DateWindow,
     parse_window,
     in_window,

@@ -1,7 +1,7 @@
 """Tests for v0.2 CLI flags surface area."""
 from click.testing import CliRunner
 
-from skills.youtube_transcribe.transcribe import cli
+from skills.neurolearn.transcribe import cli
 
 
 def test_cli_help_shows_v02_flags():

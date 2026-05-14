@@ -3,12 +3,12 @@ from unittest.mock import MagicMock
 
 from click.testing import CliRunner
 
-from skills.youtube_transcribe.transcribe import cli
+from skills.neurolearn.transcribe import cli
 
 
 def _setup_config(tmp_path, monkeypatch):
     monkeypatch.setattr(
-        "skills.youtube_transcribe.transcribe.CONFIG_PATH",
+        "skills.neurolearn.transcribe.CONFIG_PATH",
         tmp_path / "config.toml",
     )
     (tmp_path / "config.toml").write_text(
@@ -57,15 +57,15 @@ def test_skip_existing_skips_video_with_existing_transcript(tmp_path, monkeypatc
         return result
 
     monkeypatch.setattr(
-        "skills.youtube_transcribe.transcribe.resolve",
+        "skills.neurolearn.transcribe.resolve",
         lambda inputs, from_file, filters: ([fake_target_a, fake_target_b], []),
     )
     monkeypatch.setattr(
-        "skills.youtube_transcribe.transcribe.run_pipeline",
+        "skills.neurolearn.transcribe.run_pipeline",
         fake_run_pipeline,
     )
     monkeypatch.setattr(
-        "skills.youtube_transcribe.config.get_api_key",
+        "skills.neurolearn.config.get_api_key",
         lambda backend, env_path=None: None,
     )
     _setup_config(tmp_path, monkeypatch)
@@ -114,15 +114,15 @@ def test_no_skip_existing_processes_everything(tmp_path, monkeypatch):
         return result
 
     monkeypatch.setattr(
-        "skills.youtube_transcribe.transcribe.resolve",
+        "skills.neurolearn.transcribe.resolve",
         lambda i, f, fi: ([fake_target], []),
     )
     monkeypatch.setattr(
-        "skills.youtube_transcribe.transcribe.run_pipeline",
+        "skills.neurolearn.transcribe.run_pipeline",
         fake_run,
     )
     monkeypatch.setattr(
-        "skills.youtube_transcribe.config.get_api_key",
+        "skills.neurolearn.config.get_api_key",
         lambda backend, env_path=None: None,
     )
     _setup_config(tmp_path, monkeypatch)

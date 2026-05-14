@@ -2,13 +2,13 @@
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 
-from skills.youtube_transcribe.quality import diarization
-from skills.youtube_transcribe.quality.diarization import (
+from skills.neurolearn.quality import diarization
+from skills.neurolearn.quality.diarization import (
     attach_speakers_to_segments,
     diarize_audio,
     is_diarization_available,
 )
-from skills.youtube_transcribe.utils.output_writer import Segment
+from skills.neurolearn.utils.output_writer import Segment
 
 
 def _s(start, end, text):

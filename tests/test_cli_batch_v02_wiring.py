@@ -4,7 +4,7 @@ from unittest.mock import patch, MagicMock
 
 from click.testing import CliRunner
 
-from skills.youtube_transcribe.transcribe import cli
+from skills.neurolearn.transcribe import cli
 
 
 def test_batch_with_visuals_applies_v02_stages_per_video(tmp_path, monkeypatch):
@@ -36,27 +36,27 @@ def test_batch_with_visuals_applies_v02_stages_per_video(tmp_path, monkeypatch):
     )
 
     monkeypatch.setattr(
-        "skills.youtube_transcribe.transcribe.resolve",
+        "skills.neurolearn.transcribe.resolve",
         lambda inputs, from_file, filters: ([fake_target_1, fake_target_2], []),
     )
     monkeypatch.setattr(
-        "skills.youtube_transcribe.transcribe.run_pipeline",
+        "skills.neurolearn.transcribe.run_pipeline",
         lambda *a, **kw: fake_result,
     )
     monkeypatch.setattr(
-        "skills.youtube_transcribe.utils.downloader.download_video",
+        "skills.neurolearn.utils.downloader.download_video",
         lambda url, out_dir, **kw: (out_dir / "v.mp4").write_bytes(b"x") or (out_dir / "v.mp4"),
     )
     monkeypatch.setattr(
-        "skills.youtube_transcribe.config.get_api_key",
+        "skills.neurolearn.config.get_api_key",
         lambda backend, env_path=None: "fake_key" if backend == "gemini" else None,
     )
     monkeypatch.setattr(
-        "skills.youtube_transcribe.pipeline_v02.apply_v02_stages",
+        "skills.neurolearn.pipeline_v02.apply_v02_stages",
         fake_apply,
     )
     monkeypatch.setattr(
-        "skills.youtube_transcribe.transcribe.CONFIG_PATH",
+        "skills.neurolearn.transcribe.CONFIG_PATH",
         tmp_path / "config.toml",
     )
     (tmp_path / "config.toml").write_text("default_preset = \"smart\"\n", encoding="utf-8")
@@ -93,27 +93,27 @@ def test_batch_without_visuals_still_runs_quality_check(tmp_path, monkeypatch):
 
     apply_calls = []
     monkeypatch.setattr(
-        "skills.youtube_transcribe.pipeline_v02.apply_v02_stages",
+        "skills.neurolearn.pipeline_v02.apply_v02_stages",
         lambda **kw: apply_calls.append(kw) or kw["result"],
     )
     monkeypatch.setattr(
-        "skills.youtube_transcribe.transcribe.resolve",
+        "skills.neurolearn.transcribe.resolve",
         lambda inputs, from_file, filters: ([MagicMock(
             url="https://youtu.be/x", title="X", video_id="x",
             upload_date=None, duration_sec=60, channel="C", source="inline", source_language=None,
         )], []),
     )
     monkeypatch.setattr(
-        "skills.youtube_transcribe.transcribe.run_pipeline",
+        "skills.neurolearn.transcribe.run_pipeline",
         lambda *a, **kw: fake_result,
     )
     # No GEMINI key — silent fallback to off
     monkeypatch.setattr(
-        "skills.youtube_transcribe.config.get_api_key",
+        "skills.neurolearn.config.get_api_key",
         lambda backend, env_path=None: None,
     )
     monkeypatch.setattr(
-        "skills.youtube_transcribe.transcribe.CONFIG_PATH",
+        "skills.neurolearn.transcribe.CONFIG_PATH",
         tmp_path / "config.toml",
     )
     (tmp_path / "config.toml").write_text("default_preset = \"smart\"\n", encoding="utf-8")

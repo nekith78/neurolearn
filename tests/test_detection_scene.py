@@ -2,7 +2,7 @@
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 
-from skills.youtube_transcribe.detection.scene import find_scene_boundaries
+from skills.neurolearn.detection.scene import find_scene_boundaries
 
 
 def test_find_scene_boundaries_calls_pyscenedetect():

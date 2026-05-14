@@ -26,7 +26,7 @@ def _patch_missing_gradio(monkeypatch):
 
 def test_non_tty_prints_instructions_and_exits_4(monkeypatch, capsys):
     """No TTY → don't prompt; print install instructions and exit 4."""
-    from skills.youtube_transcribe.transcribe import _ensure_gradio_installed
+    from skills.neurolearn.transcribe import _ensure_gradio_installed
 
     _patch_missing_gradio(monkeypatch)
     monkeypatch.setattr("sys.stdin.isatty", lambda: False)
@@ -41,7 +41,7 @@ def test_non_tty_prints_instructions_and_exits_4(monkeypatch, capsys):
 
 def test_tty_prompt_no_skips_install_and_exits(monkeypatch):
     """TTY + user types 'no' → no pip call, exit 4."""
-    from skills.youtube_transcribe.transcribe import _ensure_gradio_installed
+    from skills.neurolearn.transcribe import _ensure_gradio_installed
 
     _patch_missing_gradio(monkeypatch)
     monkeypatch.setattr("sys.stdin.isatty", lambda: True)
@@ -59,7 +59,7 @@ def test_tty_prompt_no_skips_install_and_exits(monkeypatch):
 def test_tty_prompt_yes_runs_pip_then_rechecks(monkeypatch):
     """TTY + user types 'yes' → subprocess.run pip install, re-check.
     If post-install import still fails → exit 4 (broken extra)."""
-    from skills.youtube_transcribe.transcribe import _ensure_gradio_installed
+    from skills.neurolearn.transcribe import _ensure_gradio_installed
 
     _patch_missing_gradio(monkeypatch)
     monkeypatch.setattr("sys.stdin.isatty", lambda: True)
@@ -82,7 +82,7 @@ def test_tty_prompt_yes_runs_pip_then_rechecks(monkeypatch):
 def test_pip_install_failure_exits_4(monkeypatch):
     """pip install returns non-zero → exit 4 with the message."""
     import subprocess
-    from skills.youtube_transcribe.transcribe import _ensure_gradio_installed
+    from skills.neurolearn.transcribe import _ensure_gradio_installed
 
     _patch_missing_gradio(monkeypatch)
     monkeypatch.setattr("sys.stdin.isatty", lambda: True)
@@ -98,7 +98,7 @@ def test_pip_install_failure_exits_4(monkeypatch):
 
 def test_gradio_present_returns_silently(monkeypatch):
     """gradio importable + has Blocks → function returns without action."""
-    from skills.youtube_transcribe.transcribe import _ensure_gradio_installed
+    from skills.neurolearn.transcribe import _ensure_gradio_installed
 
     # Inject a fake gradio module that satisfies "from gradio import Blocks".
     fake_module = MagicMock()

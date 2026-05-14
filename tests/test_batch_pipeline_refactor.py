@@ -8,18 +8,18 @@ from datetime import date
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 
-from skills.youtube_transcribe.utils.resolver import ResolvedTarget
+from skills.neurolearn.utils.resolver import ResolvedTarget
 
 
 def test_run_batch_pipeline_importable():
     """Function must exist at the documented module path."""
-    from skills.youtube_transcribe.transcribe import _run_batch_pipeline  # noqa: F401
+    from skills.neurolearn.transcribe import _run_batch_pipeline  # noqa: F401
     assert callable(_run_batch_pipeline)
 
 
 def test_run_batch_pipeline_empty_targets_returns_none(tmp_path):
     """No work to do → no batch folder, returns None."""
-    from skills.youtube_transcribe.transcribe import _run_batch_pipeline
+    from skills.neurolearn.transcribe import _run_batch_pipeline
 
     cfg = MagicMock(
         default_backend="subtitles", language="auto",
@@ -34,7 +34,7 @@ def test_run_batch_pipeline_empty_targets_returns_none(tmp_path):
 def test_run_batch_pipeline_returns_batch_dir(tmp_path):
     """With a fake target + mocked run_pipeline, returns Path to batch dir
     and writes manifest.json there."""
-    from skills.youtube_transcribe.transcribe import _run_batch_pipeline
+    from skills.neurolearn.transcribe import _run_batch_pipeline
 
     target = ResolvedTarget(
         url="https://youtu.be/aaa0", title="Video 0",
@@ -54,18 +54,18 @@ def test_run_batch_pipeline_returns_batch_dir(tmp_path):
     )
 
     with patch(
-        "skills.youtube_transcribe.transcribe.run_pipeline",
+        "skills.neurolearn.transcribe.run_pipeline",
         return_value=fake_result,
     ), patch(
-        "skills.youtube_transcribe.transcribe.write_txt_with_timestamps"
+        "skills.neurolearn.transcribe.write_txt_with_timestamps"
     ), patch(
-        "skills.youtube_transcribe.transcribe.write_srt"
+        "skills.neurolearn.transcribe.write_srt"
     ), patch(
-        "skills.youtube_transcribe.transcribe.write_combined_md"
+        "skills.neurolearn.transcribe.write_combined_md"
     ), patch(
-        "skills.youtube_transcribe.transcribe.write_manifest_json"
+        "skills.neurolearn.transcribe.write_manifest_json"
     ) as wmj, patch(
-        "skills.youtube_transcribe.transcribe.write_errors_log"
+        "skills.neurolearn.transcribe.write_errors_log"
     ):
         out = _run_batch_pipeline(
             targets=[target],

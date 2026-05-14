@@ -12,8 +12,8 @@ from unittest.mock import patch, MagicMock
 import pytest
 from click.testing import CliRunner
 
-from skills.youtube_transcribe.transcribe import cli
-from skills.youtube_transcribe.utils.resolver import ResolvedTarget
+from skills.neurolearn.transcribe import cli
+from skills.neurolearn.utils.resolver import ResolvedTarget
 
 
 def _target(idx: int) -> ResolvedTarget:
@@ -32,11 +32,11 @@ def _ok_result(idx: int):
 
 def _patch_writers():
     return [
-        patch("skills.youtube_transcribe.transcribe.write_txt_with_timestamps"),
-        patch("skills.youtube_transcribe.transcribe.write_srt"),
-        patch("skills.youtube_transcribe.transcribe.write_combined_md"),
-        patch("skills.youtube_transcribe.transcribe.write_manifest_json"),
-        patch("skills.youtube_transcribe.transcribe.write_errors_log"),
+        patch("skills.neurolearn.transcribe.write_txt_with_timestamps"),
+        patch("skills.neurolearn.transcribe.write_srt"),
+        patch("skills.neurolearn.transcribe.write_combined_md"),
+        patch("skills.neurolearn.transcribe.write_manifest_json"),
+        patch("skills.neurolearn.transcribe.write_errors_log"),
     ]
 
 
@@ -59,15 +59,15 @@ def test_batch_continue_on_error_collects_failures(tmp_path):
 
     def pipeline_side_effect(target, *_a, **_k):
         if target.video_id == "aaa1":
-            from skills.youtube_transcribe.backends.base import BackendError
+            from skills.neurolearn.backends.base import BackendError
             raise BackendError("HTTP 403")
         return _ok_result(int(target.video_id[-1]))
 
-    with patch("skills.youtube_transcribe.transcribe.run_wizard"), \
-         patch("skills.youtube_transcribe.transcribe.CONFIG_PATH") as cp, \
-         patch("skills.youtube_transcribe.transcribe.load_config", return_value=cfg), \
-         patch("skills.youtube_transcribe.transcribe.resolve", return_value=(targets, [])), \
-         patch("skills.youtube_transcribe.transcribe.run_pipeline",
+    with patch("skills.neurolearn.transcribe.run_wizard"), \
+         patch("skills.neurolearn.transcribe.CONFIG_PATH") as cp, \
+         patch("skills.neurolearn.transcribe.load_config", return_value=cfg), \
+         patch("skills.neurolearn.transcribe.resolve", return_value=(targets, [])), \
+         patch("skills.neurolearn.transcribe.run_pipeline",
                side_effect=pipeline_side_effect) as rp, \
          patches[0], patches[1], \
          patches[2] as wcm, patches[3] as wmj, patches[4] as wel:
@@ -99,15 +99,15 @@ def test_batch_fail_fast_aborts_on_first_error(tmp_path):
 
     def pipeline_side_effect(target, *_a, **_k):
         if target.video_id == "aaa0":
-            from skills.youtube_transcribe.backends.base import BackendError
+            from skills.neurolearn.backends.base import BackendError
             raise BackendError("nope")
         return _ok_result(0)
 
-    with patch("skills.youtube_transcribe.transcribe.run_wizard"), \
-         patch("skills.youtube_transcribe.transcribe.CONFIG_PATH") as cp, \
-         patch("skills.youtube_transcribe.transcribe.load_config", return_value=cfg), \
-         patch("skills.youtube_transcribe.transcribe.resolve", return_value=(targets, [])), \
-         patch("skills.youtube_transcribe.transcribe.run_pipeline",
+    with patch("skills.neurolearn.transcribe.run_wizard"), \
+         patch("skills.neurolearn.transcribe.CONFIG_PATH") as cp, \
+         patch("skills.neurolearn.transcribe.load_config", return_value=cfg), \
+         patch("skills.neurolearn.transcribe.resolve", return_value=(targets, [])), \
+         patch("skills.neurolearn.transcribe.run_pipeline",
                side_effect=pipeline_side_effect) as rp, \
          patches[0], patches[1], patches[2], patches[3], patches[4]:
         cp.exists.return_value = True
@@ -130,12 +130,12 @@ def test_batch_from_file_only(tmp_path):
     runner = CliRunner()
     patches = _patch_writers()
 
-    with patch("skills.youtube_transcribe.transcribe.run_wizard"), \
-         patch("skills.youtube_transcribe.transcribe.CONFIG_PATH") as cp, \
-         patch("skills.youtube_transcribe.transcribe.load_config", return_value=cfg), \
-         patch("skills.youtube_transcribe.transcribe.resolve",
+    with patch("skills.neurolearn.transcribe.run_wizard"), \
+         patch("skills.neurolearn.transcribe.CONFIG_PATH") as cp, \
+         patch("skills.neurolearn.transcribe.load_config", return_value=cfg), \
+         patch("skills.neurolearn.transcribe.resolve",
                return_value=([_target(0)], [])) as r, \
-         patch("skills.youtube_transcribe.transcribe.run_pipeline",
+         patch("skills.neurolearn.transcribe.run_pipeline",
                return_value=_ok_result(0)), \
          patches[0], patches[1], patches[2], patches[3], patches[4]:
         cp.exists.return_value = True

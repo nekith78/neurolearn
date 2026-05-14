@@ -1,5 +1,5 @@
 """Tests for Bag-of-Hallucinations detection."""
-from skills.youtube_transcribe.quality.boh import bag_of_hallucinations_coverage
+from skills.neurolearn.quality.boh import bag_of_hallucinations_coverage
 
 
 def test_boh_clean_text_zero():

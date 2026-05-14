@@ -2,21 +2,25 @@
 
 
 def test_shared_imports():
-    import skills.youtube_transcribe.shared  # noqa: F401
+    import skills.neurolearn.shared  # noqa: F401
 
 
 def test_research_imports():
-    import skills.youtube_transcribe.research  # noqa: F401
+    import skills.neurolearn.research  # noqa: F401
 
 
 def test_subscribes_imports():
-    import skills.youtube_transcribe.subscribes  # noqa: F401
+    import skills.neurolearn.subscribes  # noqa: F401
 
 
 def test_history_imports():
-    import skills.youtube_transcribe.history  # noqa: F401
+    import skills.neurolearn.history  # noqa: F401
 
 
-def test_version_is_v07():
-    import skills.youtube_transcribe
-    assert skills.youtube_transcribe.__version__.startswith("0.7.")
+def test_version_matches_pyproject():
+    """v0.9 renamed the project to neurolearn; version pinned at 0.9.x.
+    Bumps should land here so the package-level __version__ doesn't drift
+    from `pyproject.toml`.
+    """
+    import skills.neurolearn
+    assert skills.neurolearn.__version__.startswith("0.9.")

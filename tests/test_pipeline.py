@@ -3,8 +3,8 @@ from pathlib import Path
 from unittest.mock import patch, MagicMock
 import pytest
 
-from skills.youtube_transcribe.utils.resolver import ResolvedTarget
-from skills.youtube_transcribe.pipeline import run_pipeline
+from skills.neurolearn.utils.resolver import ResolvedTarget
+from skills.neurolearn.pipeline import run_pipeline
 
 
 def _make_target(url: str = "https://youtu.be/aaa", source: str = "inline",
@@ -28,7 +28,7 @@ def test_run_pipeline_local_file_invokes_backend(tmp_path):
                     yt_dlp_auto_update=False, cookies_file="",
                     fast_path_enabled=True, keep_audio=False)
 
-    with patch("skills.youtube_transcribe.pipeline.build_backend",
+    with patch("skills.neurolearn.pipeline.build_backend",
                return_value=fake_backend):
         result = run_pipeline(target, cfg, backend_override=None)
 
@@ -47,9 +47,9 @@ def test_run_pipeline_url_with_subtitles_skips_download(tmp_path):
                     yt_dlp_auto_update=False, cookies_file="",
                     fast_path_enabled=True, keep_audio=False)
 
-    with patch("skills.youtube_transcribe.pipeline.build_backend",
+    with patch("skills.neurolearn.pipeline.build_backend",
                return_value=fake_backend), \
-         patch("skills.youtube_transcribe.pipeline.download_audio") as dl:
+         patch("skills.neurolearn.pipeline.download_audio") as dl:
         result = run_pipeline(target, cfg, backend_override="subtitles")
 
     dl.assert_not_called()
@@ -69,9 +69,9 @@ def test_run_pipeline_url_with_whisper_local_downloads_to_temp(tmp_path):
 
     fake_audio = tmp_path / "audio.mp3"
     fake_audio.write_bytes(b"x")
-    with patch("skills.youtube_transcribe.pipeline.build_backend",
+    with patch("skills.neurolearn.pipeline.build_backend",
                return_value=fake_backend), \
-         patch("skills.youtube_transcribe.pipeline.download_audio",
+         patch("skills.neurolearn.pipeline.download_audio",
                return_value=fake_audio):
         result = run_pipeline(target, cfg, backend_override="whisper-local")
 
@@ -80,16 +80,16 @@ def test_run_pipeline_url_with_whisper_local_downloads_to_temp(tmp_path):
 
 
 def test_run_pipeline_propagates_backend_not_configured(tmp_path):
-    from skills.youtube_transcribe.backends.base import BackendNotConfigured
+    from skills.neurolearn.backends.base import BackendNotConfigured
     fake_audio = tmp_path / "audio.mp3"
     fake_audio.write_bytes(b"x")
     target = _make_target()
     cfg = MagicMock(default_backend="gemini", language="en",
                     yt_dlp_auto_update=False, cookies_file="",
                     fast_path_enabled=True, keep_audio=False)
-    with patch("skills.youtube_transcribe.pipeline.build_backend",
+    with patch("skills.neurolearn.pipeline.build_backend",
                side_effect=BackendNotConfigured("GEMINI_API_KEY missing")), \
-         patch("skills.youtube_transcribe.pipeline.download_audio",
+         patch("skills.neurolearn.pipeline.download_audio",
                return_value=fake_audio):
         with pytest.raises(BackendNotConfigured):
             run_pipeline(target, cfg, backend_override=None)

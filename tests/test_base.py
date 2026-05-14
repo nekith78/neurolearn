@@ -1,10 +1,10 @@
-from skills.youtube_transcribe.backends.base import (
+from skills.neurolearn.backends.base import (
     Transcriber,
     TranscriptionResult,
     BackendError,
     BackendNotConfigured,
 )
-from skills.youtube_transcribe.utils.output_writer import Segment
+from skills.neurolearn.utils.output_writer import Segment
 
 
 def test_transcription_result_construct():

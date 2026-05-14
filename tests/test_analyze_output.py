@@ -2,12 +2,12 @@
 from datetime import datetime
 from pathlib import Path
 
-from skills.youtube_transcribe.analyze.output_writer import (
+from skills.neurolearn.analyze.output_writer import (
     analysis_filename,
     write_analysis,
     append_analysis,
 )
-from skills.youtube_transcribe.analyze.source_resolver import VideoSource
+from skills.neurolearn.analyze.source_resolver import VideoSource
 
 
 def _src(title: str) -> VideoSource:

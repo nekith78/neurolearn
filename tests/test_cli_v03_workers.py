@@ -4,12 +4,12 @@ from unittest.mock import MagicMock
 
 from click.testing import CliRunner
 
-from skills.youtube_transcribe.transcribe import cli
+from skills.neurolearn.transcribe import cli
 
 
 def _setup_config(tmp_path, monkeypatch):
     monkeypatch.setattr(
-        "skills.youtube_transcribe.transcribe.CONFIG_PATH",
+        "skills.neurolearn.transcribe.CONFIG_PATH",
         tmp_path / "config.toml",
     )
     (tmp_path / "config.toml").write_text(
@@ -58,15 +58,15 @@ def test_workers_eq_1_uses_serial_path(tmp_path, monkeypatch):
         return _make_result()
 
     monkeypatch.setattr(
-        "skills.youtube_transcribe.transcribe.resolve",
+        "skills.neurolearn.transcribe.resolve",
         lambda i, f, fi: (targets, []),
     )
     monkeypatch.setattr(
-        "skills.youtube_transcribe.transcribe.run_pipeline",
+        "skills.neurolearn.transcribe.run_pipeline",
         fake_run,
     )
     monkeypatch.setattr(
-        "skills.youtube_transcribe.config.get_api_key",
+        "skills.neurolearn.config.get_api_key",
         lambda b, env_path=None: None,
     )
     _setup_config(tmp_path, monkeypatch)
@@ -93,15 +93,15 @@ def test_workers_gt_1_processes_all(tmp_path, monkeypatch):
         return _make_result()
 
     monkeypatch.setattr(
-        "skills.youtube_transcribe.transcribe.resolve",
+        "skills.neurolearn.transcribe.resolve",
         lambda i, f, fi: (targets, []),
     )
     monkeypatch.setattr(
-        "skills.youtube_transcribe.transcribe.run_pipeline",
+        "skills.neurolearn.transcribe.run_pipeline",
         fake_run,
     )
     monkeypatch.setattr(
-        "skills.youtube_transcribe.config.get_api_key",
+        "skills.neurolearn.config.get_api_key",
         lambda b, env_path=None: None,
     )
     _setup_config(tmp_path, monkeypatch)
@@ -122,7 +122,7 @@ def test_workers_gt_1_processes_all(tmp_path, monkeypatch):
 def test_workers_with_fail_fast_rejected(tmp_path, monkeypatch):
     """--workers > 1 + --fail-fast → exit 2 with error."""
     monkeypatch.setattr(
-        "skills.youtube_transcribe.transcribe.resolve",
+        "skills.neurolearn.transcribe.resolve",
         lambda i, f, fi: ([_make_target("x")], []),
     )
     _setup_config(tmp_path, monkeypatch)

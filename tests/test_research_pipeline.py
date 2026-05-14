@@ -5,7 +5,7 @@ from unittest.mock import patch, MagicMock
 
 
 def _candidate(vid="v1", title="T", url=None, lang="en"):
-    from skills.youtube_transcribe.research.source import SearchCandidate
+    from skills.neurolearn.research.source import SearchCandidate
     return SearchCandidate(
         video_id=vid, url=url or f"https://www.youtube.com/watch?v={vid}",
         title=title, channel="ch", duration_sec=300,
@@ -15,7 +15,7 @@ def _candidate(vid="v1", title="T", url=None, lang="en"):
 
 def test_pipeline_happy_path_invokes_components(tmp_path: Path):
     """Pipeline: translate → search → date-filter → match → llm-screen → batch → analyze."""
-    from skills.youtube_transcribe.research.pipeline import run_research
+    from skills.neurolearn.research.pipeline import run_research
 
     # Create the batch dir so .exists() returns True naturally — avoids
     # global pathlib.Path.exists mock which would break load_config.
@@ -23,23 +23,23 @@ def test_pipeline_happy_path_invokes_components(tmp_path: Path):
     batch_dir.mkdir()
 
     with patch(
-        "skills.youtube_transcribe.research.pipeline.build_queries_per_language",
+        "skills.neurolearn.research.pipeline.build_queries_per_language",
         return_value={"en": "Claude features"},
     ), patch(
-        "skills.youtube_transcribe.research.pipeline.search_multi_language",
+        "skills.neurolearn.research.pipeline.search_multi_language",
         return_value=[_candidate("v1"), _candidate("v2")],
     ), patch(
-        "skills.youtube_transcribe.research.pipeline._run_batch_pipeline",
+        "skills.neurolearn.research.pipeline._run_batch_pipeline",
         return_value=batch_dir,
     ) as mock_batch, patch(
-        "skills.youtube_transcribe.research.pipeline._run_then_analyze",
+        "skills.neurolearn.research.pipeline._run_then_analyze",
     ) as mock_analyze, patch(
-        "skills.youtube_transcribe.research.pipeline._stdin_is_tty",
+        "skills.neurolearn.research.pipeline._stdin_is_tty",
         return_value=False,
     ), patch(
-        "skills.youtube_transcribe.research.pipeline.append_run",
+        "skills.neurolearn.research.pipeline.append_run",
     ), patch(
-        "skills.youtube_transcribe.research.pipeline._load_default_cfg",
+        "skills.neurolearn.research.pipeline._load_default_cfg",
     ):
         result = run_research(
             query="Claude features",
@@ -68,25 +68,25 @@ def test_pipeline_happy_path_invokes_components(tmp_path: Path):
 
 
 def test_pipeline_no_analyze_skips_analyze(tmp_path: Path):
-    from skills.youtube_transcribe.research.pipeline import run_research
+    from skills.neurolearn.research.pipeline import run_research
     with patch(
-        "skills.youtube_transcribe.research.pipeline.build_queries_per_language",
+        "skills.neurolearn.research.pipeline.build_queries_per_language",
         return_value={"en": "x"},
     ), patch(
-        "skills.youtube_transcribe.research.pipeline.search_multi_language",
+        "skills.neurolearn.research.pipeline.search_multi_language",
         return_value=[_candidate()],
     ), patch(
-        "skills.youtube_transcribe.research.pipeline._run_batch_pipeline",
+        "skills.neurolearn.research.pipeline._run_batch_pipeline",
         return_value=tmp_path,
     ), patch(
-        "skills.youtube_transcribe.research.pipeline._run_then_analyze",
+        "skills.neurolearn.research.pipeline._run_then_analyze",
     ) as mock_analyze, patch(
-        "skills.youtube_transcribe.research.pipeline._stdin_is_tty",
+        "skills.neurolearn.research.pipeline._stdin_is_tty",
         return_value=False,
     ), patch(
-        "skills.youtube_transcribe.research.pipeline.append_run",
+        "skills.neurolearn.research.pipeline.append_run",
     ), patch(
-        "skills.youtube_transcribe.research.pipeline._load_default_cfg",
+        "skills.neurolearn.research.pipeline._load_default_cfg",
     ):
         run_research(
             query="x", queries_by_language=None,
@@ -105,15 +105,15 @@ def test_pipeline_no_analyze_skips_analyze(tmp_path: Path):
 
 def test_pipeline_no_results_after_filter_returns_none(tmp_path: Path):
     """If filters reduce candidates to zero, pipeline reports and returns None."""
-    from skills.youtube_transcribe.research.pipeline import run_research
+    from skills.neurolearn.research.pipeline import run_research
     with patch(
-        "skills.youtube_transcribe.research.pipeline.build_queries_per_language",
+        "skills.neurolearn.research.pipeline.build_queries_per_language",
         return_value={"en": "x"},
     ), patch(
-        "skills.youtube_transcribe.research.pipeline.search_multi_language",
+        "skills.neurolearn.research.pipeline.search_multi_language",
         return_value=[],  # nothing found
     ), patch(
-        "skills.youtube_transcribe.research.pipeline.append_run",
+        "skills.neurolearn.research.pipeline.append_run",
     ):
         result = run_research(
             query="x", queries_by_language=None,
@@ -132,8 +132,8 @@ def test_pipeline_no_results_after_filter_returns_none(tmp_path: Path):
 
 def test_pipeline_in_subscribes_uses_rss(tmp_path: Path):
     """--in-subscribes flips source from search → subscribes channels via RSS."""
-    from skills.youtube_transcribe.research.pipeline import run_research
-    from skills.youtube_transcribe.subscribes.rss import RssEntry
+    from skills.neurolearn.research.pipeline import run_research
+    from skills.neurolearn.subscribes.rss import RssEntry
 
     fake_chan = MagicMock(handle="@A", channel_id="UC_a", group=None,
                           last_seen_video_id=None)
@@ -144,23 +144,23 @@ def test_pipeline_in_subscribes_uses_rss(tmp_path: Path):
     ]
 
     with patch(
-        "skills.youtube_transcribe.research.pipeline.load_subscribes",
+        "skills.neurolearn.research.pipeline.load_subscribes",
         return_value=[fake_chan],
     ), patch(
-        "skills.youtube_transcribe.research.pipeline.fetch_rss",
+        "skills.neurolearn.research.pipeline.fetch_rss",
         return_value=fake_entries,
     ), patch(
-        "skills.youtube_transcribe.research.pipeline.search_multi_language",
+        "skills.neurolearn.research.pipeline.search_multi_language",
     ) as mock_search, patch(
-        "skills.youtube_transcribe.research.pipeline._run_batch_pipeline",
+        "skills.neurolearn.research.pipeline._run_batch_pipeline",
         return_value=tmp_path,
     ), patch(
-        "skills.youtube_transcribe.research.pipeline._stdin_is_tty",
+        "skills.neurolearn.research.pipeline._stdin_is_tty",
         return_value=False,
     ), patch(
-        "skills.youtube_transcribe.research.pipeline.append_run",
+        "skills.neurolearn.research.pipeline.append_run",
     ), patch(
-        "skills.youtube_transcribe.research.pipeline._load_default_cfg",
+        "skills.neurolearn.research.pipeline._load_default_cfg",
     ):
         run_research(
             query="x", queries_by_language=None,
@@ -182,7 +182,7 @@ def test_pipeline_in_subscribes_uses_rss(tmp_path: Path):
 def test_pipeline_status_partial_when_analyze_produced_no_file(tmp_path: Path):
     """If _run_then_analyze runs but didn't create analysis-*.md →
     history status='partial'."""
-    from skills.youtube_transcribe.research.pipeline import run_research
+    from skills.neurolearn.research.pipeline import run_research
 
     batch_dir = tmp_path / "no_analysis_batch"
     batch_dir.mkdir()
@@ -194,24 +194,24 @@ def test_pipeline_status_partial_when_analyze_produced_no_file(tmp_path: Path):
         captured.update(kwargs)
 
     with patch(
-        "skills.youtube_transcribe.research.pipeline.build_queries_per_language",
+        "skills.neurolearn.research.pipeline.build_queries_per_language",
         return_value={"en": "x"},
     ), patch(
-        "skills.youtube_transcribe.research.pipeline.search_multi_language",
+        "skills.neurolearn.research.pipeline.search_multi_language",
         return_value=[_candidate()],
     ), patch(
-        "skills.youtube_transcribe.research.pipeline._run_batch_pipeline",
+        "skills.neurolearn.research.pipeline._run_batch_pipeline",
         return_value=batch_dir,
     ), patch(
-        "skills.youtube_transcribe.research.pipeline._run_then_analyze",
+        "skills.neurolearn.research.pipeline._run_then_analyze",
     ), patch(
-        "skills.youtube_transcribe.research.pipeline._stdin_is_tty",
+        "skills.neurolearn.research.pipeline._stdin_is_tty",
         return_value=False,
     ), patch(
-        "skills.youtube_transcribe.research.pipeline._append_history",
+        "skills.neurolearn.research.pipeline._append_history",
         side_effect=fake_append,
     ), patch(
-        "skills.youtube_transcribe.research.pipeline._load_default_cfg",
+        "skills.neurolearn.research.pipeline._load_default_cfg",
     ):
         run_research(
             query="x", queries_by_language=None,
@@ -231,7 +231,7 @@ def test_pipeline_status_partial_when_analyze_produced_no_file(tmp_path: Path):
 
 def test_pipeline_status_failed_when_batch_returned_none(tmp_path: Path):
     """If _run_batch_pipeline returns None → status='failed'."""
-    from skills.youtube_transcribe.research.pipeline import run_research
+    from skills.neurolearn.research.pipeline import run_research
 
     captured = {}
 
@@ -239,22 +239,22 @@ def test_pipeline_status_failed_when_batch_returned_none(tmp_path: Path):
         captured.update(kwargs)
 
     with patch(
-        "skills.youtube_transcribe.research.pipeline.build_queries_per_language",
+        "skills.neurolearn.research.pipeline.build_queries_per_language",
         return_value={"en": "x"},
     ), patch(
-        "skills.youtube_transcribe.research.pipeline.search_multi_language",
+        "skills.neurolearn.research.pipeline.search_multi_language",
         return_value=[_candidate()],
     ), patch(
-        "skills.youtube_transcribe.research.pipeline._run_batch_pipeline",
+        "skills.neurolearn.research.pipeline._run_batch_pipeline",
         return_value=None,                          # ← transcribe failed
     ), patch(
-        "skills.youtube_transcribe.research.pipeline._stdin_is_tty",
+        "skills.neurolearn.research.pipeline._stdin_is_tty",
         return_value=False,
     ), patch(
-        "skills.youtube_transcribe.research.pipeline._append_history",
+        "skills.neurolearn.research.pipeline._append_history",
         side_effect=fake_append,
     ), patch(
-        "skills.youtube_transcribe.research.pipeline._load_default_cfg",
+        "skills.neurolearn.research.pipeline._load_default_cfg",
     ):
         run_research(
             query="x", queries_by_language=None,
@@ -274,7 +274,7 @@ def test_pipeline_status_failed_when_batch_returned_none(tmp_path: Path):
 
 def test_pipeline_status_ok_on_happy_path(tmp_path: Path):
     """Successful analyze (analysis-*.md present) → status='ok'."""
-    from skills.youtube_transcribe.research.pipeline import run_research
+    from skills.neurolearn.research.pipeline import run_research
 
     batch_dir = tmp_path / "good_batch"
     batch_dir.mkdir()
@@ -286,24 +286,24 @@ def test_pipeline_status_ok_on_happy_path(tmp_path: Path):
         captured.update(kwargs)
 
     with patch(
-        "skills.youtube_transcribe.research.pipeline.build_queries_per_language",
+        "skills.neurolearn.research.pipeline.build_queries_per_language",
         return_value={"en": "x"},
     ), patch(
-        "skills.youtube_transcribe.research.pipeline.search_multi_language",
+        "skills.neurolearn.research.pipeline.search_multi_language",
         return_value=[_candidate()],
     ), patch(
-        "skills.youtube_transcribe.research.pipeline._run_batch_pipeline",
+        "skills.neurolearn.research.pipeline._run_batch_pipeline",
         return_value=batch_dir,
     ), patch(
-        "skills.youtube_transcribe.research.pipeline._run_then_analyze",
+        "skills.neurolearn.research.pipeline._run_then_analyze",
     ), patch(
-        "skills.youtube_transcribe.research.pipeline._stdin_is_tty",
+        "skills.neurolearn.research.pipeline._stdin_is_tty",
         return_value=False,
     ), patch(
-        "skills.youtube_transcribe.research.pipeline._append_history",
+        "skills.neurolearn.research.pipeline._append_history",
         side_effect=fake_append,
     ), patch(
-        "skills.youtube_transcribe.research.pipeline._load_default_cfg",
+        "skills.neurolearn.research.pipeline._load_default_cfg",
     ):
         run_research(
             query="x", queries_by_language=None,

@@ -2,12 +2,12 @@
 import json
 from unittest.mock import patch, MagicMock
 
-from skills.youtube_transcribe.detection.llm_classify import (
+from skills.neurolearn.detection.llm_classify import (
     _format_transcript,
     _parse_response,
     find_visual_moments_via_llm,
 )
-from skills.youtube_transcribe.utils.output_writer import Segment
+from skills.neurolearn.utils.output_writer import Segment
 
 
 def _seg(start, end, text):

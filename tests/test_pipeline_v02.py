@@ -2,9 +2,9 @@
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 
-from skills.youtube_transcribe.pipeline_v02 import apply_v02_stages
-from skills.youtube_transcribe.backends.base import TranscriptionResult
-from skills.youtube_transcribe.utils.output_writer import Segment
+from skills.neurolearn.pipeline_v02 import apply_v02_stages
+from skills.neurolearn.backends.base import TranscriptionResult
+from skills.neurolearn.utils.output_writer import Segment
 
 
 def _result(text="hello world"):
@@ -21,7 +21,7 @@ def test_quality_check_runs_when_enabled():
     cfg = {"quality_check": True, "vision_backend": "off"}
     result = _result()
     with patch(
-        "skills.youtube_transcribe.pipeline_v02.HeuristicChecker"
+        "skills.neurolearn.pipeline_v02.HeuristicChecker"
     ) as mock_checker:
         instance = MagicMock()
         instance.check.return_value = MagicMock(
@@ -71,13 +71,13 @@ def test_vision_runs_when_gemini_and_video_path(tmp_path):
     fake_visual.end = 5.0
 
     with patch(
-        "skills.youtube_transcribe.pipeline_v02.find_detection_windows",
+        "skills.neurolearn.pipeline_v02.find_detection_windows",
         return_value=[MagicMock(start=0.0, end=5.0, reason="universal", score=0.7,
                                 weight=1.0, phrase="look here", priority_score=0.7)],
     ), patch(
-        "skills.youtube_transcribe.pipeline_v02.GeminiVisionBackend"
+        "skills.neurolearn.pipeline_v02.GeminiVisionBackend"
     ) as mock_vis, patch(
-        "skills.youtube_transcribe.config.get_api_key",
+        "skills.neurolearn.config.get_api_key",
         return_value="fake_key",
     ):
         mock_vis.return_value.annotate_segments.return_value = [fake_visual]

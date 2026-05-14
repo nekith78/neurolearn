@@ -2,12 +2,12 @@
 from datetime import date, datetime
 from pathlib import Path
 
-from skills.youtube_transcribe.utils.output_writer import (
+from skills.neurolearn.utils.output_writer import (
     BatchMeta,
     BatchVideoStatus,
     write_combined_md,
 )
-from skills.youtube_transcribe.backends.vision_base import VisualSegment
+from skills.neurolearn.backends.vision_base import VisualSegment
 
 
 def _meta() -> BatchMeta:
@@ -68,7 +68,7 @@ def test_combined_md_skips_visual_section_if_empty(tmp_path):
 
 
 def test_combined_md_includes_quality_warning_when_low(tmp_path):
-    from skills.youtube_transcribe.quality.base import QualityReport
+    from skills.neurolearn.quality.base import QualityReport
     v = _video_with_visuals()
     v_low_quality = BatchVideoStatus(
         **{**v.__dict__,

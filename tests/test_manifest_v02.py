@@ -3,13 +3,13 @@ import json
 from datetime import date, datetime
 from pathlib import Path
 
-from skills.youtube_transcribe.utils.output_writer import (
+from skills.neurolearn.utils.output_writer import (
     BatchMeta,
     BatchVideoStatus,
     write_manifest_json,
 )
-from skills.youtube_transcribe.backends.vision_base import VisualSegment
-from skills.youtube_transcribe.quality.base import QualityReport
+from skills.neurolearn.backends.vision_base import VisualSegment
+from skills.neurolearn.quality.base import QualityReport
 
 
 def _meta():

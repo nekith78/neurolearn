@@ -1,6 +1,6 @@
 """Tests for window merging and bucket-based selection."""
-from skills.youtube_transcribe.detection.base import DetectionWindow
-from skills.youtube_transcribe.detection.window_merge import (
+from skills.neurolearn.detection.base import DetectionWindow
+from skills.neurolearn.detection.window_merge import (
     merge_overlapping_windows,
     select_windows_by_budget,
 )

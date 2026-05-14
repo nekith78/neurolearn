@@ -1,7 +1,7 @@
 """Tests for v0.3 channel filters in resolver._apply_filters."""
 from datetime import date
 
-from skills.youtube_transcribe.utils.resolver import (
+from skills.neurolearn.utils.resolver import (
     ResolvedTarget,
     ResolverFilters,
     _apply_filters,

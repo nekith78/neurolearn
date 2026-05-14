@@ -1,6 +1,6 @@
 """Tests for subscribes.group — channel grouping helpers."""
-from skills.youtube_transcribe.subscribes.store import Channel
-from skills.youtube_transcribe.subscribes.group import (
+from skills.neurolearn.subscribes.store import Channel
+from skills.neurolearn.subscribes.group import (
     filter_by_group,
     list_groups,
 )
