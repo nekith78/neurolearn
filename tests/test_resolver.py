@@ -58,7 +58,7 @@ def test_resolve_channel_applies_limit():
 
 
 def test_resolve_dedup_inline_and_channel_keeps_first():
-    """Inline видео + то же видео из канала → попадает только inline."""
+    """Inline video + same video from a channel → only inline is kept."""
     with patch("skills.youtube_transcribe.utils.resolver.probe_input",
                side_effect=[_video_info("v0"), _playlist_info("@anth",
                                                               [("v0", "v0"), ("v1", "v1")])]), \

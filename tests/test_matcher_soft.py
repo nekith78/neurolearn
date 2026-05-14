@@ -18,7 +18,7 @@ def _make_cfg_en():
 
 
 def test_soft_ru_inflected_form_matches():
-    """'посмотрите сюда' должно матчить лемму 'смотри сюда' (взаимные формы глагола)."""
+    """'посмотрите сюда' should match the lemma 'смотри сюда' (related verb forms)."""
     cfg = _make_cfg_ru()
     res = _match_soft("посмотрите сюда внимательно", cfg, "ru")
     assert res is not None
@@ -31,7 +31,7 @@ def test_soft_ru_exact_match():
 
 
 def test_soft_en_function_calls():
-    """'function calls' должно матчить лемму 'function call'."""
+    """'function calls' should match the lemma 'function call'."""
     cfg = _make_cfg_en()
     res = _match_soft("see how this function calls work", cfg, "en")
     assert res is not None

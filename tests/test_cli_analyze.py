@@ -117,7 +117,7 @@ def test_analyze_empty_llm_exit_4(tmp_path: Path):
             "--prompt", "x", "--backend", "ollama",
         ], catch_exceptions=False)
     assert res.exit_code == 4
-    assert "llm" in res.output.lower() or "ответ" in res.output.lower()
+    assert "llm" in res.output.lower() or "response" in res.output.lower()
 
 
 def test_analyze_prompt_file_read(tmp_path: Path):
@@ -305,7 +305,7 @@ def test_analyze_select_mutex_with_all(tmp_path: Path):
         "--all", "--select", "1",
     ], catch_exceptions=False)
     assert res.exit_code == 2
-    assert "взаимоисключ" in res.output.lower() or "mutex" in res.output.lower() or "exclusive" in res.output.lower()
+    assert "mutex" in res.output.lower() or "exclusive" in res.output.lower()
 
 
 def test_analyze_append_to_creates_new(tmp_path: Path):

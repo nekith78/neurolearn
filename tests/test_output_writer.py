@@ -128,7 +128,7 @@ def test_write_combined_md_renders_dashes_for_missing_metadata(tmp_path):
     path = write_combined_md([bad], meta, tmp_path)
     text = path.read_text(encoding="utf-8")
     # Both date and duration rendered as em-dash placeholder
-    assert "| Date | — |" in text or "| Дата | — |" in text
+    assert "| Date | — |" in text
     assert "—" in text
 
 

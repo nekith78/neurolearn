@@ -20,7 +20,7 @@ If `$ARGUMENTS` is empty, prompt the user for a URL, file path, channel URL, or 
 
 ### After batch (`./transcripts/batch_<timestamp>_<slug>/`)
 1. Read `combined.md` from the printed batch directory.
-2. Offer: заметка по теме / сводка / план изучения / cross-video themes.
+2. Offer: topic note / summary / study plan / cross-video themes.
 3. If `errors.log` exists in that directory, briefly summarize which videos failed and why.
 
 If the command exits non-zero, the stdout/stderr will contain a friendly hint — relay it to the user (e.g., "API key missing", "yt-dlp blocked, try `--cookies-from-browser chrome`").

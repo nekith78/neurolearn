@@ -8,12 +8,12 @@ from typing import Protocol
 
 @dataclass(frozen=True)
 class DetectionWindow:
-    start: float       # секунды
+    start: float       # seconds
     end: float
     reason: str        # "raw" | "strict:ru" | "soft:ru" | "universal" | "scene_change" | "llm_full_pass"
     score: float       # 0..1
     weight: float = 1.0
-    phrase: str = ""   # фраза, которая сработала (для триггер-окон)
+    phrase: str = ""   # the phrase that fired (for trigger-windows)
 
     @property
     def priority_score(self) -> float:

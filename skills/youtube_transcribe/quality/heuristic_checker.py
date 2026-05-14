@@ -73,7 +73,7 @@ class HeuristicChecker:
         breakdown["repetition"] = rep
         breakdown["boh"] = boh
 
-        # Веса (всего 1.0). Если язык не поддержан — OOV отключен, переразвешиваем.
+        # Weights (sum 1.0). If language is unsupported, OOV is disabled — re-weight.
         if oov < 0:
             oov_component = 0.5  # neutral
             score = (

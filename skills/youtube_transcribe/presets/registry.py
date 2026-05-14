@@ -28,14 +28,14 @@ REGISTRY: list[OptionField] = [
         key="transcribe_backend", type=str, default="subtitles",
         choices=["subtitles", "whisper-local", "gemini", "groq", "openai",
                  "deepgram", "assemblyai", "custom"],
-        description="Чем транскрибировать. subtitles = брать готовые с YouTube.",
+        description="Transcription backend. subtitles = use YouTube's own subs.",
         section="transcribe",
     ),
     OptionField(
         key="fallback_backend", type=str, default="whisper-local",
         choices=["whisper-local", "gemini", "groq", "openai", "deepgram",
                  "assemblyai", "custom"],
-        description="Куда переключиться, если subtitles не подошли (smart-режим).",
+        description="What to fall back to when subtitles don't fit (smart mode).",
         section="transcribe",
     ),
     # === vision ===
@@ -53,46 +53,46 @@ REGISTRY: list[OptionField] = [
     OptionField(
         key="frames_per_window", type=int, default=3,
         choices=None,
-        description="Сколько keyframes извлекать на одно visual-окно.",
+        description="How many keyframes to extract per visual window.",
         section="vision",
     ),
     OptionField(
         key="max_windows_per_video", type=int, default=20,
         choices=None,
-        description="Максимум окон vision-анализа на одно видео.",
+        description="Max number of vision-analysis windows per video.",
         section="vision",
     ),
     # === detection ===
     OptionField(
         key="detect_method", type=str, default="keywords_only",
         choices=["keywords_only", "semantic", "hybrid", "llm_full_pass"],
-        description="Метод поиска визуально-важных моментов.",
+        description="Method for finding visually important moments.",
         section="detection",
     ),
     # === smart ===
     OptionField(
         key="quality_check", type=bool, default=False,
         choices=None,
-        description="Запускать quality check на полученном транскрипте.",
+        description="Run quality check on the produced transcript.",
         section="smart",
     ),
     OptionField(
         key="subtitle_quality_threshold", type=float, default=0.6,
         choices=None,
-        description="Score < этого → fallback к whisper в smart-режиме.",
+        description="Score below this → fall back to whisper in smart mode.",
         section="smart",
     ),
     OptionField(
         key="quality_perplexity", type=bool, default=False,
         choices=None,
-        description="Включить kenlm perplexity (требует extra `perplexity`).",
+        description="Enable kenlm perplexity (requires the `perplexity` extra).",
         section="smart",
     ),
     # === output ===
     OptionField(
         key="ocr", type=bool, default=False,
         choices=None,
-        description="OCR на keyframes (требует extra `ocr` + системный tesseract).",
+        description="OCR on keyframes (requires the `ocr` extra + system tesseract).",
         section="output",
     ),
     # === ASR correction (v0.4) ===

@@ -43,7 +43,7 @@ def test_run_one_empty_input_returns_hint():
         max_windows=0,
         correct_asr=False,
     )
-    assert "URL" in transcript or "введи" in transcript.lower() or "введ" in transcript.lower()
+    assert "URL" in transcript or "enter" in transcript.lower()
     assert visual == ""
     assert outdir is None
 

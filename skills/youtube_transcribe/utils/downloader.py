@@ -257,7 +257,7 @@ def download_video(
 
 @dataclass(frozen=True)
 class ChannelEntry:
-    """Один entry из канала/плейлиста (только метадата, без скачивания)."""
+    """One entry from a channel/playlist (metadata only, no download)."""
     video_id: str
     url: str
     title: str | None
@@ -271,7 +271,7 @@ def _yt_url_from_id(video_id: str) -> str:
 
 
 def parse_yt_date(s: str | None) -> date | None:
-    """yt-dlp возвращает 'YYYYMMDD' либо None."""
+    """yt-dlp returns either 'YYYYMMDD' or None."""
     if not s or len(s) != 8:
         return None
     try:
@@ -283,8 +283,8 @@ def parse_yt_date(s: str | None) -> date | None:
 def _extract_flat(
     url: str, *, cookies_file: str | None = None,
 ) -> dict:
-    """Тонкая обёртка над yt-dlp YoutubeDL.extract_info(extract_flat=True).
-    Изолирована, чтобы тесты могли мокать её точечно через patch.
+    """Thin wrapper over yt-dlp's YoutubeDL.extract_info(extract_flat=True).
+    Isolated so tests can patch it precisely.
 
     `cookies_file` — optional path to a Netscape-format cookies.txt file.
     Used for Instagram (anon → 401). The function NEVER uses
@@ -292,7 +292,7 @@ def _extract_flat(
     cookies into process memory. See the project memory file
     `feedback_cookies_strict_file_only.md` for the rationale.
     """
-    from yt_dlp import YoutubeDL  # импорт локальный — yt-dlp тяжёлый
+    from yt_dlp import YoutubeDL  # local import — yt-dlp is heavy
     from yt_dlp.utils import DownloadError as YtDlpDownloadError
     opts: dict = {
         "quiet": True,
@@ -311,9 +311,9 @@ def _extract_flat(
 
 
 def probe_input(url_or_path: str) -> tuple[Literal["video", "playlist", "local"], dict]:
-    """Определить тип входа: одиночное видео / канал-или-плейлист / локальный файл.
-    Для локальных файлов возвращает {"path": <str>}.
-    Для URL — yt-dlp metadata dict с ключом '_type' = 'video' | 'playlist'."""
+    """Detect the input type: single video / channel-or-playlist / local file.
+    For local files returns {"path": <str>}.
+    For URLs returns the yt-dlp metadata dict with `_type` = 'video' | 'playlist'."""
     if not is_url(url_or_path):
         p = Path(url_or_path).expanduser().resolve()
         if not p.exists():
@@ -323,7 +323,7 @@ def probe_input(url_or_path: str) -> tuple[Literal["video", "playlist", "local"]
     info = _extract_flat(url_or_path)
     kind = info.get("_type", "video")
     if kind not in ("video", "playlist"):
-        # 'url'-тип означает unresolved redirect; для нашей цели приравниваем к 'video'
+        # '_type=url' is an unresolved redirect; for our purposes treat as 'video'
         kind = "video"
     return kind, info  # type: ignore[return-value]
 
@@ -331,12 +331,12 @@ def probe_input(url_or_path: str) -> tuple[Literal["video", "playlist", "local"]
 def expand_channel_or_playlist(
     url: str, limit: int, *, cookies_file: str | None = None,
 ) -> list[ChannelEntry]:
-    """Развернуть канал/плейлист в первые N entries. Только метадата, без скачивания.
+    """Expand a channel/playlist into the first N entries. Metadata only, no download.
 
-    `cookies_file` (Netscape cookies.txt) пробрасывается в yt-dlp для
-    платформ, которым нужна залогиненная сессия (Instagram всегда,
-    приватные TikTok-аккаунты). См. `_extract_flat` для security-обоснования
-    почему ТОЛЬКО файл, не `cookies-from-browser`.
+    `cookies_file` (Netscape cookies.txt) is forwarded to yt-dlp for
+    platforms that need a logged-in session (Instagram always, private
+    TikTok accounts). See `_extract_flat` for the security rationale
+    behind file-only cookies — never `cookies-from-browser`.
     """
     info = _extract_flat(url, cookies_file=cookies_file)
     entries = info.get("entries") or []

@@ -29,7 +29,7 @@ dependencies = [
     # Local Whisper — Windows/Linux/Intel-Mac path
     # NOT installed on macOS arm64: faster-whisper 1.2+ requires onnxruntime
     # which has no wheels for macOS arm64. On Apple Silicon, use mlx-whisper
-    # (см. spec §5.2: platform_detect выбирает mlx на arm64-darwin).
+    # (see spec §5.2: platform_detect picks mlx on arm64-darwin).
     "faster-whisper>=1.0.3; sys_platform != 'darwin' or platform_machine != 'arm64'",
     # Apple Silicon path (only installs on macOS arm64)
     "mlx-whisper>=0.4.1; sys_platform == 'darwin' and platform_machine == 'arm64'",

@@ -3,23 +3,22 @@ name: youtube-transcribe
 description: |
   Transcribe YouTube / Instagram / TikTok / local-file videos via 8 interchangeable backends
   (local Whisper, YouTube subtitles, Gemini, Groq, OpenAI Whisper API, Deepgram, AssemblyAI,
-  OpenAI-compatible custom). Also: RESEARCH a topic ("найди свежие видео по теме X" →
-  finds, transcribes, returns), SUBSCRIBES to channels ("следи за этими каналами" → RSS
+  OpenAI-compatible custom). Also: RESEARCH a topic ("find recent videos about X" →
+  finds, transcribes, returns), SUBSCRIBES to channels ("watch these channels" → RSS
   watch + transcribe new uploads), HISTORY of past runs.
   Use this skill when the user pastes a video URL with intent to read/analyze content,
-  asks to "transcribe", "расшифровать", "сделать текст из видео", "розшифрувати",
-  "get a transcript", "subtitles", "what's in this video", "о чём это видео";
-  asks to find/research videos by topic ("найди видео про X", "сделай ресерч по теме",
-  "что нового про Claude features", "research AI agents this week");
-  asks to follow a channel ("подпишись на канал X", "следи за @AnthropicAI",
-  "что нового на этом канале", "watch this channel for new videos");
-  provides a YouTube channel/playlist URL ("весь канал", "последние N видео", "вот плейлист");
-  or provides a local media file. Use for explicit backend switching ("через gemini",
-  "локально whisper large", "use groq").
+  asks to "transcribe", "get a transcript", "make text from this video", "subtitles",
+  "what's in this video";
+  asks to find/research videos by topic ("find videos about X", "research topic X",
+  "what's new about Claude features", "research AI agents this week");
+  asks to follow a channel ("subscribe to channel X", "watch @AnthropicAI",
+  "what's new on this channel", "watch this channel for new videos");
+  provides a YouTube channel/playlist URL ("whole channel", "last N videos", "this playlist");
+  or provides a local media file. Use for explicit backend switching ("via gemini",
+  "local whisper large", "use groq").
   DO NOT use for: general questions about transcription technology, requesting video
   recommendations without source URLs, recording/creating videos, or operating on
   already-existing transcripts.
-  Works in Russian, English, Ukrainian, Kazakh, German, Spanish, French.
 ---
 
 # youtube-transcribe Skill
@@ -32,36 +31,36 @@ description: |
 - A YouTube URL (`youtube.com/watch?v=...`, `youtu.be/...`, `youtube.com/shorts/...`) appears, with or without surrounding words.
 - Any video URL (TikTok, Vimeo, Twitter/X video, Twitch VOD, etc.) appears with intent to extract content.
 - A local file path ending in `.mp3 / .mp4 / .wav / .m4a / .mkv / .webm / .opus / .flac` appears with intent to extract speech.
-- Direct request: "транскрибируй", "расшифруй", "сделай текст", "transcribe", "get transcript", "розшифруй", "yazıya geçir".
-- Request for subtitles: ".srt", "сделай субтитры", "make subtitles", "give me subs".
-- Content-question about a linked video: "о чём это видео", "what's in this video", "что говорят".
+- Direct request: "transcribe", "get transcript", "make text from this video", "extract text".
+- Request for subtitles: ".srt", "make subtitles", "give me subs", "generate captions".
+- Content-question about a linked video: "what's in this video", "what's it about", "what do they say".
 - Request to summarize/analyze a video by URL (transcribe first, then Claude analyzes).
 - Request for timestamps, quotes, or time-coded references in a video.
-- Backend switching: "через gemini", "локально whisper", "use groq", "switch to subtitles".
+- Backend switching: "via gemini", "local whisper", "use groq", "switch to subtitles".
 
 ### Batch (multiple inputs)
 - The message contains **2 or more YouTube/video URLs**.
 - A YouTube channel URL (`youtube.com/@name`, `youtube.com/c/...`, `youtube.com/channel/UC...`).
 - A YouTube playlist URL (`youtube.com/playlist?list=...`).
-- Phrases: "прогони пачку видео", "расшифруй все эти ссылки", "вот несколько ссылок", "несколько видео разом".
-- Phrases: "весь канал", "последние N видео с канала", "all videos from this channel", "все видео с @channel".
-- Phrases: "возьми этот плейлист", "всё из этого плейлиста", "the whole playlist".
-- A path to a `.txt` file containing URLs ("вот файл со ссылками").
+- Phrases: "transcribe these videos", "process all these links", "here are several URLs", "multiple videos at once".
+- Phrases: "whole channel", "last N videos from the channel", "all videos from this channel", "everything on @channel".
+- Phrases: "take this playlist", "everything in this playlist", "the whole playlist".
+- A path to a `.txt` file containing URLs ("here's a file with links").
 
 ### Research (find videos by topic — no URL provided)
-- Phrases: "найди видео про X", "найди ролики по теме", "сделай ресерч по X",
-  "что нового про Claude features", "research AI agents this week",
-  "что говорят про <тема> в этом месяце", "find recent videos about X".
+- Phrases: "find videos about X", "find clips on topic X", "research X",
+  "what's new about Claude features", "research AI agents this week",
+  "what's being said about <topic> this month", "find recent videos about X".
 - The user wants Claude to discover videos on a topic. NO URL is given.
-- Optional language hints: "только на русском", "ru + en", "за неделю", "за месяц",
-  "топ-10", "первые 5".
+- Optional language hints: "English only", "ru + en", "this week", "this month",
+  "top-10", "first 5".
 
 ### Subscribes (channel watch — follow uploads over time)
-- Phrases: "подпишись на канал X", "следи за этим каналом", "watch this channel",
-  "subscribe to @name", "что нового на канале X", "проверь подписки",
-  "обнови подписки", "update subscriptions", "новые видео с моих каналов".
+- Phrases: "subscribe to channel X", "watch this channel", "subscribe to @name",
+  "what's new on channel X", "check subscriptions", "update subscriptions",
+  "new videos from my channels".
 - The user provides a channel URL/handle and wants automatic follow-up over time.
-- Group-based phrasing: "канал в группу AI", "all AI channels", "subscribes group ai-research".
+- Group-based phrasing: "channel goes to group AI", "all AI channels", "subscribes group ai-research".
 
 **Do NOT use this skill when:**
 
@@ -101,7 +100,7 @@ youtube-transcribe batch --from-file urls.txt [flags]
 
 ```
 youtube-transcribe research "<query>" [--languages ru,en] [--days 30] [--limit 20] \
-    [--match "substring"] [--filter "LLM-вопрос для пре-скрининга"] \
+    [--match "substring"] [--filter "LLM pre-screening question"] \
     [--backend subtitles] [--no-analyze] [--yes] [--output-dir <path>]
 ```
 
@@ -151,7 +150,7 @@ youtube-transcribe history show <run-id>
 IDs have the form `r-MMDD-HHMMSS` (research) or `s-MMDD-HHMMSS` (subscribes). The
 full timestamp is also in the `When` column. Reading `history show <id>` returns
 the original query, output path, prompt preview, and status — handy when the user
-asks "что я делал на прошлой неделе" or "open the AI agents research I ran".
+asks "what was I working on last week" or "open the AI agents research I ran".
 
 ### Analyze (post-hoc on already-transcribed batch)
 
@@ -176,19 +175,19 @@ Most Claude-in-chat flows don't need this — just read `combined.md` directly.
 
 | User says | Append to command |
 |---|---|
-| «через gemini», "use gemini" | `--backend gemini` |
-| «через groq», "use groq" | `--backend groq` |
-| «локально whisper large» | `--backend whisper-local --whisper-model large` |
-| «возьми субтитры», "use subtitles" | `--backend subtitles` |
-| «через openai» | `--backend openai` |
-| «deepgram», "use Nova-3" | `--backend deepgram` |
-| «assemblyai» | `--backend assemblyai` |
-| «через custom», "use my custom api" | `--backend custom` |
-| «gemini pro» | `--backend gemini --gemini-model gemini-2.5-pro` |
+| "via gemini", "use gemini" | `--backend gemini` |
+| "via groq", "use groq" | `--backend groq` |
+| "local whisper large" | `--backend whisper-local --whisper-model large` |
+| "use subtitles", "pull subtitles" | `--backend subtitles` |
+| "via openai" | `--backend openai` |
+| "deepgram", "use Nova-3" | `--backend deepgram` |
+| "assemblyai" | `--backend assemblyai` |
+| "via custom", "use my custom api" | `--backend custom` |
+| "gemini pro" | `--backend gemini --gemini-model gemini-2.5-pro` |
 
 **Session-level** — when the user says "until I say otherwise, use X" or "for this whole conversation use Y", remember the choice and apply `--backend X` to ALL subsequent invocations in this session. Honor it until the user changes it.
 
-**Persistent (changes config file)** — when the user says "переключи дефолт на groq" / "set default to gemini" / "always use whisper-local", run:
+**Persistent (changes config file)** — when the user says "switch the default to groq" / "set default to gemini" / "always use whisper-local", run:
 
 ```
 youtube-transcribe config set backend <name>
@@ -242,14 +241,14 @@ exactly the behavior we want.
 
 ### After single
 
-Always read the generated `.txt` file and offer the user a short summary or answer their original question (was the URL with "о чём это видео"? answer that). Do NOT echo the entire transcript back unless asked.
+Always read the generated `.txt` file and offer the user a short summary or answer their original question (e.g. was the URL accompanied by "what's in this video"? — answer that). Do NOT echo the entire transcript back unless asked.
 
 ### After batch / research / subscribes update
 
 Read the generated `combined.md` from the batch directory printed in stdout. Offer the user one of:
-- **Заметка по теме** — extract key insights, group by topic, deduplicate repeated points across videos.
-- **Сводка** — short paragraph per video + cross-video themes.
-- **План изучения** — ordered reading list with what each video adds.
+- **Topic note** — extract key insights, group by topic, deduplicate repeated points across videos.
+- **Summary** — short paragraph per video + cross-video themes.
+- **Study plan** — ordered reading list, noting what each video adds.
 
 Use the per-video `source_language` field in `manifest.json` if multi-lang research
 (`--languages ru,en`) to group findings by query origin.
@@ -267,17 +266,18 @@ The default backend (`whisper-local`) processes everything locally — nothing i
 
 ### combined.md (v0.2)
 
-Если использовался `--with-visuals`, combined.md содержит секцию
-`### Visual moments` с встроенными скриншотами и описаниями визуальных
-моментов. Это полноценный markdown-туториал — можно использовать как
-основу для заметок и планов изучения.
+When `--with-visuals` was used, `combined.md` contains a
+`### Visual moments` section with embedded screenshots and
+descriptions of the visual moments. It's a full markdown tutorial —
+use it as the base for notes or a study plan.
 
-При запросе пользователя «сделай туториал/инструкцию по этому видео»:
-1. Используй визуальные моменты как структурные точки.
-2. Цитируй timestamps в формате `00:00:45`.
-3. Inline-картинки уже встроены — referencing их через relative paths.
+When the user asks for "a tutorial / walkthrough for this video":
+1. Use the visual moments as structural anchors.
+2. Cite timestamps in `00:00:45` format.
+3. Inline screenshots are already embedded — reference them via
+   relative paths.
 
-При quality < 0.6 (warning в combined.md):
-- Транскрипт может содержать ошибки распознавания.
-- Скриншоты остаются достоверными.
-- Помогай пользователю работать с тем что есть, не отказывайся.
+When quality < 0.6 (warning in `combined.md`):
+- The transcript may contain recognition errors.
+- Screenshots remain reliable.
+- Help the user work with what's there; don't refuse.

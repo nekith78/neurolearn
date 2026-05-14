@@ -109,4 +109,4 @@ def test_history_list_empty(tmp_path: Path):
         runner = CliRunner()
         res = runner.invoke(cli, ["history", "list"])
     assert res.exit_code == 0
-    assert "пуст" in res.output.lower() or "empty" in res.output.lower() or "no runs" in res.output.lower()
+    assert "empty" in res.output.lower() or "no runs" in res.output.lower()

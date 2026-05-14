@@ -6,7 +6,7 @@ from skills.youtube_transcribe.vision.prompts import (
 
 
 def test_default_prompt_has_expected_keys():
-    """Template должен ожидать language, transcript_snippet, start_sec, end_sec."""
+    """Template should expect language, transcript_snippet, start_sec, end_sec."""
     formatted = format_prompt(
         DEFAULT_PROMPT,
         language="en",
@@ -22,7 +22,7 @@ def test_default_prompt_has_expected_keys():
 def test_format_prompt_unknown_language_falls_back_to_english():
     formatted = format_prompt(
         DEFAULT_PROMPT,
-        language="kk",       # казахский — точно нет специального шаблона
+        language="kk",       # Kazakh — definitely no special template
         transcript_snippet="x",
         start_sec=0.0,
         end_sec=1.0,

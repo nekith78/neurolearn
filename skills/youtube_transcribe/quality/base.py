@@ -12,7 +12,7 @@ TranscriptSource = Literal["youtube_manual", "youtube_auto", "whisper", "externa
 class QualityReport:
     """Result of running QualityChecker.check on a transcript."""
 
-    score: float  # 0.0 — мусор, 1.0 — идеально
+    score: float  # 0.0 — garbage, 1.0 — perfect
     breakdown: dict[str, float] = field(default_factory=dict)
     flags: list[str] = field(default_factory=list)
     recommendation: Recommendation = "use_as_is"

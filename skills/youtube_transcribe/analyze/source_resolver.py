@@ -1,10 +1,10 @@
 """Resolve `analyze` SOURCE argument into a list of transcript files.
 
-SOURCE может быть:
- - путь к файлу (.txt/.json/.srt) → один VideoSource без metadata
- - путь к папке с manifest.json → videos из manifest
- - путь к папке без manifest → все *.txt/*.json/*.srt отсортированные
- - None + latest=True → берём свежайшую подпапку с manifest.json
+SOURCE can be:
+ - a file path (.txt/.json/.srt) → one VideoSource without metadata
+ - a folder with manifest.json → videos from the manifest
+ - a folder without manifest → all sorted *.txt/*.json/*.srt
+ - None + latest=True → pick the freshest subfolder with manifest.json
 """
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ _TRANSCRIPT_EXTS = {".txt", ".json", ".srt"}
 
 @dataclass
 class VideoSource:
-    """Один транскрипт + метаданные (если есть)."""
+    """One transcript + metadata (if available)."""
     transcript_path: Path
     title: str | None = None
     upload_date: str | None = None   # ISO YYYY-MM-DD

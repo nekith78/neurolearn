@@ -122,7 +122,7 @@ def test_summarize_empty_transcript_exits_zero(tmp_path: Path):
         catch_exceptions=False,
     )
     assert res.exit_code == 0
-    assert "пустой" in res.output.lower() or "empty" in res.output.lower()
+    assert "empty" in res.output.lower()
 
 
 def test_summarize_llm_returns_empty(tmp_path: Path):
@@ -139,4 +139,4 @@ def test_summarize_llm_returns_empty(tmp_path: Path):
             catch_exceptions=False,
         )
     assert res.exit_code == 4
-    assert "llm" in res.output.lower() or "ответ" in res.output.lower()
+    assert "llm" in res.output.lower() or "response" in res.output.lower()

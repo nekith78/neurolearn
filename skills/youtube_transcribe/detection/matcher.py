@@ -16,10 +16,10 @@ from skills.youtube_transcribe.detection.triggers import TriggerConfig
 
 @dataclass(frozen=True)
 class TriggerMatch:
-    score: float           # 0..1, базовый
-    weight: float          # из TOML, default 1.0
+    score: float           # 0..1, base
+    weight: float          # from TOML, default 1.0
     reason: str            # "raw" | "strict:ru" | "soft:ru" | "universal"
-    phrase: str            # фраза, которая сработала
+    phrase: str            # the phrase that fired
 
 
 @lru_cache(maxsize=16)

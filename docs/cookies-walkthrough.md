@@ -1,18 +1,18 @@
 # Cookies UX walkthrough (manual QA)
 
-Ручной прогон, чтобы почувствовать flow глазами нового пользователя:
-от первого `subscribes add` без настроенных cookies → wizard → реальный
-update с Instagram'ом / TikTok'ом.
+A hand-run through the flow as a new user would experience it: from
+the first `subscribes add` without cookies set → wizard → real
+`update` against Instagram / TikTok.
 
-**Этот файл — инструкция для тебя.** Я не могу его прогнать сам, потому
-что:
-- Нужны твои **реальные** cookies из браузера (Instagram session).
-- Wizard ждёт **интерактивного ввода в живом TTY** — я в Claude Code
-  обхожусь mock'ами.
+**This file is an instruction for you (the human).** It can't be
+automated end-to-end because:
+- It needs **your real** browser cookies (Instagram session).
+- The wizard waits on **interactive TTY input** — automated runs use
+  mocks instead.
 
-## Подготовка (один раз)
+## Preparation (one time)
 
-### 1. Бэкап твоего текущего состояния
+### 1. Back up your current state
 
 ```bash
 mkdir -p ~/yt-tr-walkthrough-bak
@@ -27,187 +27,192 @@ mkdir -p ~/yt-tr-walkthrough-bak
 echo "✓ backup saved to ~/yt-tr-walkthrough-bak/"
 ```
 
-### 2. Поставь расширение для экспорта cookies
+### 2. Install a browser extension that exports cookies
 
-Любой Chromium-браузер (Chrome / Brave / Edge / Vivaldi) — расширение
-**«Get cookies.txt LOCALLY»** в Chrome Web Store.
-Firefox — расширение **«cookies.txt»** by lennon на addons.mozilla.org.
+Any Chromium-based browser (Chrome / Brave / Edge / Vivaldi): the
+**"Get cookies.txt LOCALLY"** extension from the Chrome Web Store.
+Firefox: the **"cookies.txt"** extension by lennon on
+addons.mozilla.org.
 
-Открой `instagram.com` (залогиненный) в браузере. Нажми иконку
-расширения → выбери **Current site only** → **Export** → сохрани файл
-как `~/Downloads/instagram_cookies.txt`.
+Open `instagram.com` (logged in) in your browser. Click the extension
+icon → choose **Current site only** → **Export** → save the file as
+`~/Downloads/instagram_cookies.txt`.
 
 ---
 
-## Сценарий A: первый add Instagram без cookies → wizard offer
+## Scenario A: first `add` without cookies → wizard offer
 
-### A.1. Симулируем чистого юзера
+### A.1. Simulate a clean user
 
-Очисти только настройки cookies (subscribes-каналы оставь, если есть):
-
-```bash
-yt-tr subscribes cookies clear instagram 2>/dev/null || true
-yt-tr subscribes cookies clear tiktok    2>/dev/null || true
-```
-
-### A.2. Добавь Instagram-канал
+Clear only the cookies settings (keep any existing subscribed
+channels):
 
 ```bash
-yt-tr subscribes add https://www.instagram.com/natgeo/ --group walk-ig
+youtube-transcribe subscribes cookies clear instagram 2>/dev/null || true
+youtube-transcribe subscribes cookies clear tiktok    2>/dev/null || true
 ```
 
-**Что ты должен увидеть:**
+### A.2. Add an Instagram channel
 
-```
-✓ Добавлен @natgeo (instagram, id=natgeo, group=walk-ig)
-Cookies для instagram ещё не настроены. Настроить сейчас? [y/N]:
-```
-
-### A.3. Введи `y` → должен запуститься wizard
-
-После `y` появится:
-
-```
-Настройка instagram cookies
-Шаги:
-  1. Поставь расширение 'Get cookies.txt LOCALLY' (open-source) в любом
-     браузере (Chrome / Firefox / Edge / Brave).
-  2. Открой instagram.com (залогиненный) → расширение → Export.
-  3. Введи путь к скачанному файлу ниже.
-
-Путь к cookies.txt:
+```bash
+youtube-transcribe subscribes add https://www.instagram.com/natgeo/ --group walk-ig
 ```
 
-### A.4. Введи путь к экспортированному файлу
+**What you should see:**
+
+```
+✓ Added @natgeo (instagram, id=natgeo, group=walk-ig)
+Cookies for instagram are not configured yet. Set them up now? [y/N]:
+```
+
+### A.3. Type `y` → wizard should launch
+
+After `y` you should see:
+
+```
+Instagram cookies setup
+Steps:
+  1. Install the 'Get cookies.txt LOCALLY' extension (open-source) in
+     any browser (Chrome / Firefox / Edge / Brave).
+  2. Open instagram.com (logged in) → click the extension → Export.
+  3. Enter the path to the downloaded file below.
+
+Path to cookies.txt:
+```
+
+### A.4. Enter the path to your exported file
 
 ```
 ~/Downloads/instagram_cookies.txt
 ```
 
-Ожидаемый вывод:
+Expected output:
 
 ```
-✓ instagram cookies сохранены: /Users/nekith78/.youtube-transcribe/instagram-cookies.txt (mode 0600)
-Сменить позже: yt-tr subscribes cookies set instagram <new-path>.
+✓ instagram cookies saved: /Users/<you>/.youtube-transcribe/instagram-cookies.txt (mode 0600)
+Change later: youtube-transcribe subscribes cookies set instagram <new-path>.
 ```
 
-### A.5. Проверь что cookies прописались
+### A.5. Verify the cookies are registered
 
 ```bash
-yt-tr subscribes cookies show
+youtube-transcribe subscribes cookies show
 ```
 
-Должна быть таблица:
+The table should show:
 - `instagram` | `/Users/.../instagram-cookies.txt` | `ok`
 - `tiktok` | `—` | `not set`
 
 ---
 
-## Сценарий B: повторный add — wizard НЕ должен запускаться
+## Scenario B: repeat `add` — wizard should NOT launch
 
 ```bash
-yt-tr subscribes add https://www.instagram.com/nasa/ --group walk-ig
+youtube-transcribe subscribes add https://www.instagram.com/nasa/ --group walk-ig
 ```
 
-**Ожидание:** канал добавлен без всяких вопросов про cookies (уже
-настроены). Просто:
+**Expected:** the channel is added without any cookies prompt (cookies
+are already configured). Just:
 
 ```
-✓ Добавлен @nasa (instagram, id=nasa, group=walk-ig)
+✓ Added @nasa (instagram, id=nasa, group=walk-ig)
 ```
 
 ---
 
-## Сценарий C: реальный `subscribes update` с твоими cookies
+## Scenario C: real `subscribes update` with your cookies
 
 ```bash
 rm -rf /tmp/yt-walk-ig
-yt-tr subscribes update --platform instagram --group walk-ig --days 7 \
+youtube-transcribe subscribes update --platform instagram --group walk-ig --days 7 \
   --backend subtitles --no-analyze --yes \
   --output-dir /tmp/yt-walk-ig
 ```
 
-**Три валидных исхода:**
+**Three valid outcomes:**
 
-1. **Лучший:** `✓ N IG reel(s) скачано + транскрибировано` — full success.
-2. **Норм:** `Нет новых видео с момента последнего запуска.` — cookies
-   приняты, но видео в окне не нашлось.
-3. **Плохо:** `Unable to extract data` / `Instagram sent an empty media
-   response` — твои cookies не дошли / протухли / yt-dlp upstream
-   сломан.
+1. **Best:** `✓ N IG reel(s) downloaded + transcribed` — full success.
+2. **OK:** `No new videos since the last run.` — cookies accepted but
+   no videos fall into the window.
+3. **Bad:** `Unable to extract data` / `Instagram sent an empty media
+   response` — your cookies didn't make it through / expired / yt-dlp
+   upstream is broken.
 
-Если (3), попробуй:
+For case (3) try:
 
 ```bash
-# Очистка → переэкспорт → re-set
-yt-tr subscribes cookies clear instagram
-yt-tr subscribes cookies set instagram ~/Downloads/instagram_cookies.txt
+# Clear → re-export → re-set
+youtube-transcribe subscribes cookies clear instagram
+youtube-transcribe subscribes cookies set instagram ~/Downloads/instagram_cookies.txt
 ```
 
-И заново сценарий C.
+Then re-run scenario C.
 
 ---
 
-## Сценарий D: `update --platform instagram` без cookies → safety-net offer
+## Scenario D: `update --platform instagram` without cookies → safety-net offer
 
-Чистим cookies снова чтобы пройти ветку «cookies нет, предложить настроить»:
+Clear cookies again to walk the "no cookies, offer to configure"
+branch:
 
 ```bash
-yt-tr subscribes cookies clear instagram
-yt-tr subscribes update --platform instagram --group walk-ig --days 7 \
+youtube-transcribe subscribes cookies clear instagram
+youtube-transcribe subscribes update --platform instagram --group walk-ig --days 7 \
   --backend subtitles --no-analyze --yes \
   --output-dir /tmp/yt-walk-ig-d
 ```
 
-**Ожидание:**
+**Expected:**
 
 ```
-Cookies для instagram не настроены — yt-dlp скорее всего вернёт ошибку. Настроить сейчас? [y/N]:
+Cookies for instagram are not configured — yt-dlp will most likely fail. Set them up now? [y/N]:
 ```
 
-Введи `n` (или Enter) → пайплайн пойдёт без cookies, поймает yt-dlp
-ошибку, gracefully завершится. Или `y` → откроется wizard, тот же что в
-сценарии A.
+Type `n` (or just Enter) → the pipeline runs without cookies, catches
+the yt-dlp error, exits gracefully. Or `y` → the same wizard from
+scenario A opens.
 
 ---
 
-## Сценарий E: TikTok с похожим flow
+## Scenario E: TikTok with a similar flow
 
 ```bash
-yt-tr subscribes cookies clear tiktok 2>/dev/null || true
-yt-tr subscribes add https://www.tiktok.com/@duolingo --group walk-tt
+youtube-transcribe subscribes cookies clear tiktok 2>/dev/null || true
+youtube-transcribe subscribes add https://www.tiktok.com/@duolingo --group walk-tt
 ```
 
-Ожидание: `Cookies для tiktok ещё не настроены. Настроить сейчас?` —
-у TikTok похожий flow. Если хочешь — пройди wizard с
-`~/Downloads/tiktok_cookies.txt`. Если не хочешь (TikTok часто работает
-анонимно для публичных аккаунтов) — `n`, и обычный `subscribes update`
-для @duolingo сработает без cookies.
+Expected: `Cookies for tiktok are not configured yet. Set them up
+now?` — TikTok follows the same flow. If you want to, run the wizard
+with `~/Downloads/tiktok_cookies.txt`. If you don't (TikTok often
+works anonymously for public accounts) — `n`, and a regular
+`subscribes update` for @duolingo will work without cookies.
 
 ---
 
-## Что должен заметить
+## What to watch for
 
-- **Wizard запускается только в TTY** (твой терминал). Через Claude Code
-  / pipe / CI он молча пропускается — это правильно.
-- **Спрашивает только при первом разе**, потом подхватывает из config.
-- **Можно сменить позже** — `yt-tr subscribes cookies set instagram
-  <new-path>`.
-- **Можно убрать** — `yt-tr subscribes cookies clear instagram`.
+- **The wizard runs only in a TTY** (your real terminal). Through
+  Claude Code / a pipe / CI it's silently skipped — that's correct.
+- **The prompt fires only the first time**; subsequent runs read the
+  saved choice from config.
+- **You can change it later** —
+  `youtube-transcribe subscribes cookies set instagram <new-path>`.
+- **You can remove it** —
+  `youtube-transcribe subscribes cookies clear instagram`.
 
 ---
 
-## Восстановление твоего состояния
+## Restoring your state
 
-После прогона:
+After the walkthrough:
 
 ```bash
-# Удали тестовые каналы
-yt-tr subscribes remove "@natgeo" 2>/dev/null || true
-yt-tr subscribes remove "@nasa" 2>/dev/null || true
-yt-tr subscribes remove "@duolingo" 2>/dev/null || true
+# Drop the test channels
+youtube-transcribe subscribes remove "@natgeo" 2>/dev/null || true
+youtube-transcribe subscribes remove "@nasa" 2>/dev/null || true
+youtube-transcribe subscribes remove "@duolingo" 2>/dev/null || true
 
-# Восстанови из бэкапа (если были свои данные)
+# Restore from backup if you had your own data
 [[ -f ~/yt-tr-walkthrough-bak/subscribes.toml ]] && \
   cp ~/yt-tr-walkthrough-bak/subscribes.toml ~/.youtube-transcribe/
 [[ -f ~/yt-tr-walkthrough-bak/config.toml ]] && \
@@ -217,7 +222,7 @@ yt-tr subscribes remove "@duolingo" 2>/dev/null || true
 [[ -f ~/yt-tr-walkthrough-bak/tiktok-cookies.txt ]] && \
   cp ~/yt-tr-walkthrough-bak/tiktok-cookies.txt ~/.youtube-transcribe/
 
-# Удали тестовые батчи и бэкап-папку
+# Delete the test batches and the backup folder
 rm -rf /tmp/yt-walk-ig /tmp/yt-walk-ig-d ~/yt-tr-walkthrough-bak
 echo "✓ restored"
 ```

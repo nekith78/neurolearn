@@ -97,7 +97,7 @@ Stage = Literal["resolve", "download", "backend", "write"]
 
 @dataclass
 class BatchMeta:
-    """Метадата batch-прогона. Передаётся в writers, попадает в YAML/JSON."""
+    """Metadata for a batch run. Passed to writers; ends up in YAML/JSON."""
     batch_name: str
     created_at: datetime
     source_type: SourceType
@@ -109,7 +109,7 @@ class BatchMeta:
 
 @dataclass
 class BatchVideoStatus:
-    """Один итоговый ряд таблицы по результату прогона одного видео."""
+    """One result-table row for a single video in a batch."""
     index: int
     url: str
     video_id: str | None
@@ -118,7 +118,7 @@ class BatchVideoStatus:
     duration_sec: int | None
     channel: str | None
     language_detected: str | None
-    text: str                              # flat-text транскрипта (без таймкодов)
+    text: str                              # plain-text transcript (no timestamps)
     files: dict                            # {"txt": "...", "srt": "..."} relative paths
     status: Literal["ok", "failed"]
     error: str | None = None
@@ -134,7 +134,7 @@ class BatchVideoStatus:
 
 @dataclass
 class BatchFailure:
-    """Один отказ в batch — для errors.log и manifest.json."""
+    """One failure in a batch — used for errors.log and manifest.json."""
     index: int
     url: str
     stage: Stage
@@ -185,13 +185,13 @@ def write_combined_md(
     parts: list[str] = []
     parts.append(_yaml_frontmatter(meta, ok=ok, failed=failed, total=total))
     parts.append(f"\n# Batch transcript — {meta.batch_name} — {meta.created_at.date().isoformat()}\n")
-    parts.append(f"\n{total} видео, бэкенд: {meta.backend}. {ok} успешно, {failed} с ошибкой.\n")
+    parts.append(f"\n{total} videos, backend: {meta.backend}. {ok} succeeded, {failed} failed.\n")
 
     # ## Inputs — quick TOC of every video that went into this batch
     if videos:
         parts.append("\n## Inputs\n\n")
         for v in videos:
-            title = v.title or "(без названия)"
+            title = v.title or "(untitled)"
             meta_bits: list[str] = []
             if v.upload_date:
                 meta_bits.append(_fmt_date(v.upload_date))
@@ -208,8 +208,8 @@ def write_combined_md(
         if v.status != "ok":
             continue
         parts.append("\n---\n\n")
-        parts.append(f"## {v.index}. {v.title or '(без названия)'}\n\n")
-        parts.append("| Поле | Значение |\n|---|---|\n")
+        parts.append(f"## {v.index}. {v.title or '(untitled)'}\n\n")
+        parts.append("| Field | Value |\n|---|---|\n")
         parts.append(f"| URL | {v.url} |\n")
         parts.append(f"| Video ID | {v.video_id or '—'} |\n")
         parts.append(f"| Date | {_fmt_date(v.upload_date)} |\n")
@@ -392,7 +392,7 @@ def write_visual_md(
     but as a standalone file so single-mode users see the visual annotations.
     """
     parts: list[str] = []
-    parts.append(f"# {title or '(без названия)'}\n\n")
+    parts.append(f"# {title or '(untitled)'}\n\n")
     if url:
         parts.append(f"Source: {url}\n\n")
 

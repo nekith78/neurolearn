@@ -49,8 +49,8 @@ note() {
 require_key() {
   local key_name="$1"
   if ! grep -q "^${key_name}=" ~/.youtube-transcribe/.env 2>/dev/null; then
-    echo "${YELLOW}!${NC} ${key_name} не найден в ~/.youtube-transcribe/.env"
-    echo "${DIM}  Эта фаза требует ключ. Пропусти или установи через:${NC}"
+    echo "${YELLOW}!${NC} ${key_name} not found in ~/.youtube-transcribe/.env"
+    echo "${DIM}  This phase requires the key. Skip it or set it via:${NC}"
     echo "${DIM}  $YT config set-key ${key_name,,}${NC}"
     return 1
   fi
@@ -59,7 +59,7 @@ require_key() {
 
 # ── Phase 4: real batch via subtitles ─────────────────────────────────
 phase4() {
-  step "Phase 4 — batch на реальном YouTube (subtitles, без API ключей)"
+  step "Phase 4 — batch against real YouTube (subtitles, no API keys)"
   rm -rf "$QA_DIR/batch4"
   if $YT batch "https://www.youtube.com/watch?v=jNQXAC9IVRw" \
        --limit 1 --backend subtitles \
@@ -71,20 +71,20 @@ phase4() {
   fi
 
   if [[ -f "$QA_DIR/batch4/qa-01/manifest.json" ]]; then
-    ok "manifest.json создан"
+    ok "manifest.json created"
   else
-    fail "manifest.json отсутствует"
+    fail "manifest.json missing"
     return 1
   fi
 
   if [[ -f "$QA_DIR/batch4/qa-01/combined.md" ]]; then
-    ok "combined.md создан"
+    ok "combined.md created"
   else
-    fail "combined.md отсутствует"
+    fail "combined.md missing"
     return 1
   fi
 
-  note "результат: $QA_DIR/batch4/qa-01/"
+  note "result: $QA_DIR/batch4/qa-01/"
 }
 
 # ── Phase 5.1: research single-language via Gemini ─────────────────────
@@ -115,11 +115,11 @@ phase5_1() {
   local dir
   dir=$(find "$QA_DIR/r-en" -maxdepth 1 -mindepth 1 -type d 2>/dev/null | head -1)
   if [[ -z "$dir" ]]; then
-    fail "batch folder не найден внутри $QA_DIR/r-en"
-    note "Если pipeline сказал 'После фильтра по дате осталось 0' — это"
-    note "значит YouTube вернул только старые видео под этот запрос."
-    note "Попробуй вручную с другим query или большим --days:"
-    note "  $YT research \"твой запрос\" --languages en --days 180 --limit 5 \\"
+    fail "batch folder not found in $QA_DIR/r-en"
+    note "If the pipeline printed 'After date filter, 0 remain' — that"
+    note "means YouTube only returned old videos for this query."
+    note "Try manually with a different query or a larger --days:"
+    note "  $YT research \"your query\" --languages en --days 180 --limit 5 \\"
     note "    --backend subtitles --prompt \"...\" --analyze-backend gemini \\"
     note "    --yes --output-dir $QA_DIR/r-en"
     return 1
@@ -127,13 +127,13 @@ phase5_1() {
   ok "batch folder: $(basename "$dir")"
 
   if ls "$dir"/analysis-*.md >/dev/null 2>&1; then
-    ok "analysis-*.md создан"
+    ok "analysis-*.md created"
   else
-    fail "analysis-*.md отсутствует"
+    fail "analysis-*.md missing"
     return 1
   fi
 
-  note "Открой: less $dir/analysis-*.md"
+  note "Open: less $dir/analysis-*.md"
 }
 
 # ── Phase 5.1b: SP refinement path (--days not on a preset) ────────────
@@ -163,22 +163,22 @@ phase5_1b() {
   local dir
   dir=$(find "$QA_DIR/r-en-14d" -maxdepth 1 -mindepth 1 -type d | head -1)
   if [[ -z "$dir" ]]; then
-    fail "batch folder не найден"
+    fail "batch folder not found"
     return 1
   fi
   ok "batch folder: $(basename "$dir")"
 
   if ls "$dir"/analysis-*.md >/dev/null 2>&1; then
-    ok "analysis-*.md создан"
+    ok "analysis-*.md created"
   else
-    fail "analysis-*.md отсутствует"
+    fail "analysis-*.md missing"
     return 1
   fi
 
   # Sanity check: manifest should list videos with upload_date within 14d.
   if [[ -f "$dir/manifest.json" ]]; then
     note "manifest:  $dir/manifest.json"
-    note "проверь даты:  grep -i upload_date $dir/manifest.json"
+    note "check dates:  grep -i upload_date $dir/manifest.json"
   fi
 }
 
@@ -212,29 +212,29 @@ phase5_1c() {
   local dir
   dir=$(find "$QA_DIR/r-en-since" -maxdepth 1 -mindepth 1 -type d | head -1)
   if [[ -z "$dir" ]]; then
-    fail "batch folder не найден"
+    fail "batch folder not found"
     return 1
   fi
   ok "batch folder: $(basename "$dir")"
 
   if ls "$dir"/analysis-*.md >/dev/null 2>&1; then
-    ok "analysis-*.md создан"
+    ok "analysis-*.md created"
   else
-    fail "analysis-*.md отсутствует"
+    fail "analysis-*.md missing"
     return 1
   fi
 }
 
 # ── Phase 5.2: research multi-language with LLM translation ────────────
 phase5_2() {
-  step "Phase 5.2 — research --languages ru,en (translation через Gemini)"
+  step "Phase 5.2 — research --languages ru,en (translation via Gemini)"
   require_key "GEMINI_API_KEY" || return 1
 
   rm -rf "$QA_DIR/r-ml"
   $YT research "Клод новинки" \
     --languages ru,en --days 30 --limit 3 \
     --backend subtitles \
-    --prompt "Сделай конспект ключевых идей." \
+    --prompt "Summarize the key ideas." \
     --analyze-backend gemini \
     --yes \
     --output-dir "$QA_DIR/r-ml"
@@ -249,15 +249,15 @@ phase5_2() {
   local dir
   dir=$(find "$QA_DIR/r-ml" -maxdepth 1 -mindepth 1 -type d | head -1)
   if [[ -z "$dir" ]]; then
-    fail "batch folder не найден"
+    fail "batch folder not found"
     return 1
   fi
   ok "batch folder: $(basename "$dir")"
 
   # Check manifest mentions both languages
   if [[ -f "$dir/manifest.json" ]]; then
-    ok "manifest.json создан"
-    note "проверь source_language в manifest:"
+    ok "manifest.json created"
+    note "check source_language in manifest:"
     note "  grep -i language $dir/manifest.json"
   fi
 }
@@ -282,16 +282,16 @@ phase5_3a() {
   ok "add exit 0"
 
   $YT subscribes list
-  ok "list работает"
+  ok "list works"
 
   if grep -q "@anthropic-ai" ~/.youtube-transcribe/subscribes.toml 2>/dev/null; then
-    ok "@anthropic-ai в subscribes.toml"
+    ok "@anthropic-ai in subscribes.toml"
   else
-    fail "@anthropic-ai не записан"
+    fail "@anthropic-ai not written"
   fi
 
-  note "subscribes.toml сохранён. Запусти phase5.3b для update."
-  note "Бэкап старого файла: ~/.youtube-transcribe/subscribes.toml.qa-bak"
+  note "subscribes.toml saved. Run phase5.3b for update."
+  note "Old file backup: ~/.youtube-transcribe/subscribes.toml.qa-bak"
 }
 
 # ── Phase 5.3b: subscribes update flow ─────────────────────────────────
@@ -300,16 +300,16 @@ phase5_3b() {
   require_key "GEMINI_API_KEY" || return 1
 
   if ! grep -q "@anthropic-ai" ~/.youtube-transcribe/subscribes.toml 2>/dev/null; then
-    fail "subscribes.toml не содержит @anthropic-ai"
-    note "Сначала запусти: scripts/qa.sh phase5.3a"
+    fail "subscribes.toml does not contain @anthropic-ai"
+    note "First run: scripts/qa.sh phase5.3a"
     return 1
   fi
 
-  echo "--- First update (нужен --days, нет state) ---"
+  echo "--- First update (--days required, no state) ---"
   rm -rf "$QA_DIR/subs1"
   $YT subscribes update --days 30 --group ai \
     --backend subtitles \
-    --prompt "Что обсуждалось — три тезиса." \
+    --prompt "What was discussed — three takeaways." \
     --analyze-backend gemini \
     --yes \
     --output-dir "$QA_DIR/subs1"
@@ -321,7 +321,7 @@ phase5_3b() {
   ok "first update exit 0"
 
   echo
-  echo "--- Incremental update (без флагов, должен быть быстрым) ---"
+  echo "--- Incremental update (no flags, should be fast) ---"
   rm -rf "$QA_DIR/subs2"
   $YT subscribes update --group ai \
     --backend subtitles \
@@ -334,16 +334,16 @@ phase5_3b() {
     return 1
   fi
   ok "incremental exit 0"
-  note "Ожидание: либо новые видео, либо '[yellow]Нет новых видео[/yellow]'"
+  note "Expected: either new videos or '[yellow]No new videos[/yellow]'"
 }
 
 # ── Phase 5.3c: --no-rss yt-dlp fallback ───────────────────────────────
 phase5_3c() {
-  step "Phase 5.3c — subscribes update --no-rss (yt-dlp путь)"
+  step "Phase 5.3c — subscribes update --no-rss (yt-dlp path)"
   require_key "GEMINI_API_KEY" || return 1
 
   if ! grep -q "@anthropic-ai" ~/.youtube-transcribe/subscribes.toml 2>/dev/null; then
-    fail "subscribes.toml пустой (запусти phase5.3a)"
+    fail "subscribes.toml is empty (run phase5.3a first)"
     return 1
   fi
 
@@ -359,7 +359,7 @@ text = re.sub(r'last_seen_video_id = "[^"]*"', 'last_seen_video_id = ""', text)
 text = re.sub(r'last_seen_published = "[^"]*"', 'last_seen_published = ""', text)
 p.write_text(text, encoding="utf-8")
 PY
-  note "reset last_seen_* для re-bootstrap"
+  note "reset last_seen_* for re-bootstrap"
 
   rm -rf "$QA_DIR/subs-nrss"
   $YT subscribes update --no-rss --days 7 --group ai \
@@ -401,9 +401,9 @@ phase5_3d() {
   ok "subscribes add @natgeo (instagram) exit 0"
 
   if grep -q 'platform = "instagram"' ~/.youtube-transcribe/subscribes.toml; then
-    ok "platform=\"instagram\" записан в subscribes.toml"
+    ok "platform=\"instagram\" written to subscribes.toml"
   else
-    fail "platform не записан"
+    fail "platform not written"
   fi
 
   rm -rf "$QA_DIR/subs-ig"
@@ -414,10 +414,10 @@ phase5_3d() {
   if [[ $code -ne 0 ]]; then
     fail "subscribes update (instagram) exit $code"
   else
-    ok "subscribes update exit 0 (мягкая обработка анон-сбоя IG)"
-    note "ожидание: yt-dlp warning или ChannelNotFoundError, no traceback"
-    note "для реального IG fetch:"
-    note "  yt-tr config set instagram.cookies_browser chrome"
+    ok "subscribes update exit 0 (graceful handling of anonymous IG failure)"
+    note "expected: yt-dlp warning or ChannelNotFoundError, no traceback"
+    note "for a real IG fetch:"
+    note "  youtube-transcribe config set instagram.cookies_browser chrome"
   fi
 
   # Cleanup: remove the test channel + restore user's subscribes.toml.
@@ -452,9 +452,9 @@ phase5_3e() {
   ok "subscribes add @duolingo (tiktok) exit 0"
 
   if grep -q 'platform = "tiktok"' ~/.youtube-transcribe/subscribes.toml; then
-    ok "platform=\"tiktok\" записан в subscribes.toml"
+    ok "platform=\"tiktok\" written to subscribes.toml"
   else
-    fail "platform не записан"
+    fail "platform not written"
   fi
 
   rm -rf "$QA_DIR/subs-tt"
@@ -474,7 +474,7 @@ phase5_3e() {
       ok "batch folder: $(basename "$dir")"
       local txt_count
       txt_count=$(find "$dir/videos" -name '*.txt' 2>/dev/null | wc -l | tr -d ' ')
-      note "транскриптов: $txt_count"
+      note "transcripts: $txt_count"
     fi
   fi
 
@@ -488,7 +488,7 @@ phase5_3e() {
 phase5_4() {
   step "Phase 5.4 — history list/show"
   $YT history list --last 5
-  ok "history list работает"
+  ok "history list works"
 
   # Pick newest id straight from history.toml — Rich truncates the table
   # column with an ellipsis ("research_2026…") so we can't parse the CLI
@@ -501,7 +501,7 @@ phase5_4() {
     $YT history show "$run_id"
     ok "history show $run_id"
   else
-    note "Нет запусков в истории — сначала запусти phase5.1 / phase5.3b"
+    note "No runs in history — run phase5.1 / phase5.3b first"
   fi
 }
 
@@ -660,19 +660,19 @@ print('legacy-load-ok')
 # (and optionally tiktok) BEFORE invoking. It then runs a real `subscribes
 # update` for Instagram to verify the file-based auth works end-to-end.
 phase8b() {
-  step "Phase 8b — LIVE cookies workflow (требует твоих cookies)"
+  step "Phase 8b — LIVE cookies workflow (requires your cookies)"
 
   # Verify the user has registered IG cookies first
   if ! $YT subscribes cookies show 2>&1 | grep -E "^\| instagram" \
        | grep -q "ok"; then
-    fail "Сначала зарегистрируй IG cookies:"
-    note "  1. Поставь расширение 'Get cookies.txt LOCALLY' в браузере"
-    note "  2. Открой instagram.com (залогиненный) → Export → ~/Downloads/ig.txt"
-    note "  3. yt-tr subscribes cookies set instagram ~/Downloads/ig.txt"
-    note "Потом запусти phase8b повторно."
+    fail "First register IG cookies:"
+    note "  1. Install the 'Get cookies.txt LOCALLY' extension in your browser"
+    note "  2. Open instagram.com (logged in) → Export → ~/Downloads/ig.txt"
+    note "  3. youtube-transcribe subscribes cookies set instagram ~/Downloads/ig.txt"
+    note "Then re-run phase8b."
     return 1
   fi
-  ok "instagram cookies зарегистрированы"
+  ok "instagram cookies registered"
 
   # Back up subscribes.toml
   [[ -f ~/.youtube-transcribe/subscribes.toml ]] && \
@@ -701,18 +701,18 @@ phase8b() {
   echo "$out" | tail -8
 
   if echo "$out" | grep -q "Unable to extract data"; then
-    fail "live update получил 'Unable to extract data' даже с cookies"
-    note "Возможные причины:"
-    note "  • cookies протухли (re-export и set заново)"
-    note "  • IG поломал yt-dlp upstream (проверь yt-dlp -U)"
-  elif echo "$out" | grep -q "Нет новых видео\|новых видео нет"; then
-    ok "live update — cookies дошли до yt-dlp, видео не нашлось (это OK)"
+    fail "live update got 'Unable to extract data' even with cookies"
+    note "Possible reasons:"
+    note "  • cookies expired (re-export and set again)"
+    note "  • IG broke yt-dlp upstream (check yt-dlp -U)"
+  elif echo "$out" | grep -q "No new videos\|no new videos"; then
+    ok "live update — cookies reached yt-dlp, no new videos found (that's OK)"
   elif find "$QA_DIR/subs-ig-live" -name '*.txt' 2>/dev/null | grep -q .; then
     local n
     n=$(find "$QA_DIR/subs-ig-live" -name '*.txt' | wc -l | tr -d ' ')
-    ok "live update — $n IG reel(s) скачано + транскрибировано"
+    ok "live update — $n IG reel(s) downloaded + transcribed"
   else
-    fail "live update — неожиданный результат"
+    fail "live update — unexpected result"
   fi
 
   # Cleanup
@@ -724,7 +724,7 @@ phase8b() {
 
 # ── cleanup ───────────────────────────────────────────────────────────
 cleanup() {
-  step "Cleanup — удаляю $QA_DIR и восстанавливаю subscribes.toml"
+  step "Cleanup — removing $QA_DIR and restoring subscribes.toml"
   rm -rf "$QA_DIR"
   [[ -f ~/.youtube-transcribe/subscribes.toml.qa-bak ]] && \
     mv ~/.youtube-transcribe/subscribes.toml.qa-bak ~/.youtube-transcribe/subscribes.toml
@@ -736,22 +736,22 @@ menu() {
   cat <<'EOF'
 Usage: scripts/qa.sh <phase>
 
-  phase4         — реальный batch на YouTube (subtitles, без API ключей)
+  phase4         — real batch on YouTube (subtitles, no API keys)
   phase5.1       — research --languages en --days 365 (SP exact preset, fast path)
   phase5.1b      — research --days 14 (SP rounded UP + client refine)
   phase5.1c      — research --since (explicit date → days_hint → SP)
   phase5.2       — research --languages ru,en + LLM translation
-  phase5.3a      — subscribes add + list (нужна сеть для resolve)
+  phase5.3a      — subscribes add + list (network required for resolve)
   phase5.3b      — subscribes update first run + incremental
-  phase5.3c      — subscribes update --no-rss (yt-dlp путь)
+  phase5.3c      — subscribes update --no-rss (yt-dlp path)
   phase5.3d      — subscribes Instagram (graceful no-cookies fail; v0.8)
   phase5.3e      — subscribes TikTok @duolingo (real yt-dlp scrape; v0.8)
   phase5.4       — history list/show
   phase8a        — cookies file workflow (self-contained, no real cookies)
-  phase8b        — LIVE Instagram через cookies-файл (требует твоих cookies)
-  cleanup        — удалить все QA-артефакты + восстановить subscribes.toml
+  phase8b        — LIVE Instagram via cookies file (requires your cookies)
+  cleanup        — remove all QA artefacts + restore subscribes.toml
 
-Каждая фаза самостоятельна и сообщает PASS/FAIL.
+Each phase is self-contained and reports PASS/FAIL.
 Run from repo root: cd /Users/nekith78/youtube-transcribe && scripts/qa.sh <phase>
 EOF
 }

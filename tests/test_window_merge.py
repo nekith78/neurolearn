@@ -45,7 +45,7 @@ def test_budget_within_returns_all():
 
 
 def test_budget_exceed_picks_best_per_bucket():
-    """Видео 60s, бюджет 3 → корзины [0-20, 20-40, 40-60]. В каждой берём best."""
+    """60s video, budget 3 → buckets [0-20, 20-40, 40-60]. Pick best per bucket."""
     ws = [
         DetectionWindow(2.0, 4.0, "u", 0.5, 1.0, "low"),
         DetectionWindow(5.0, 7.0, "u", 0.9, 2.0, "high"),  # bucket 0, score*w = 1.8

@@ -83,10 +83,10 @@ def test_batch_continue_on_error_collects_failures(tmp_path):
         ])
 
     assert result.exit_code == 0, result.output
-    assert rp.call_count == 3                  # все 3 пробовали
+    assert rp.call_count == 3                  # all 3 attempted
     wcm.assert_called_once()
     wmj.assert_called_once()
-    wel.assert_called_once()                   # был 1 fail → errors.log создан
+    wel.assert_called_once()                   # 1 fail occurred → errors.log written
 
 
 def test_batch_fail_fast_aborts_on_first_error(tmp_path):
@@ -118,7 +118,7 @@ def test_batch_fail_fast_aborts_on_first_error(tmp_path):
         ])
 
     assert result.exit_code == 4
-    assert rp.call_count == 1                  # на первой ошибке остановились
+    assert rp.call_count == 1                  # stopped on first error
 
 
 def test_batch_from_file_only(tmp_path):
@@ -145,6 +145,6 @@ def test_batch_from_file_only(tmp_path):
         ])
 
     assert result.exit_code == 0, result.output
-    # Resolver вызван с inputs=[] и from_file=Path(f)
+    # Resolver called with inputs=[] and from_file=Path(f)
     args, kwargs = r.call_args
     assert args[0] == [] or kwargs.get("inputs") == []

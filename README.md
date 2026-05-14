@@ -112,9 +112,9 @@ youtube-transcribe transcribe video.mp4 --backend gemini
 youtube-transcribe transcribe /path/to/lecture.mp4 --language ru
 
 # In Claude chat
-"Расшифруй вот это: https://youtu.be/abc"
+"Transcribe this: https://youtu.be/abc"
 "Use gemini for this one: <URL>"
-"Прогони через groq и сделай краткое резюме"
+"Run through groq and write a short summary"
 
 # Slash command
 /transcribe https://youtu.be/xyz
@@ -171,35 +171,35 @@ transcription. Two ways to silence it:
 
 ## Visual mode (v0.2)
 
-Включи `--with-visuals` чтобы получить не только транскрипт, но и описание
-визуальных моментов с встроенными скриншотами в `combined.md`. Полезно для
-видео-туториалов: получаешь markdown-инструкцию с картинками.
+Pass `--with-visuals` to get a transcript plus a description of the
+key visual moments with embedded screenshots in `combined.md`. Useful
+for tutorial videos: you get a markdown walkthrough with pictures.
 
 ```bash
 youtube-transcribe https://youtube.com/watch?v=... --with-visuals
 ```
 
-Требуется `GEMINI_API_KEY` (free tier ~1500 RPD достаточно для 75 видео/день).
-Если ключ не задан — визуальная часть тихо отключается, остаётся обычный
-транскрипт.
+Requires `GEMINI_API_KEY` (free tier ~1500 RPD is enough for ~75
+videos/day). If the key isn't set, visual analysis is silently
+disabled and you get a plain transcript.
 
-### Triggers — управление точками визуального анализа
+### Triggers — control where visual analysis fires
 
 ```bash
-# Создать пользовательский triggers.toml
+# Create a user triggers.toml
 youtube-transcribe triggers init
 
-# Добавить фразы (через ;)
+# Add phrases (separator: ;)
 youtube-transcribe triggers add --universal "look here; for example; demo"
 
-# Per-language strict (точное совпадение)
+# Per-language strict (exact match)
 youtube-transcribe triggers add --strict --lang ru "баг; PR"
 
-# Поднять вес важной фразы
+# Bump the weight of an important phrase
 youtube-transcribe triggers weight set --universal "function" 1.5
 
-# Проверить какие триггеры срабатывают на конкретной фразе
-youtube-transcribe triggers test "вот этот код важен"
+# Check which triggers fire on a specific phrase
+youtube-transcribe triggers test "look at this code right here"
 ```
 
 ### Presets
@@ -229,9 +229,12 @@ youtube-transcribe URL --preset smart --frames-per-window 5
 
 ---
 
-## Batch / каналы
+## Batch / channels
 
-Прогнать пачку URL, целый канал или плейлист — одной командой. Skill кладёт результат в одну папку (`combined.md` + `manifest.json` + `videos/`), которую дальше Claude в чате читает целиком и делает заметку/сводку.
+Transcribe a list of URLs, a whole channel, or a playlist with one
+command. The skill writes everything to a single directory
+(`combined.md` + `manifest.json` + `videos/`) which Claude in chat then
+reads end-to-end and turns into a note or summary.
 
 ```bash
 # Interactive — paste URLs one per line, empty line to finish
@@ -244,73 +247,79 @@ youtube-transcribe batch
 # Inline (good for scripts):
 youtube-transcribe batch https://youtu.be/AAA https://youtu.be/BBB
 
-# Целый канал (топ-10 свежих видео), быстрый режим через субтитры YouTube
+# Whole channel (top-10 recent videos), fast path via YouTube subtitles
 youtube-transcribe batch https://youtube.com/@anthropicai --limit 10 --backend subtitles
 
-# Из файла со списком (1 URL на строку, # — комментарий)
+# From a file (1 URL per line, # — comment)
 youtube-transcribe batch --from-file ~/learn/claude-videos.txt --backend gemini
 
-# Плейлист, все 5 видео локальным Whisper
+# Playlist, 5 videos via local Whisper
 youtube-transcribe batch https://youtube.com/playlist?list=PLxxx --limit 5 \
     --backend whisper-local --whisper-model turbo
 ```
 
-**Дефолты:** `--limit 10`, последовательно (не параллельно), `continue-on-error` (упало 1 видео — продолжаем оставшиеся 9). Прервать на первой ошибке: `--fail-fast`.
+**Defaults:** `--limit 10`, sequential (not parallel), `continue-on-error`
+(if one video fails, the remaining 9 still run). Stop on first failure
+with `--fail-fast`.
 
-**Структура выхода:**
+**Output layout:**
 
 ```
 ./transcripts/batch_2026-05-09_15-30-12_anthropicai/
-├── combined.md       ← один файл со всеми текстами + мета — для Claude-чата
-├── manifest.json     ← машиночитаемый дубль
+├── combined.md       ← one file with all transcripts + metadata (for Claude chat)
+├── manifest.json     ← machine-readable copy
 ├── videos/           ← per-video .txt + .srt
-└── errors.log        ← если были ошибки
+└── errors.log        ← only if at least one video failed
 ```
 
-> **Совет для больших каналов:** добавь `--backend subtitles`. 50 видео × subtitles ≈ 1 минута, против ≈2 часов на whisper-local. Качество — то, что YouTube распознал автоматически, но для заметки/сводки этого обычно достаточно.
+> **Tip for big channels:** add `--backend subtitles`. 50 videos × subtitles
+> ≈ 1 minute, vs ~2 hours on whisper-local. Quality is whatever YouTube
+> auto-recognized — usually good enough for a summary.
 
-**В Claude-чате:**
+**From Claude chat:**
 
 ```
-"Скачай последние 10 видео канала @anthropicai через субтитры и сделай сводку тем"
+"Pull the latest 10 videos from @anthropicai via subtitles and write a topic summary"
 ```
 
-Claude запустит `batch --limit 10 --backend subtitles`, прочитает `combined.md` и напишет сводку. Skill сам по себе summary **не делает** — это задача Claude в чате после того, как `combined.md` готов.
+Claude will invoke `batch --limit 10 --backend subtitles`, read
+`combined.md`, and write the summary. The skill itself **does not**
+produce a summary — that's the LLM's job once `combined.md` is ready.
 
 ### Batch power-flags (v0.3)
 
 ```bash
-# Channel filters — оставить видео по дате и длительности
+# Channel filters — date and duration window
 youtube-transcribe batch https://youtube.com/@anthropicai \
     --since 2026-01-01 --until 2026-12-31 \
     --min-duration 300 --max-duration 3600 \
     --no-shorts --limit 20
 
-# Inkremental re-fetch: пропустить уже транскрибированные видео
+# Incremental re-fetch: skip videos already transcribed
 youtube-transcribe batch https://youtube.com/@anthropicai --skip-existing --limit 50
 
-# Парallel прогон 4 видео одновременно (полезно для облачных бэкендов
-# с большим RPM-бюджетом; whisper-local не выиграет — упирается в CPU/GPU)
+# Run 4 videos in parallel (useful for cloud backends with large RPM
+# budgets; whisper-local won't gain — CPU/GPU bound)
 youtube-transcribe batch <playlist> --workers 4 --backend gemini
 
-# Поиск по теме на YouTube — без API ключа
+# Search YouTube by topic — no API key needed
 youtube-transcribe batch --search "claude code tutorial" --limit 10
 
-# Комбинация: поиск + фильтры + параллелизм
+# Combination: search + filters + parallelism
 youtube-transcribe batch --search "transformer architecture" \
     --since 2025-01-01 --no-shorts --min-duration 600 \
     --limit 20 --workers 4 --backend gemini --with-visuals
 ```
 
-| Флаг | Что делает |
+| Flag | Meaning |
 |---|---|
-| `--since YYYY-MM-DD` | Только видео загруженные с этой даты |
-| `--until YYYY-MM-DD` | Только видео до этой даты |
-| `--min-duration N` / `--max-duration N` | По длительности в секундах |
-| `--no-shorts` | Пропускать Shorts (≤60s) |
-| `--skip-existing` | Не перетранскрибировать видео если `_<video_id>.txt` уже есть в `output-dir` |
-| `--workers N` | Параллельная обработка N видео; несовместимо с `--fail-fast` |
-| `--search "query"` | YouTube-поиск через yt-dlp (без API ключа) |
+| `--since YYYY-MM-DD` | Only videos uploaded on or after this date |
+| `--until YYYY-MM-DD` | Only videos uploaded on or before this date |
+| `--min-duration N` / `--max-duration N` | Filter by duration in seconds |
+| `--no-shorts` | Skip YouTube Shorts (≤60s) |
+| `--skip-existing` | Don't re-transcribe a video if `_<video_id>.txt` already exists under `output-dir` |
+| `--workers N` | Process N videos in parallel; incompatible with `--fail-fast` |
+| `--search "query"` | YouTube search via yt-dlp (no API key needed) |
 
 ---
 
@@ -379,13 +388,13 @@ ranking decides relevance, you decide period + analysis angle.
 ```bash
 # Interactive — run the command, paste the query when asked
 youtube-transcribe research \
-  --prompt "Сделай конспект ключевых идей" \
+  --prompt "Outline the key ideas" \
   --analyze-backend gemini
 # → "Enter search query:" <type & Enter>
 
 # Default — last 30 days, ru+en search, top 20 results
-youtube-transcribe research "Claude новинки" \
-  --prompt "Сделай конспект ключевых идей" \
+youtube-transcribe research "Claude updates" \
+  --prompt "Outline the key ideas" \
   --analyze-backend gemini
 
 # Narrower: 7 days, single language, fewer videos
@@ -396,19 +405,19 @@ youtube-transcribe research "AI agents 2026" \
 # Historical: specific window
 youtube-transcribe research "LangChain release" \
   --since 2024-06-01 --until 2024-08-31 \
-  --prompt "Что нового"
+  --prompt "What's new"
 
 # Substring + LLM filter combo
 youtube-transcribe research "machine learning" \
-  --match "tutorial" --filter "обучающие для новичков" \
-  --prompt "Что общего, что уникального"
+  --match "tutorial" --filter "beginner-friendly tutorials" \
+  --prompt "What's in common, what's unique"
 
 # Just transcripts, no analyze
-youtube-transcribe research "новинки 2026" --no-analyze
+youtube-transcribe research "AI news 2026" --no-analyze
 
 # Cross-pollination: only from my subscribed channels
 youtube-transcribe research "Claude" --in-subscribes --group ai-research \
-  --days 14 --prompt "Свежие фишки"
+  --days 14 --prompt "Recent updates"
 ```
 
 ## Subscribes — channels you follow (v0.7)
@@ -433,15 +442,15 @@ youtube-transcribe subscribes edit
 youtube-transcribe subscribes remove @anthropic-ai
 
 # Update: incremental (stateful per channel)
-youtube-transcribe subscribes update --prompt "Что обсуждалось"
+youtube-transcribe subscribes update --prompt "What was discussed"
 
 # Update: force window
 youtube-transcribe subscribes update --days 7 --group ai \
-  --filter "только про новые модели" \
-  --prompt "Сравни подходы"
+  --filter "only about new models" \
+  --prompt "Compare approaches"
 
 # Generate scheduler snippet (no automatic install)
-youtube-transcribe subscribes schedule install --every 1h --prompt "Твой обычный prompt"
+youtube-transcribe subscribes schedule install --every 1h --prompt "your usual prompt"
 # → prints launchd/cron/systemd/Task Scheduler snippet + install instructions
 
 # View past runs
@@ -500,80 +509,85 @@ extension and register that single file.
 
 ## Hardware guide
 
-Выбери подходящий бэкенд исходя из железа:
+Pick a backend based on your hardware:
 
-| Железо | Подходящий бэкенд | Час видео = | Комментарий |
+| Hardware | Recommended backend | One hour of video = | Notes |
 |---|---|---|---|
-| Любое (есть YouTube-субтитры) | `subtitles` | 2–10 сек | Среднее качество, мгновенно |
-| RTX 4090/4080/5090 (16+ GB VRAM) | `whisper-local turbo` | 30–60 сек | float16, идеал |
-| RTX 4070/3080/4060 Ti (12 GB VRAM) | `whisper-local turbo` | 1–2 мин | float16 |
-| RTX 3060/4060 (8–12 GB VRAM) | `whisper-local turbo` | 2–4 мин | float16 |
-| RTX 2060 / GTX 1660 Ti (6 GB VRAM) | `whisper-local turbo` | 5–10 мин | int8_float16 |
-| GTX 1060/1050 Ti (3–6 GB VRAM) | `whisper-local medium` | 15–30 мин | На грани |
-| M3 Max / M4 Pro | `whisper-local turbo` | 30–45 сек | mlx-whisper |
-| M2 Pro / M3 / M4 | `whisper-local turbo` | 1–2 мин | mlx-whisper |
-| M1 / M2 base (8 GB) | `whisper-local turbo` | 2–4 мин | mlx-whisper |
-| CPU only, Ryzen 7 / i7 | `whisper-local small` | 30–45 мин | Очень медленно |
-| Слабое железо / без дискретной GPU | `gemini` или `groq` | 30–120 сек | Облако, нужен интернет + ключ |
+| Anything (YouTube subtitles available) | `subtitles` | 2–10 s | Mediocre quality, instant |
+| RTX 4090/4080/5090 (16+ GB VRAM) | `whisper-local turbo` | 30–60 s | float16, ideal |
+| RTX 4070/3080/4060 Ti (12 GB VRAM) | `whisper-local turbo` | 1–2 min | float16 |
+| RTX 3060/4060 (8–12 GB VRAM) | `whisper-local turbo` | 2–4 min | float16 |
+| RTX 2060 / GTX 1660 Ti (6 GB VRAM) | `whisper-local turbo` | 5–10 min | int8_float16 |
+| GTX 1060/1050 Ti (3–6 GB VRAM) | `whisper-local medium` | 15–30 min | Borderline |
+| M3 Max / M4 Pro | `whisper-local turbo` | 30–45 s | mlx-whisper |
+| M2 Pro / M3 / M4 | `whisper-local turbo` | 1–2 min | mlx-whisper |
+| M1 / M2 base (8 GB) | `whisper-local turbo` | 2–4 min | mlx-whisper |
+| CPU only, Ryzen 7 / i7 | `whisper-local small` | 30–45 min | Very slow |
+| Weak hardware / no dedicated GPU | `gemini` or `groq` | 30–120 s | Cloud, needs internet + key |
 
-**Рекомендация:**
-- ✅ Идеально: NVIDIA RTX 30/40/50-серия (≥6 GB VRAM) или Apple Silicon M1+.
-- 🟡 Норм для коротких видео: GTX 16-серия, старые RTX 20-серия.
-- 🔴 Лучше переключиться на `subtitles` или `gemini`/`groq`: интегрированная графика, ноутбуки без дискретной GPU.
-- ⛔ Не ставь `whisper-local`: машины с <8 GB RAM. Используй облачные бэкенды.
+**Recommendation:**
+- ✅ Ideal: NVIDIA RTX 30/40/50-series (≥6 GB VRAM) or Apple Silicon M1+.
+- 🟡 Fine for short videos: GTX 16-series, older RTX 20-series.
+- 🔴 Better to use `subtitles` or `gemini`/`groq`: integrated graphics, laptops without a dedicated GPU.
+- ⛔ Avoid `whisper-local`: machines with <8 GB RAM. Use cloud backends.
 
 ---
 
 ## Backends overview
 
-| Backend | Скорость (час видео) | Качество | Стоимость | API-ключ | Данные уходят в сеть |
+| Backend | Speed (1 h of video) | Quality | Cost | API key | Sends data over the network |
 |---|---|---|---|---|---|
-| `subtitles` | 2–10 сек | Среднее (YouTube ASR) | Бесплатно | Нет | Нет (только запрос к YouTube) |
-| `whisper-local` | 30 сек – 45 мин (зависит от GPU) | Отличное | Бесплатно | Нет | Нет (полностью офлайн) |
-| `gemini` | 30–120 сек | Отличное | Бесплатно (flash) / платно (pro) | `GEMINI_API_KEY` | Да, Google |
-| `groq` | 5–20 сек | Отличное | Бесплатный tier, затем платно | `GROQ_API_KEY` | Да, Groq |
-| `openai` | 30–60 сек | Отличное | ~$0.006/мин аудио | `OPENAI_API_KEY` | Да, OpenAI |
-| `deepgram` | 15–60 сек | Отличное + точные таймкоды | $200 бесплатный старт | `DEEPGRAM_API_KEY` | Да, Deepgram |
-| `assemblyai` | 30–90 сек | Отличное | Бесплатный tier | `ASSEMBLYAI_API_KEY` | Да, AssemblyAI |
-| `custom` | Зависит от провайдера | Зависит | Зависит | Настраивается | Да, ваш провайдер |
+| `subtitles` | 2–10 s | Mediocre (YouTube ASR) | Free | No | No (only a YouTube request) |
+| `whisper-local` | 30 s – 45 min (GPU-dependent) | Excellent | Free | No | No (fully offline) |
+| `gemini` | 30–120 s | Excellent | Free (flash) / paid (pro) | `GEMINI_API_KEY` | Yes, Google |
+| `groq` | 5–20 s | Excellent | Free tier, then paid | `GROQ_API_KEY` | Yes, Groq |
+| `openai` | 30–60 s | Excellent | ~$0.006/min of audio | `OPENAI_API_KEY` | Yes, OpenAI |
+| `deepgram` | 15–60 s | Excellent + precise timestamps | $200 free start | `DEEPGRAM_API_KEY` | Yes, Deepgram |
+| `assemblyai` | 30–90 s | Excellent | Free tier | `ASSEMBLYAI_API_KEY` | Yes, AssemblyAI |
+| `custom` | Depends on provider | Depends | Depends | Configurable | Yes, your provider |
 
-**Smart-режим** (`--backend smart`, дефолт): пробует `subtitles` для YouTube-ссылок, если субтитров нет — падает на `whisper-local`. Автоматически, без участия пользователя.
+**Smart mode** (`--backend smart`, default): tries `subtitles` for
+YouTube URLs; if subtitles aren't available it falls back to
+`whisper-local`. Automatic, no user input required.
 
 ---
 
 ## Switching backends in chat (3 levels)
 
-### Уровень 1 — разовое (per-call)
+### Level 1 — per-call
 
-Claude видит явное упоминание движка и использует его для одного запроса:
+Claude sees an explicit backend mention and uses it for one request:
 
-| Фраза в чате | Что происходит |
+| Phrase in chat | What happens |
 |---|---|
-| «расшифруй это через gemini: &lt;URL&gt;» | `--backend gemini` для этого вызова |
-| «прогони через groq» | `--backend groq` |
-| «локально whisper large» | `--backend whisper-local --whisper-model large` |
-| «возьми субтитры с ютуба» | `--backend subtitles` |
-| «gemini, но pro вместо flash» | `--backend gemini --gemini-model gemini-2.5-pro` |
+| "transcribe this via gemini: &lt;URL&gt;" | `--backend gemini` for this call |
+| "run it through groq" | `--backend groq` |
+| "local whisper large" | `--backend whisper-local --whisper-model large` |
+| "pull the YouTube subtitles" | `--backend subtitles` |
+| "gemini, but pro instead of flash" | `--backend gemini --gemini-model gemini-2.5-pro` |
 
-### Уровень 2 — сессионное
+### Level 2 — per-session
 
-«До конца разговора используй groq» — Claude запоминает в рамках сессии и подставляет флаг ко всем последующим вызовам.
+"Use groq for the rest of this conversation" — Claude remembers the
+choice for the current session and adds the flag to every subsequent
+call.
 
-### Уровень 3 — постоянное
+### Level 3 — persistent
 
-Меняет дефолт через CLI или из чата:
+Change the default via CLI or from chat:
 
 ```bash
 youtube-transcribe config show
 youtube-transcribe config set backend groq
 youtube-transcribe config set whisper-model turbo
 youtube-transcribe config set language ru
-youtube-transcribe config set-key gemini       # интерактивный ввод ключа
-youtube-transcribe config test groq            # проверить, что ключ рабочий
-youtube-transcribe config wizard               # перезапустить мастер
+youtube-transcribe config set-key gemini       # interactive key entry
+youtube-transcribe config test groq            # verify the key works
+youtube-transcribe config wizard               # re-run the setup wizard
 ```
 
-Из чата: «переключи дефолт на groq» → Claude дёргает `youtube-transcribe config set backend groq`.
+From chat: "switch the default to groq" → Claude runs
+`youtube-transcribe config set backend groq`.
 
 ---
 
@@ -581,82 +595,99 @@ youtube-transcribe config wizard               # перезапустить ма
 
 ### "Sign in to confirm you're not a bot" (yt-dlp 403)
 
-YouTube периодически обновляет защиту от ботов, ломая yt-dlp на 1–3 месяца подряд по всему миру. **Это не баг этого инструмента.** Исправление:
+YouTube periodically updates its anti-bot defences, breaking yt-dlp
+for 1–3 months at a time worldwide. **This is not a bug in this tool.**
+Fix:
 
-1. `youtube-transcribe update-deps` — обновляет yt-dlp до последнего релиза.
-2. Если не помогло — зарегистрируй cookies-файл:
+1. `youtube-transcribe update-deps` — pulls the latest yt-dlp release.
+2. If that doesn't help — register a cookies file:
    ```bash
-   # Поставь расширение "Get cookies.txt LOCALLY" в любом браузере
-   # (Chrome / Firefox / Edge / Brave — формат стандартный, Netscape cookies.txt).
-   # Открой youtube.com (залогиненный) → жми расширение → Export.
+   # Install the "Get cookies.txt LOCALLY" extension in any browser
+   # (Chrome / Firefox / Edge / Brave — same Netscape cookies.txt format).
+   # Open youtube.com (logged in) → click the extension → Export.
 
    youtube-transcribe config set-cookies ~/Downloads/youtube_cookies.txt
    ```
-   После этого `transcribe` / `batch` сами подхватят cookies. Можно и
-   per-call: `youtube-transcribe transcribe <URL> --cookies-file ~/path/file.txt`.
-3. Если всё ещё не работает — открой issue, обычно фикс появляется за несколько дней.
+   After that `transcribe` / `batch` pick up the cookies automatically.
+   You can also pass them per-call:
+   `youtube-transcribe transcribe <URL> --cookies-file ~/path/file.txt`.
+3. If it still doesn't work — open an issue; fixes usually land within
+   a few days.
 
-> **Почему не `--cookies-from-browser`?** Тот флаг yt-dlp пулит ВСЕ cookies со ВСЕХ доменов из браузерного хранилища в память процесса (фильтрация по домену происходит только при отправке HTTP). Это нарушает principle of least privilege. Мы поддерживаем ТОЛЬКО explicit cookies.txt файл.
+> **Why not `--cookies-from-browser`?** That yt-dlp flag pulls EVERY
+> cookie for every domain from your browser store into process memory
+> (domain filtering only happens when HTTP requests are sent). It
+> violates principle of least privilege. We support ONLY an explicit
+> Netscape `cookies.txt` file.
 
-> **Контекст:** YouTube регулярно усиливает защиту. Возможно, понадобится PO Token plugin (`bgutil-ytdlp-pot-provider`) — следи за [yt-dlp releases](https://github.com/yt-dlp/yt-dlp/releases).
+> **Context:** YouTube tightens its protection regularly. You may also
+> need the PO Token plugin (`bgutil-ytdlp-pot-provider`) — watch
+> [yt-dlp releases](https://github.com/yt-dlp/yt-dlp/releases).
 
-### Нет API-ключа
+### Missing API key
 
 ```
 Error: GEMINI_API_KEY not set. Run: youtube-transcribe config set-key gemini
 ```
 
-Запусти `youtube-transcribe config set-key <backend>` — попросит ввести ключ интерактивно и сохранит в `~/.youtube-transcribe/.env` с правами `0600`.
+Run `youtube-transcribe config set-key <backend>` — it prompts for the
+key interactively and stores it in `~/.youtube-transcribe/.env` with
+mode `0600`.
 
-### `distil` модель на Mac
+### `distil` model on Mac
 
 ```
 Error (exit code 4): Model 'distil' is not available on Apple Silicon (mlx-whisper).
 Use: turbo, large, medium, or small.
 ```
 
-`distil-large-v3` реализован только в `faster-whisper` (Windows/Linux). На Mac используй `turbo` — сопоставимая скорость.
+`distil-large-v3` is implemented only in `faster-whisper` (Windows/Linux).
+On Mac use `turbo` — comparable speed.
 
-### Нет `ffmpeg`
+### Missing `ffmpeg`
 
 ```
 Error: ffmpeg not found. Install: brew install ffmpeg (Mac) / choco install ffmpeg (Windows)
 ```
 
-ffmpeg нужен для извлечения аудио из видео перед транскрипцией.
+ffmpeg is required to extract audio from video before transcription.
 
-### CUDA не найдена / падает на GPU
+### CUDA not found / GPU crashes
 
 ```bash
 youtube-transcribe transcribe <URL> --device cpu --compute-type int8
 ```
 
-Или смени бэкенд на `subtitles` / `gemini` / `groq`.
+Or switch to a different backend: `subtitles` / `gemini` / `groq`.
 
-### Нет субтитров на `subtitles` бэкенде
+### No subtitles on `subtitles` backend
 
-Видео без субтитров (автоматических или ручных) на запрошенном языке — skill вернёт ошибку. В smart-режиме автоматически переключится на `whisper-local`.
+For a video without subtitles (auto or manual) in the requested
+language the skill returns an error. In smart mode it falls back to
+`whisper-local` automatically.
 
-### Лимиты Gemini Files API
+### Gemini Files API limits
 
-Gemini Files API принимает файлы до ~2 GB и видео до ~1 часа стабильно. Для видео > 1 часа используй `whisper-local` или `assemblyai`.
+Gemini Files API accepts files up to ~2 GB and videos up to ~1 hour
+reliably. For videos > 1 hour use `whisper-local` or `assemblyai`.
 
 ---
 
 ## Privacy
 
-| Backend | Аудио уходит с машины? |
+| Backend | Does audio leave the machine? |
 |---|---|
-| `whisper-local` | Никогда |
-| `subtitles` | Нет — но YouTube видит запрос |
-| `gemini` | Да, Google |
-| `groq` | Да, Groq |
-| `openai` | Да, OpenAI |
-| `deepgram` | Да, Deepgram |
-| `assemblyai` | Да, AssemblyAI |
-| `custom` | Да, твой провайдер |
+| `whisper-local` | Never |
+| `subtitles` | No — but YouTube sees the request |
+| `gemini` | Yes, Google |
+| `groq` | Yes, Groq |
+| `openai` | Yes, OpenAI |
+| `deepgram` | Yes, Deepgram |
+| `assemblyai` | Yes, AssemblyAI |
+| `custom` | Yes, your provider |
 
-API-ключи никогда не выводятся целиком в логи — маскируются как `sk-***...XYZ`. `config show` тоже маскирует.
+API keys are never printed in full to logs — they're masked as
+`sk-***...XYZ`. `config show` masks them too.
 
 ---
 
@@ -664,15 +695,15 @@ API-ключи никогда не выводятся целиком в логи
 
 ## Architecture (for developers)
 
-### Структура проекта
+### Project layout
 
 ```
 youtube-transcribe/
 ├── .claude-plugin/
-│   └── plugin.json                       # Метаданные Claude Code plugin
+│   └── plugin.json                       # Claude Code plugin metadata
 ├── skills/
-│   └── youtube_transcribe/               # Python-пакет (snake_case)
-│       ├── SKILL.md                      # Триггеры + правила для Claude
+│   └── youtube_transcribe/               # Python package (snake_case)
+│       ├── SKILL.md                      # Triggers + rules for Claude
 │       ├── transcribe.py                 # CLI entry point
 │       ├── wizard.py                     # First-run setup wizard
 │       ├── config.py                     # config.toml + .env
@@ -687,27 +718,27 @@ youtube-transcribe/
 │       │   ├── assemblyai.py
 │       │   └── custom.py
 │       ├── utils/
-│       │   ├── platform_detect.py        # OS/GPU/VRAM авто-определение
+│       │   ├── platform_detect.py        # OS/GPU/VRAM auto-detection
 │       │   ├── downloader.py             # yt-dlp wrapper
 │       │   └── output_writer.py          # .txt + .srt
 │       └── tests/
 ├── commands/
-│   └── transcribe.md                     # /transcribe slash-команда
+│   └── transcribe.md                     # /transcribe slash command
 └── pyproject.toml
 ```
 
 ### Transcriber Protocol
 
-`backends/base.py` определяет контракт:
+`backends/base.py` defines the contract:
 
 ```python
 class Transcriber(Protocol):
     name: str
-    supports_url: bool          # subtitles — да, остальные через downloader
+    supports_url: bool          # subtitles — yes, others go through the downloader
     supports_local_file: bool
 
     def is_configured(self) -> tuple[bool, str | None]:
-        """Готов ли бэкенд. Возвращает (ok, причина_если_нет)."""
+        """Is the backend ready? Returns (ok, reason_if_not)."""
 
     def transcribe(
         self, audio_path: Path | str, *, language: str, **opts
@@ -717,64 +748,71 @@ class Transcriber(Protocol):
 @dataclass
 class TranscriptionResult:
     text: str
-    segments: list[Segment]        # для .srt и .txt с таймкодами
+    segments: list[Segment]        # for .srt and timestamped .txt
     language_detected: str | None
     backend_name: str
     duration_seconds: float
 ```
 
-Все 8 бэкендов — взаимозаменяемые реализации одного `Transcriber` Protocol. Тесты пишутся против интерфейса; внешние SDK мокаются.
+All 8 backends are interchangeable implementations of the same
+`Transcriber` Protocol. Tests run against the interface; external SDKs
+are mocked.
 
-### Smart-режим — композиция, не бэкенд
+### Smart mode — composition, not a backend
 
-При `default_backend = "smart"`:
-1. URL → YouTube? → пробуем `subtitles`.
-2. Успех → возвращаем результат.
-3. Нет субтитров / не YouTube / `--no-fast-path` → используем `fallback_backend` (дефолт: `whisper-local`).
+When `default_backend = "smart"`:
+1. URL → YouTube? → try `subtitles`.
+2. Success → return the result.
+3. No subtitles / not YouTube / `--no-fast-path` → use
+   `fallback_backend` (default: `whisper-local`).
 
-Логика живёт на верхнем уровне; бэкенды ничего не знают друг о друге.
+The logic lives at the top level; backends don't know about each
+other.
 
-### Whisper-local — две реализации, один интерфейс
+### Whisper-local — two implementations, one interface
 
-`platform_detect.py` определяет окружение и возвращает `label` / `backend_impl` / `device` / `vram`. `whisper_local.py` использует результат чтобы выбрать:
+`platform_detect.py` inspects the environment and returns `label` /
+`backend_impl` / `device` / `vram`. `whisper_local.py` uses the result
+to pick:
 - macOS arm64 → `mlx-whisper`
-- Windows/Linux + NVIDIA → `faster-whisper` (float16 или int8_float16 в зависимости от VRAM)
-- CPU only → `faster-whisper` с `device="cpu"`, `compute_type="int8"`
+- Windows/Linux + NVIDIA → `faster-whisper` (float16 or int8_float16 depending on VRAM)
+- CPU only → `faster-whisper` with `device="cpu"`, `compute_type="int8"`
 
-### Конфиг и секреты
+### Config and secrets
 
-- `~/.youtube-transcribe/config.toml` — настройки (TOML).
-- `~/.youtube-transcribe/.env` — API-ключи, права `0600` на Unix.
-- Приоритет: env vars процесса > `.env` > ошибка с инструкцией.
+- `~/.youtube-transcribe/config.toml` — settings (TOML).
+- `~/.youtube-transcribe/.env` — API keys, mode `0600` on Unix.
+- Priority: process env vars > `.env` > error with instructions.
 
 ---
 
 ## Adding a new backend
 
-1. Создай файл `skills/youtube_transcribe/backends/my_provider.py`.
-2. Реализуй `Transcriber` Protocol (см. `backends/base.py`).
-3. Зарегистрируй в фабрике (`backends/__init__.py`):
+1. Create `skills/youtube_transcribe/backends/my_provider.py`.
+2. Implement the `Transcriber` Protocol (see `backends/base.py`).
+3. Register it in the factory (`backends/__init__.py`):
    ```python
    from .my_provider import MyProviderTranscriber
    REGISTRY["my-provider"] = MyProviderTranscriber
    ```
-4. Добавь в `--backend` choices в `transcribe.py`.
-5. Напиши unit-тест с замоканным SDK в `tests/test_backends.py`.
+4. Add to the `--backend` choices in `transcribe.py`.
+5. Write a unit test with a mocked SDK in `tests/test_backends.py`.
 
-Всё. Остальной код (smart-режим, output writer, config, CLI) не трогается.
+That's it. The rest of the code (smart mode, output writer, config,
+CLI) doesn't change.
 
 ---
 
 ## Whisper model comparison
 
-| Параметр | `turbo` (default) | `large` | `medium` | `small` | `distil` |
+| Parameter | `turbo` (default) | `large` | `medium` | `small` | `distil` |
 |---|---|---|---|---|---|
-| Базовая модель | large-v3-turbo | large-v3 | medium | small | distil-large-v3 |
+| Base model | large-v3-turbo | large-v3 | medium | small | distil-large-v3 |
 | VRAM (float16) | ~6 GB | ~10 GB | ~5 GB | ~2 GB | ~6 GB |
-| Точность | Отличная | Максимальная | Хорошая | Средняя | Отличная (EN) |
-| Скорость | Быстрая | Медленная | Средняя | Очень быстрая | Самая быстрая |
-| Когда использовать | Большинство задач | Юридические/медицинские записи | Слабое железо | Черновик | Только faster-whisper, EN |
-| macOS (mlx) | Да | Да | Да | Да | Нет |
+| Accuracy | Excellent | Maximum | Good | Mediocre | Excellent (EN) |
+| Speed | Fast | Slow | Medium | Very fast | Fastest |
+| When to use | Most tasks | Legal / medical recordings | Weak hardware | Drafts | faster-whisper only, EN |
+| macOS (mlx) | Yes | Yes | Yes | Yes | No |
 
 ---
 

@@ -1,4 +1,4 @@
-"""Tests for scene boundary detection. PySceneDetect мокается."""
+"""Tests for scene boundary detection. PySceneDetect is mocked."""
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 

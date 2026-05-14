@@ -26,7 +26,7 @@ def test_oov_empty_text_returns_one():
 def test_unsupported_language_returns_none_via_helper():
     assert is_language_supported("en") is True
     assert is_language_supported("ru") is True
-    assert is_language_supported("kk") is False  # казахский не в pyspellchecker
+    assert is_language_supported("kk") is False  # Kazakh not in pyspellchecker
 
 
 def test_oov_unsupported_language_returns_neg_one():

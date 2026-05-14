@@ -35,7 +35,7 @@ def build_prompt(
         {user_prompt}
 
         ---
-        Транскрипты:
+        Transcripts:
 
         ### [1] {title} ({date}, {duration}, {lang})
         Source: {url}
@@ -51,7 +51,7 @@ def build_prompt(
     Unreadable files contribute a `(failed to load)` placeholder so the
     LLM still sees the rest of the batch.
     """
-    parts = [SYSTEM_PROMPT, "", user_prompt, "", "---", "Транскрипты:", ""]
+    parts = [SYSTEM_PROMPT, "", user_prompt, "", "---", "Transcripts:", ""]
 
     for idx, v in enumerate(videos, start=1):
         parts.append(_video_header(idx, v))

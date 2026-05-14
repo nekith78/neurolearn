@@ -1,55 +1,55 @@
-# Дизайн-документ: youtube-transcribe
+# Design doc: youtube-transcribe
 
-**Дата:** 2026-05-08
-**Статус:** Черновик к согласованию
-**Автор:** brainstorm с пользователем (Claude Code)
-
----
-
-## 1. Цель
-
-Создать переиспользуемый skill `youtube-transcribe`, который:
-
-1. Принимает на вход URL YouTube-видео (или другой поддерживаемой платформы), либо путь к локальному медиа-файлу.
-2. Транскрибирует контент через один из шести взаимозаменяемых движков (бэкендов).
-3. Сохраняет результат в `.txt` (с таймкодами и без) и `.srt`.
-4. Триггерится в Claude Code естественным языком на любом языке (русский, английский, украинский, казахский, и т.д.) — пользователю достаточно сказать «транскрибируй это» и вставить ссылку.
-5. Также имеет slash-команду `/transcribe` и работает как самостоятельный CLI без Claude.
-6. **Распространяется тремя способами**, чтобы любой пользователь мог быстро установить — как Claude Code plugin, как личный skill в `~/.claude/skills/`, или как uv tool из Git/PyPI.
-
-**Главный принцип:** zero-friction для конечного пользователя. Установка одной командой, разумные дефолты, понятные ошибки, никакого ручного возни с CUDA/cuDNN.
+**Date:** 2026-05-08
+**Status:** Draft for review
+**Author:** brainstorm with the user (Claude Code)
 
 ---
 
-## 2. Аудитория и нефункциональные требования
+## 1. Goal
 
-### Аудитория
+Build a reusable `youtube-transcribe` skill that:
 
-- **Обычные пользователи** — хотят кинуть ссылку, получить текст. Без знания Python/CUDA.
-- **Технические пользователи** — хотят выбрать модель, движок, тонко настроить. Понимают разницу между float16 и int8.
-- **Разработчики** — могут захотеть форкнуть и доработать (новый бэкенд, диаризация, и т.п.).
+1. Accepts a YouTube video URL (or another supported platform) or a path to a local media file.
+2. Transcribes the content via one of six interchangeable engines (backends).
+3. Saves the result to `.txt` (with and without timestamps) and `.srt`.
+4. Triggers from Claude Code in natural language in any language (Russian, English, Ukrainian, Kazakh, etc.) — the user just says "transcribe this" and pastes the link.
+5. Also provides a `/transcribe` slash command and works as a standalone CLI without Claude.
+6. **Ships in three ways** so any user can install quickly — as a Claude Code plugin, as a personal skill in `~/.claude/skills/`, or as a uv tool from Git/PyPI.
 
-### Приватность (важно)
-
-- **Дефолтный режим = оффлайн.** Бэкенд `whisper-local` ничего не отправляет в сеть после установки модели.
-- **Облачные бэкенды** (gemini, groq, openai, custom) отправляют аудио на сервера провайдера. README и wizard явно об этом предупреждают.
-- API-ключи **никогда** не попадают в git, в логи, в чат с Claude. Хранение — env vars или `~/.youtube-transcribe/.env` с правами `0600`.
+**Main principle:** zero friction for the end user. One-command install, sensible defaults, clear errors, no manual CUDA/cuDNN dance.
 
 ---
 
-## 3. Распространение и установка
+## 2. Audience and non-functional requirements
 
-Один GitHub-репозиторий обслуживает три варианта установки. Все три должны работать из коробки.
+### Audience
 
-### Способ A — Claude Code Plugin (рекомендуется большинству)
+- **Regular users** — want to drop a link and get text back. No Python/CUDA knowledge.
+- **Technical users** — want to pick the model, the engine, fine-tune. They understand the difference between float16 and int8.
+- **Developers** — may want to fork and extend (a new backend, diarization, etc.).
+
+### Privacy (important)
+
+- **Default mode = offline.** The `whisper-local` backend sends nothing over the network after the model is installed.
+- **Cloud backends** (gemini, groq, openai, custom) send audio to the provider's servers. The README and wizard warn about this explicitly.
+- API keys **never** end up in git, in logs, or in chat with Claude. Storage — env vars or `~/.youtube-transcribe/.env` with `0600` permissions.
+
+---
+
+## 3. Distribution and installation
+
+A single GitHub repository powers three install variants. All three must work out of the box.
+
+### Method A — Claude Code Plugin (recommended for most users)
 
 ```bash
 git clone https://github.com/<user>/youtube-transcribe ~/.claude/plugins/youtube-transcribe
 ```
 
-Claude автоматически подхватывает skill и slash-команду. При первом использовании запускается wizard.
+Claude picks up the skill and the slash command automatically. The wizard runs on first use.
 
-### Способ B — Личный skill-папка
+### Method B — Personal skill folder
 
 ```bash
 git clone https://github.com/<user>/youtube-transcribe /tmp/yt-transcribe
@@ -57,43 +57,43 @@ cp -r /tmp/yt-transcribe/skills/youtube-transcribe ~/.claude/skills/
 cd ~/.claude/skills/youtube-transcribe && uv sync
 ```
 
-Без plugin-обвязки. Работает только как skill (без slash-команды).
+No plugin wrapping. Works as a skill only (no slash command).
 
-### Способ C — Только CLI, без Claude
+### Method C — CLI only, no Claude
 
 ```bash
 uv tool install git+https://github.com/<user>/youtube-transcribe
 ```
 
-В терминале появляется команда `youtube-transcribe`. Можно использовать в скриптах, других IDE, без Claude вообще.
+A `youtube-transcribe` command appears in the terminal. Usable in scripts, other IDEs, without Claude at all.
 
-### Загрузчик зависимостей: `uv`
+### Dependency loader: `uv`
 
-Используем `uv` (Astral) вместо `pip`:
-- Бинарник в 1 файл, доступен на всех платформах.
-- В 10–50× быстрее `pip`.
-- Сам ставит правильную версию Python если её нет.
-- Решает проблему «у пользователя нет Python вообще».
+We use `uv` (Astral) instead of `pip`:
+- Single-file binary, available on every platform.
+- 10–50× faster than `pip`.
+- Installs the right Python version itself if it is missing.
+- Solves the "user has no Python at all" case.
 
-`install.ps1` и `install.sh` — это тонкие обёртки, которые: (а) устанавливают `uv` если его нет, (б) запускают `uv sync` в репозитории. Это **запасной путь** для тех, у кого нет даже `uv`.
+`install.ps1` and `install.sh` are thin wrappers that: (a) install `uv` if it is missing, (b) run `uv sync` inside the repo. This is a **backup path** for users who don't even have `uv`.
 
 ---
 
-## 4. Архитектура и структура файлов
+## 4. Architecture and file layout
 
 ```
 youtube-transcribe/
 ├── .claude-plugin/
-│   └── plugin.json                       # Метаданные Claude Code plugin
+│   └── plugin.json                       # Claude Code plugin metadata
 ├── skills/
 │   └── youtube-transcribe/
-│       ├── SKILL.md                      # Триггеры + правила использования
+│       ├── SKILL.md                      # Triggers + usage rules
 │       ├── transcribe.py                 # CLI entry point
 │       ├── wizard.py                     # First-run setup wizard
-│       ├── config.py                     # Загрузка/запись config.toml + .env
+│       ├── config.py                     # config.toml + .env loader/writer
 │       ├── backends/
 │       │   ├── __init__.py
-│       │   ├── base.py                   # Абстрактный Transcriber
+│       │   ├── base.py                   # Abstract Transcriber
 │       │   ├── subtitles.py              # youtube-transcript-api
 │       │   ├── whisper_local.py          # faster-whisper / mlx-whisper
 │       │   ├── gemini.py                 # google-genai SDK
@@ -104,41 +104,41 @@ youtube-transcribe/
 │       │   └── custom.py                 # Generic OpenAI-compat
 │       ├── utils/
 │       │   ├── __init__.py
-│       │   ├── platform_detect.py        # Авто-определение OS/GPU/VRAM
+│       │   ├── platform_detect.py        # auto-detect OS/GPU/VRAM
 │       │   ├── downloader.py             # yt-dlp wrapper + cookies + retries
 │       │   └── output_writer.py          # .txt + .srt
 │       └── tests/
 │           ├── test_platform_detect.py
 │           ├── test_output_writer.py
-│           └── test_backends.py          # smoke-тесты с моками
+│           └── test_backends.py          # smoke tests with mocks
 ├── commands/
-│   └── transcribe.md                     # /transcribe slash-команда
+│   └── transcribe.md                     # /transcribe slash command
 ├── pyproject.toml                        # uv tool install + entry_point
-├── requirements-mac.txt                  # снапшот зависимостей для Apple Silicon
-├── requirements-nvidia.txt               # снапшот зависимостей для Win/Linux + NVIDIA
-├── install.ps1                           # bootstrap для Windows (если нет uv)
-├── install.sh                            # bootstrap для Mac/Linux
-├── README.md                             # Двухслойная документация
+├── requirements-mac.txt                  # dep snapshot for Apple Silicon
+├── requirements-nvidia.txt               # dep snapshot for Win/Linux + NVIDIA
+├── install.ps1                           # bootstrap for Windows (if no uv)
+├── install.sh                            # bootstrap for Mac/Linux
+├── README.md                             # Two-layered documentation
 ├── LICENSE
 └── docs/
     ├── specs/
     │   └── 2026-05-08-youtube-transcribe-design.md
     └── plans/
-        └── (план реализации добавится позже)
+        └── (implementation plan added later)
 ```
 
-### Принцип абстракции бэкендов
+### Backend abstraction principle
 
-Файл `backends/base.py` определяет интерфейс:
+`backends/base.py` defines the interface:
 
 ```python
 class Transcriber(Protocol):
     name: str
-    supports_url: bool          # умеет ли работать с URL напрямую (subtitles умеет, остальные через downloader)
+    supports_url: bool          # can it handle a URL directly (subtitles can, the rest go through downloader)
     supports_local_file: bool
 
     def is_configured(self) -> tuple[bool, str | None]:
-        """Проверка, что бэкенд готов работать. Возвращает (ok, причина_если_не_ок)."""
+        """Check that the backend is ready. Returns (ok, reason_if_not_ok)."""
 
     def transcribe(self, audio_path: Path | str, *, language: str, **opts) -> TranscriptionResult:
         ...
@@ -146,50 +146,50 @@ class Transcriber(Protocol):
 @dataclass
 class TranscriptionResult:
     text: str
-    segments: list[Segment]   # для .srt и .txt с таймкодами
+    segments: list[Segment]   # for .srt and .txt with timestamps
     language_detected: str | None
     backend_name: str
     duration_seconds: float
 ```
 
-Каждый бэкенд — один файл, одна реализация интерфейса. Тесты пишутся против интерфейса.
+Each backend — one file, one implementation of the interface. Tests are written against the interface.
 
 ---
 
-## 5. Бэкенды (детально)
+## 5. Backends (detailed)
 
 ### 5.1 `subtitles` — youtube-transcript-api
 
-**Когда:** YouTube-ссылка, есть автосубтитры.
-**Скорость:** 2–5 сек на любую длину видео.
-**Качество:** среднее (то, что YouTube распознал автоматически).
-**Зависимости:** `youtube-transcript-api`.
-**API-ключ:** не нужен.
-**Поведение:**
-- Если у видео нет субтитров на запрошенном языке — пробует автоперевод, если и его нет — возвращает «не получилось», skill переключается на fallback-бэкенд (если включён smart-режим).
-- В .srt таймкоды берутся из субтитров (они уже разбиты на сегменты).
+**When:** YouTube link with auto subtitles.
+**Speed:** 2–5 seconds for any video length.
+**Quality:** medium (whatever YouTube auto-recognised).
+**Dependencies:** `youtube-transcript-api`.
+**API key:** not needed.
+**Behaviour:**
+- If the video has no subtitles in the requested language — tries auto-translation; if that also fails — returns "couldn't do it", the skill switches to the fallback backend (when smart mode is on).
+- `.srt` timestamps come from the subtitles (they are already split into segments).
 
-### 5.2 `whisper-local` — локальный Whisper (дефолт)
+### 5.2 `whisper-local` — local Whisper (default)
 
-**Когда:** дефолт. Работает оффлайн.
-**Зависимости:**
-- На macOS Apple Silicon: `mlx-whisper`.
-- На Windows/Linux + NVIDIA: `faster-whisper`.
-- На CPU-only: `faster-whisper` с `device="cpu"` и `compute_type="int8"`.
+**When:** default. Works offline.
+**Dependencies:**
+- On macOS Apple Silicon: `mlx-whisper`.
+- On Windows/Linux + NVIDIA: `faster-whisper`.
+- On CPU-only: `faster-whisper` with `device="cpu"` and `compute_type="int8"`.
 
-Выбор реализации делает `platform_detect.py` автоматически, без участия пользователя.
+The implementation choice is made by `platform_detect.py` automatically, without user input.
 
-**Модели** (через флаг `--model`):
+**Models** (via `--model`):
 
-| Параметр | Описание | Когда использовать |
+| Parameter | Description | When to use |
 |---|---|---|
-| `turbo` (default) | large-v3-turbo | Большинство задач: подкасты, лекции, интервью |
-| `large` | large-v3 | Максимальная точность, юридические/медицинские записи |
-| `medium` | medium | Баланс на слабом железе (8 GB RAM/VRAM) |
-| `small` | small | Очень быстрый черновик |
-| `distil` | distil-large-v3 (только faster-whisper) | Самый быстрый full-quality, оптимизирован под английский |
+| `turbo` (default) | large-v3-turbo | Most tasks: podcasts, lectures, interviews |
+| `large` | large-v3 | Maximum accuracy, legal/medical recordings |
+| `medium` | medium | Balance on weak hardware (8 GB RAM/VRAM) |
+| `small` | small | Quick rough draft |
+| `distil` | distil-large-v3 (faster-whisper only) | Fastest full-quality, optimised for English |
 
-**Маппинг моделей по платформам:**
+**Per-platform model mapping:**
 
 ```python
 MODEL_MAP = {
@@ -201,234 +201,234 @@ MODEL_MAP = {
 }
 ```
 
-При выборе несовместимой пары (например, `--model distil` на Mac) — понятная ошибка, не stack trace.
+When an incompatible pair is chosen (e.g. `--model distil` on Mac) — clear error, no stack trace.
 
-**`compute_type` по умолчанию:** `auto`. Логика:
-- `mlx-whisper` — параметр игнорируется (там свой режим).
+**Default `compute_type`:** `auto`. Logic:
+- `mlx-whisper` — the parameter is ignored (it has its own mode).
 - `faster-whisper` + CUDA + VRAM ≥ 6 GB → `float16`.
 - `faster-whisper` + CUDA + VRAM < 6 GB → `int8_float16`.
 - `faster-whisper` + CPU → `int8`.
 
-Пользователь может переопределить через `--compute-type`.
+The user can override via `--compute-type`.
 
 ### 5.3 `gemini` — Google AI Studio
 
-**Когда:** хочется качество, но локальный Whisper слишком медленный.
-**Скорость:** 30–120 сек на час видео (зависит от размера загрузки).
-**Зависимости:** `google-genai` SDK.
-**API-ключ:** `GEMINI_API_KEY` или через wizard. Получить: https://aistudio.google.com/apikey
-**Модели:**
-- `gemini-2.5-flash` (дефолт) — бесплатная, быстрая, точная.
-- `gemini-2.5-pro` — точнее, медленнее, лимиты строже.
+**When:** you want quality but local Whisper is too slow.
+**Speed:** 30–120 seconds per hour of video (depends on upload size).
+**Dependencies:** `google-genai` SDK.
+**API key:** `GEMINI_API_KEY` or via the wizard. Get one at: https://aistudio.google.com/apikey
+**Models:**
+- `gemini-2.5-flash` (default) — free, fast, accurate.
+- `gemini-2.5-pro` — more accurate, slower, tighter limits.
 
-**Особенности:**
-- Gemini нативно понимает видео — можно отправлять mp4 целиком (для коротких файлов) либо извлекать аудио и отправлять mp3 (для длинных, чтобы не упереться в лимиты).
-- Используем Files API для файлов > 20 MB.
-- Промпт: «Transcribe this audio. Output JSON: `{"language": "...", "segments": [{"start": ..., "end": ..., "text": "..."}, ...]}`. Use precise timestamps.»
+**Notes:**
+- Gemini natively understands video — you can send the whole mp4 (for short files) or extract audio and send mp3 (for long ones, to avoid limits).
+- We use the Files API for files > 20 MB.
+- Prompt: `Transcribe this audio. Output JSON: {"language": "...", "segments": [{"start": ..., "end": ..., "text": "..."}, ...]}. Use precise timestamps.`
 
 ### 5.4 `groq` — Groq Whisper API
 
-**Когда:** нужен самый быстрый облачный вариант.
-**Скорость:** 5–20 сек на час аудио (Groq крутит Whisper на специальных LPU-чипах).
-**Зависимости:** `groq` SDK или `openai` SDK с base_url groq.
-**API-ключ:** `GROQ_API_KEY`. Получить: https://console.groq.com/keys
-**Модели:** `whisper-large-v3` (точнее), `whisper-large-v3-turbo` (быстрее, дефолт).
+**When:** when the fastest cloud option is needed.
+**Speed:** 5–20 seconds per hour of audio (Groq runs Whisper on dedicated LPU chips).
+**Dependencies:** `groq` SDK or `openai` SDK with the Groq base_url.
+**API key:** `GROQ_API_KEY`. Get one at: https://console.groq.com/keys
+**Models:** `whisper-large-v3` (more accurate), `whisper-large-v3-turbo` (faster, default).
 
 ### 5.5 `openai` — OpenAI Whisper API
 
-**Когда:** у пользователя уже есть OpenAI ключ.
-**Скорость:** 30–60 сек на час.
-**Стоимость:** ~$0.006/минута аудио.
-**Зависимости:** `openai` SDK.
-**API-ключ:** `OPENAI_API_KEY`.
-**Модели:** `whisper-1`.
+**When:** the user already has an OpenAI key.
+**Speed:** 30–60 seconds per hour.
+**Cost:** ~$0.006/minute of audio.
+**Dependencies:** `openai` SDK.
+**API key:** `OPENAI_API_KEY`.
+**Models:** `whisper-1`.
 
 ### 5.6 `deepgram` — Deepgram Nova-3
 
-**Когда:** альтернатива Whisper API. Нативно очень точные таймкоды на уровне слов, быстрая обработка.
-**Скорость:** 15–60 сек на час аудио.
-**Зависимости:** `deepgram-sdk` Python-пакет.
-**API-ключ:** `DEEPGRAM_API_KEY`. Получить: https://console.deepgram.com/ (бесплатный $200 стартовый кредит на новый аккаунт).
-**Модели:** `nova-3` (дефолт, точная), `nova-2` (стабильная), `enhanced` (быстрее).
+**When:** alternative to the Whisper API. Native word-level timestamps, fast processing.
+**Speed:** 15–60 seconds per hour of audio.
+**Dependencies:** `deepgram-sdk` Python package.
+**API key:** `DEEPGRAM_API_KEY`. Get one at: https://console.deepgram.com/ ($200 starter credit for new accounts).
+**Models:** `nova-3` (default, accurate), `nova-2` (stable), `enhanced` (faster).
 
-**Особенности:**
-- Возвращает слова с таймкодами на уровне слов нативно — для `.srt` отличное качество таймингов.
-- Параметр `diarize=True` доступен в API, но в v1 не используем (out of scope).
-- Конвертируем ответ Deepgram (`alternatives[0].words`) в наш `Segment[]` через группировку по фразам.
+**Notes:**
+- Natively returns word-level timestamps — excellent timing quality for `.srt`.
+- The `diarize=True` parameter is available in the API but is not used in v1 (out of scope).
+- We convert the Deepgram response (`alternatives[0].words`) into our `Segment[]` by grouping into phrases.
 
 ### 5.7 `assemblyai` — AssemblyAI
 
-**Когда:** альтернатива со встроенной диаризацией (для будущего v2) и хорошим качеством на длинных интервью.
-**Скорость:** 30–90 сек на час (асинхронная очередь — отправляешь и ждёшь результат, SDK поллит сам).
-**Зависимости:** `assemblyai` Python-пакет.
-**API-ключ:** `ASSEMBLYAI_API_KEY`. Получить: https://www.assemblyai.com/dashboard/signup (бесплатный free tier).
-**Модели:** `best` (дефолт, точная), `nano` (быстрее, чуть менее точная).
+**When:** alternative with built-in diarization (for a future v2) and solid quality on long interviews.
+**Speed:** 30–90 seconds per hour (async queue — submit and wait, the SDK polls for you).
+**Dependencies:** `assemblyai` Python package.
+**API key:** `ASSEMBLYAI_API_KEY`. Get one at: https://www.assemblyai.com/dashboard/signup (free tier).
+**Models:** `best` (default, accurate), `nano` (faster, slightly less accurate).
 
-**Особенности:**
-- Загружает аудио в их CDN, ставит в очередь, ждёт готовности — всё прозрачно через SDK.
-- Возвращает `utterances` (фразы с таймингами) — кладём их прямо в наш `Segment[]`.
-- Поддержка диаризации (`speaker_labels=True`) есть, но в v1 не включаем.
+**Notes:**
+- Uploads audio to their CDN, queues it, waits for completion — all transparent via the SDK.
+- Returns `utterances` (phrases with timings) — we put them straight into our `Segment[]`.
+- Diarization (`speaker_labels=True`) is supported, but not enabled in v1.
 
-### 5.8 `custom` — OpenAI-совместимый API
+### 5.8 `custom` — OpenAI-compatible API
 
-**Когда:** для гиков. Поддержка Deepgram-OpenAI-bridge, локальная LiteLLM, vLLM, etc.
-**Конфигурация:**
+**When:** for power users. Supports Deepgram-OpenAI-bridge, local LiteLLM, vLLM, etc.
+**Configuration:**
 - `base_url` — URL endpoint
-- `api_key` — секрет (через env или .env)
-- `model` — имя модели
-- Опционально: дополнительные параметры через `extra_options`
+- `api_key` — secret (via env or .env)
+- `model` — model name
+- Optional: extra parameters via `extra_options`
 
-**Использует** OpenAI SDK с переопределённым `base_url`. Пользователь сам отвечает за совместимость.
+**Uses** the OpenAI SDK with a custom `base_url`. The user is responsible for compatibility.
 
-### 5.9 Smart-режим (не отдельный бэкенд, а композиция)
+### 5.9 Smart mode (not a separate backend, but a composition)
 
-Когда `default_backend = "smart"`:
-1. Если URL — это YouTube → пробуем `subtitles`.
-2. Если получилось — возвращаем результат.
-3. Если не получилось (нет субтитров, не YouTube, флаг `--no-fast-path`) → используем `fallback_backend` (по умолчанию `whisper-local`).
+When `default_backend = "smart"`:
+1. If the URL is YouTube → try `subtitles`.
+2. If it worked — return the result.
+3. If it didn't (no subtitles, not YouTube, `--no-fast-path` set) → use `fallback_backend` (default `whisper-local`).
 
 ---
 
 ## 6. First-run wizard
 
-Запускается при первом вызове skill (отсутствует `~/.youtube-transcribe/config.toml`) **или** по команде `youtube-transcribe config wizard`.
+Runs on the first invocation of the skill (when `~/.youtube-transcribe/config.toml` is missing) **or** via `youtube-transcribe config wizard`.
 
-### Поведение
+### Behaviour
 
-1. Приветствие, объяснение что это и какие варианты есть.
-2. Авто-определение железа: OS, наличие NVIDIA GPU, объём VRAM, наличие Apple Silicon.
-3. Подсказка наиболее подходящего варианта на основе железа:
-   - Сильное железо (RTX 30/40/50, M1+) → рекомендация `whisper-local`.
-   - Слабое железо → рекомендация `gemini` или `subtitles`.
-4. Меню выбора бэкенда (см. ниже).
-5. Если выбран облачный — запрос API-ключа с ссылкой где его взять, с проверкой ключа тестовым 5-секундным запросом.
-6. Если выбран `smart` — выбор fallback-бэкенда отдельным вопросом.
-7. Сохранение в `~/.youtube-transcribe/config.toml`. Ключи — в `~/.youtube-transcribe/.env`.
+1. Greeting, explanation of what this is and what the options are.
+2. Hardware auto-detection: OS, NVIDIA GPU presence, VRAM amount, Apple Silicon presence.
+3. Recommendation of the most suitable option based on hardware:
+   - Strong hardware (RTX 30/40/50, M1+) → recommend `whisper-local`.
+   - Weak hardware → recommend `gemini` or `subtitles`.
+4. Backend choice menu (see below).
+5. If a cloud backend is picked — request an API key with a link where to get it, validate it with a 5-second test request.
+6. If `smart` is picked — fallback backend chosen via a separate question.
+7. Save to `~/.youtube-transcribe/config.toml`. Keys go into `~/.youtube-transcribe/.env`.
 
-### Пример меню (текстовый)
+### Sample menu (textual)
 
 ```
-🎬 youtube-transcribe — первая настройка
+🎬 youtube-transcribe — first setup
 
-Обнаружил: Windows + NVIDIA RTX 4090 (24 GB)
-Рекомендация: режим whisper-local (полностью оффлайн, лучшее качество)
+Detected: Windows + NVIDIA RTX 4090 (24 GB)
+Recommendation: whisper-local (fully offline, best quality)
 
-Какой движок использовать по умолчанию?
+Which engine should be the default?
 
-  1) ⭐ whisper-local (рекомендуется для твоего железа)
-     Локальный Whisper. Оффлайн, приватно, лучшее качество.
+  1) ⭐ whisper-local (recommended for your hardware)
+     Local Whisper. Offline, private, best quality.
 
   2) smart
-     Сначала пробует субтитры YouTube (мгновенно), иначе — выбранный fallback.
+     Tries YouTube subtitles first (instant); otherwise — chosen fallback.
 
   3) subtitles
-     Только субтитры YouTube. Мгновенно, среднее качество, только YouTube.
+     YouTube subtitles only. Instant, medium quality, YouTube only.
 
   4) gemini (Google AI Studio)
-     Облачный. Бесплатный free tier. Нужен ключ.
-     Получить: https://aistudio.google.com/apikey
+     Cloud. Free tier. Needs a key.
+     Get one: https://aistudio.google.com/apikey
 
   5) groq
-     Облачный. Самый быстрый. Бесплатный free tier. Нужен ключ.
-     Получить: https://console.groq.com/keys
+     Cloud. Fastest. Free tier. Needs a key.
+     Get one: https://console.groq.com/keys
 
   6) openai
-     Облачный. Платный (~$0.006/мин). Нужен ключ.
+     Cloud. Paid (~$0.006/min). Needs a key.
 
   7) deepgram
-     Облачный. $200 стартовый кредит. Точная модель Nova-3. Нужен ключ.
-     Получить: https://console.deepgram.com/
+     Cloud. $200 starter credit. Accurate Nova-3 model. Needs a key.
+     Get one: https://console.deepgram.com/
 
   8) assemblyai
-     Облачный. Free tier. Хорош для длинных интервью. Нужен ключ.
-     Получить: https://www.assemblyai.com/dashboard/signup
+     Cloud. Free tier. Good for long interviews. Needs a key.
+     Get one: https://www.assemblyai.com/dashboard/signup
 
   9) custom
-     OpenAI-совместимый API. Для продвинутых.
+     OpenAI-compatible API. For power users.
 
 > 1
-✅ Сохранил. Дефолтный движок: whisper-local
+✅ Saved. Default engine: whisper-local
 
-Поменять выбор: youtube-transcribe config wizard
-Использовать другой движок разово: youtube-transcribe <URL> --backend gemini
+Change the choice: youtube-transcribe config wizard
+Use a different engine once: youtube-transcribe <URL> --backend gemini
 ```
 
 ---
 
-## 7. Переключение движков в чате (3 уровня)
+## 7. Switching engines in chat (3 levels)
 
-Документируется и в SKILL.md (чтобы Claude применял), и в README (чтобы пользователь знал).
+Documented both in SKILL.md (so Claude applies it) and in the README (so the user knows).
 
-### Уровень 1 — разовое (per-call)
+### Level 1 — per-call
 
-Claude видит явное упоминание движка в сообщении и добавляет флаг `--backend X` к одному вызову.
+Claude sees an explicit engine mention in the message and adds `--backend X` to a single invocation.
 
-| Фраза пользователя | Команда |
+| User phrase | Command |
 |---|---|
-| «расшифруй это через gemini: <URL>» | `youtube-transcribe <URL> --backend gemini` |
-| «прогони через groq» | `... --backend groq` |
-| «локально whisper large» | `... --backend whisper-local --model large` |
-| «возьми субтитры с ютуба» | `... --backend subtitles` |
-| «gemini, но pro вместо flash» | `... --backend gemini --gemini-model gemini-2.5-pro` |
+| "transcribe this through gemini: <URL>" | `youtube-transcribe <URL> --backend gemini` |
+| "run via groq" | `... --backend groq` |
+| "locally with whisper large" | `... --backend whisper-local --model large` |
+| "grab YouTube subtitles" | `... --backend subtitles` |
+| "gemini, but pro instead of flash" | `... --backend gemini --gemini-model gemini-2.5-pro` |
 
-### Уровень 2 — сессионное
+### Level 2 — session-scoped
 
-Пользователь говорит «до конца разговора используй groq» — Claude запоминает в сессии и подставляет флаг ко всем последующим вызовам. Это поведение Claude как агента; SKILL.md явно инструктирует его так делать.
+The user says "use groq for the rest of this conversation" — Claude remembers within the session and adds the flag to all subsequent invocations. This is Claude's behaviour as an agent; SKILL.md explicitly instructs it to do so.
 
-### Уровень 3 — постоянное
+### Level 3 — persistent
 
-Меняет дефолт через CLI:
+Changes the default via CLI:
 
 ```bash
 youtube-transcribe config show
 youtube-transcribe config set backend groq
 youtube-transcribe config set whisper-model turbo
 youtube-transcribe config set language ru
-youtube-transcribe config set-key gemini       # интерактивный ввод ключа
-youtube-transcribe config test groq            # проверить, что ключ рабочий
-youtube-transcribe config wizard               # перезапустить мастер
+youtube-transcribe config set-key gemini       # interactive key entry
+youtube-transcribe config test groq            # check that the key works
+youtube-transcribe config wizard               # rerun the wizard
 ```
 
-В чате тоже работает: «переключи дефолт на groq» → Claude дёргает `youtube-transcribe config set backend groq`.
+Works from chat too: "switch the default to groq" → Claude runs `youtube-transcribe config set backend groq`.
 
 ---
 
-## 8. CLI-параметры
+## 8. CLI parameters
 
 ```
-youtube-transcribe <URL_или_путь_к_файлу> [опции]
+youtube-transcribe <URL_or_path_to_file> [options]
 
-Опции выбора движка:
+Engine selection:
   --backend {smart,subtitles,whisper-local,gemini,groq,openai,deepgram,assemblyai,custom}
-                                         Какой движок использовать (default: из config)
+                                         Which engine to use (default: from config)
   --whisper-model {turbo,large,medium,small,distil}
-                                         Модель для whisper-local (default: turbo)
-  --gemini-model NAME                    Модель Gemini (default: gemini-2.5-flash)
-  --groq-model NAME                      Модель Groq (default: whisper-large-v3-turbo)
-  --deepgram-model NAME                  Модель Deepgram (default: nova-3)
-  --assemblyai-model NAME                Модель AssemblyAI (default: best)
+                                         Model for whisper-local (default: turbo)
+  --gemini-model NAME                    Gemini model (default: gemini-2.5-flash)
+  --groq-model NAME                      Groq model (default: whisper-large-v3-turbo)
+  --deepgram-model NAME                  Deepgram model (default: nova-3)
+  --assemblyai-model NAME                AssemblyAI model (default: best)
 
-Опции вывода:
-  --output-dir DIR                       Куда сохранить (default: ./transcripts)
-  --timestamps / --no-timestamps         Включить таймкоды в .txt (default: true)
-  --srt / --no-srt                       Создавать .srt (default: true)
-  --language LANG                        Язык (ru, en, kk, uk, …) (default: auto)
+Output:
+  --output-dir DIR                       Where to save (default: ./transcripts)
+  --timestamps / --no-timestamps         Include timestamps in .txt (default: true)
+  --srt / --no-srt                       Produce .srt (default: true)
+  --language LANG                        Language (ru, en, kk, uk, …) (default: auto)
 
-Whisper-специфичные:
-  --device {auto,cuda,cpu,mps}           Устройство (default: auto)
+Whisper-specific:
+  --device {auto,cuda,cpu,mps}           Device (default: auto)
   --compute-type {auto,float16,int8_float16,int8}
                                          (default: auto)
   --beam-size N                          (default: 5)
   --vad / --no-vad                       Voice activity detection (default: true)
 
-Загрузка:
-  --keep-audio                           Сохранить скачанный mp3
+Download:
+  --keep-audio                           Keep the downloaded mp3
   --cookies-from-browser {chrome,firefox,edge,safari}
-                                         Использовать cookies для обхода блокировок YouTube
+                                         Use cookies to bypass YouTube blocks
 
-Прочее:
-  --no-fast-path                         Отключить subtitles fast-path в smart-режиме
-  --verbose                              Подробный вывод
+Misc:
+  --no-fast-path                         Disable the subtitles fast path in smart mode
+  --verbose                              Verbose output
   --version
   --help
 
@@ -442,115 +442,115 @@ Sub-commands:
 
 ---
 
-## 9. Slash-команда `/transcribe`
+## 9. Slash command `/transcribe`
 
-Файл `commands/transcribe.md` определяет команду. Тонкая обёртка вокруг `transcribe.py`:
+`commands/transcribe.md` defines the command. A thin wrapper around `transcribe.py`:
 
 ```bash
-/transcribe <URL_или_путь> [любые флаги CLI]
+/transcribe <URL_or_path> [any CLI flags]
 ```
 
-Примеры:
+Examples:
 - `/transcribe https://youtu.be/XXX`
 - `/transcribe video.mp4 --backend gemini`
 - `/transcribe https://youtu.be/XXX --backend whisper-local --model large --language ru`
 
-После выполнения Claude автоматически читает результат и предлагает анализ/перевод/саммари (как в спеке).
+After it finishes, Claude reads the output automatically and offers analysis / translation / summary (as in the spec).
 
 ---
 
-## 10. SKILL.md — триггеры и анти-триггеры
+## 10. SKILL.md — triggers and anti-triggers
 
-Skill срабатывает по семантическому матчингу `description`. Поэтому описание должно:
+The skill fires on semantic matching of `description`. So the description has to:
 
-1. Чётко формулировать цель.
-2. Перечислять характерные фразы-триггеры на нескольких языках.
-3. **Явно** перечислять анти-триггеры, чтобы избежать ложных срабатываний.
+1. Clearly state the goal.
+2. Enumerate characteristic trigger phrases in several languages.
+3. **Explicitly** list anti-triggers to avoid false positives.
 
-### Позитивные триггеры (примеры формулировок в description)
+### Positive triggers (sample phrasings in description)
 
-- Прямые: «транскрибируй», «расшифруй», «сделай текст», «transcribe», «get transcript», «розшифруй», «yazıya geçir».
-- Просьбы по содержанию видео: «о чём это видео», «что говорят», «what's in this video».
-- Просьбы субтитров: «сделай субтитры», «.srt», «make subtitles».
-- Скачивание + расшифровка: «скачай и расшифруй», «download and transcribe».
-- Локальные файлы: «расшифруй mp3», «transcribe meeting.mp4».
-- Просто YouTube-ссылка как единственный контент сообщения.
-- Запросы на саммари видео по ссылке (skill сначала транскрибирует, потом Claude суммирует).
-- Запросы цитат из видео, таймкодов, перевода видео.
-- Переключение движка: «через gemini», «локально whisper», «возьми субтитры», «через groq».
+- Direct: "transcribe", "get a transcript", "convert speech to text", and equivalents in other languages.
+- Content questions: "what's in this video", "what are they saying".
+- Subtitle requests: "make subtitles", ".srt".
+- Download + transcribe: "download and transcribe".
+- Local files: "transcribe meeting.mp4".
+- A bare YouTube link as the only message content.
+- Requests to summarise a linked video (the skill transcribes first, then Claude summarises).
+- Requests for quotes, timestamps, or translation of a video.
+- Engine switching: "via gemini", "locally with whisper", "use subtitles", "via groq".
 
-### Анти-триггеры
+### Anti-triggers
 
-- В чате уже есть готовый транскрипт — пользователь просит про сам текст, skill не нужен.
-- Концептуальные вопросы: «что такое whisper», «как работает транскрипция».
-- Запрос рекомендации видео без URL: «посоветуй видео про X».
-- Создание / запись / съёмка видео.
-- Вопросы про сам skill: «как установить», «покажи код transcribe.py».
-- Не-видео ссылки в контексте, где явно не запрошена транскрипция.
+- A transcript is already in chat — the user asks about the text itself, the skill is not needed.
+- Conceptual questions: "what is whisper", "how does transcription work".
+- Recommendations for a video without a URL: "suggest a video about X".
+- Creating / recording / shooting video.
+- Questions about the skill itself: "how do I install", "show me transcribe.py".
+- Non-video links in contexts where transcription was clearly not requested.
 
-### Поддерживаемые платформы (URL)
+### Supported platforms (URL)
 
-`yt-dlp` поддерживает 1000+ сайтов: YouTube, Vimeo, Twitter/X, TikTok, Twitch VOD, SoundCloud, Bilibili, Rutube и т.д. По умолчанию любой URL пробуем через yt-dlp. Если yt-dlp не справляется — понятная ошибка.
+`yt-dlp` supports 1000+ sites: YouTube, Vimeo, Twitter/X, TikTok, Twitch VOD, SoundCloud, Bilibili, Rutube, etc. By default we try every URL through yt-dlp. If yt-dlp can't handle it — clear error.
 
 ---
 
-## 11. Загрузчик YouTube/медиа (utils/downloader.py)
+## 11. YouTube/media downloader (utils/downloader.py)
 
-`yt-dlp` как основной инструмент. Обёртка добавляет:
+`yt-dlp` is the main tool. Our wrapper adds:
 
-1. **Авто-обновление yt-dlp** при первом запуске за день (`yt-dlp -U`). Кэшируется флаг последнего обновления в `~/.youtube-transcribe/state.json`.
-2. **Поддержка cookies** через `--cookies-from-browser`, флаг проброшен в CLI.
-3. **Геобайпасс** по умолчанию: `--geo-bypass`.
-4. **Обработка типичных ошибок:**
-   - 403 / "Sign in to confirm you're not a bot" → подсказка: «попробуй `--cookies-from-browser chrome`».
-   - 401 / age-restricted → подсказка: «нужны cookies залогиненного аккаунта».
-   - Региональная блокировка → подсказка: «попробуй VPN или другой регион».
-5. **Опциональный fallback на pytube** — если установлен и yt-dlp упал, пробуем pytube. Чисто запасной парашют, не основной механизм.
-6. **Извлечение только аудио:** `-x --audio-format mp3 --audio-quality 0`.
-7. **Очистка временного файла** после транскрипции (если `--keep-audio` не указан).
+1. **Auto-update of yt-dlp** on the first run of the day (`yt-dlp -U`). The last-update flag is cached in `~/.youtube-transcribe/state.json`.
+2. **Cookies support** via `--cookies-from-browser`, the flag is forwarded from the CLI.
+3. **Geobypass** by default: `--geo-bypass`.
+4. **Handling of common errors:**
+   - 403 / "Sign in to confirm you're not a bot" → hint: "try `--cookies-from-browser chrome`".
+   - 401 / age-restricted → hint: "you need cookies from a logged-in account".
+   - Region block → hint: "try a VPN or another region".
+5. **Optional pytube fallback** — if installed and yt-dlp fails, we try pytube. Pure safety net, not the main mechanism.
+6. **Audio-only extraction:** `-x --audio-format mp3 --audio-quality 0`.
+7. **Cleanup of the temp file** after transcription (unless `--keep-audio` is set).
 
 ---
 
 ## 12. Output writer (utils/output_writer.py)
 
-### .txt с таймкодами
+### .txt with timestamps
 
 ```
-[00:00:00.000 --> 00:00:05.240] Привет, в этом видео мы разберём…
-[00:00:05.240 --> 00:00:09.800] первое что нужно понимать это…
+[00:00:00.000 --> 00:00:05.240] Hi, in this video we'll cover…
+[00:00:05.240 --> 00:00:09.800] the first thing to understand is…
 ```
 
-### .txt без таймкодов
+### .txt without timestamps
 
-Слитный текст, разбитый на абзацы по эвристике: новый абзац после паузы > 2 сек **или** после ~5 сегментов.
+Flowing text split into paragraphs by heuristic: a new paragraph after a > 2-second pause **or** after ~5 segments.
 
 ### .srt
 
-Стандартный формат, индексация с 1, таймкоды `HH:MM:SS,mmm`.
+Standard format, 1-based indexing, timestamps `HH:MM:SS,mmm`.
 
 ```
 1
 00:00:00,000 --> 00:00:05,240
-Привет, в этом видео мы разберём…
+Hi, in this video we'll cover…
 
 2
 00:00:05,240 --> 00:00:09,800
-первое что нужно понимать это…
+the first thing to understand is…
 ```
 
-### Имена файлов
+### File names
 
-`<output-dir>/<санитизированное имя видео>_<дата>.txt` (и `.srt`). Из спецсимволов в имени оставляем только буквы/цифры/`-`/`_`.
+`<output-dir>/<sanitised video title>_<date>.txt` (and `.srt`). From special characters we keep only letters/digits/`-`/`_`.
 
 ---
 
-## 13. Конфиг и хранение ключей
+## 13. Config and key storage
 
 ### `~/.youtube-transcribe/config.toml`
 
 ```toml
 default_backend = "whisper-local"
-fallback_backend = "whisper-local"     # для smart-режима
+fallback_backend = "whisper-local"     # for smart mode
 
 [whisper-local]
 model = "turbo"
@@ -586,9 +586,9 @@ output_dir = "./transcripts"
 
 [behavior]
 keep_audio = false
-yt_dlp_auto_update = true              # авто-обновление раз в день
+yt_dlp_auto_update = true              # auto-update once a day
 cookies_browser = ""                   # "" | "chrome" | "firefox" | "edge"
-fast_path_enabled = true               # пробовать субтитры в smart-режиме
+fast_path_enabled = true               # try subtitles in smart mode
 ```
 
 ### `~/.youtube-transcribe/.env`
@@ -602,140 +602,140 @@ ASSEMBLYAI_API_KEY=...
 CUSTOM_API_KEY=...
 ```
 
-- Права на Unix: `0600`. На Windows — стандартные права пользователя.
-- Файл явно прописан в `.gitignore` репозитория skill (на случай, если кто-то решит закоммитить).
-- Wizard и `config set-key` пишут сюда.
+- Permissions on Unix: `0600`. On Windows — standard user permissions.
+- The file is explicitly listed in the skill's `.gitignore` (in case someone tries to commit it).
+- The wizard and `config set-key` write here.
 
-### Приоритет загрузки ключей
+### Key loading priority
 
-1. Переменные окружения процесса (например, `GEMINI_API_KEY=xxx youtube-transcribe ...`).
+1. Process environment variables (e.g. `GEMINI_API_KEY=xxx youtube-transcribe ...`).
 2. `~/.youtube-transcribe/.env`.
-3. Если нет — wizard или CLI выводит понятную ошибку с инструкцией.
+3. If neither — wizard or CLI prints a clear error with instructions.
 
-### Безопасность
+### Security
 
-- Ключи никогда не печатаются в логи (`--verbose`) полностью; маскируются как `sk-***...XYZ`.
-- Не передаются в Claude-чат напрямую — Claude видит только результат транскрипции.
-- При запросе пользователю «покажи мой ключ» — отказываемся, говорим что лежит в `.env`.
+- Keys are never printed in logs in full (`--verbose`); masked as `sk-***...XYZ`.
+- Not passed to the Claude chat directly — Claude only sees the transcription result.
+- If the user asks "show me my key" — we refuse and point them at `.env`.
 
 ---
 
-## 14. Документация (README.md)
+## 14. Documentation (README.md)
 
-Двухслойная структура:
+Two-layered layout:
 
-### Слой 1 — для обычного пользователя (~50% файла)
+### Layer 1 — for the regular user (~50% of the file)
 
-1. **Заголовок и одно предложение что это.**
-2. **GIF/скриншот демо** (потом, опционально).
-3. **Установка** — три рецепта (плагин / skill / uv tool), для каждого один блок команд для Win/Mac/Linux.
-4. **Быстрый старт** — три примера: вставить ссылку, локальный файл, slash-команда.
-5. **Какое железо нужно** — таблица с честными цифрами (см. ниже).
-6. **Управление движками** — как переключаться в чате (3 уровня) и через CLI.
-7. **Частые ошибки** — yt-dlp 403, нет CUDA, ключ не работает, и т.д.
+1. **Title and one-line description.**
+2. **Demo GIF/screenshot** (later, optional).
+3. **Installation** — three recipes (plugin / skill / uv tool), each with a single block of commands for Win/Mac/Linux.
+4. **Quick start** — three examples: paste a link, local file, slash command.
+5. **What hardware do I need** — table with honest numbers (see below).
+6. **Engine management** — how to switch in chat (3 levels) and via the CLI.
+7. **Common errors** — yt-dlp 403, no CUDA, key not working, etc.
 
-### Слой 2 — для тех, кто хочет глубже (~50% файла)
+### Layer 2 — for those who want to dig deeper (~50% of the file)
 
-1. **Архитектура** — диаграмма, что-куда-зачем, как устроены backends.
-2. **Сравнение моделей Whisper** — turbo / large / medium / small / distil, реальный WER, размер VRAM.
-3. **Как работают облачные бэкенды** — что отправляется, как защищаются ключи, лимиты free tier.
-4. **Smart-режим внутри** — алгоритм выбора движка.
-5. **Тонкая настройка** — `compute_type`, `beam_size`, `vad`, `--no-fast-path`.
-6. **Расширение** — как добавить свой бэкенд (реализовать интерфейс `Transcriber`).
-7. **Roadmap** — диаризация (`pyannote-audio`), чанкинг для видео >2ч, авто-саммари через Claude/Gemini.
+1. **Architecture** — diagram, what-goes-where-why, how the backends are structured.
+2. **Comparison of Whisper models** — turbo / large / medium / small / distil, real WER, VRAM size.
+3. **How the cloud backends work** — what is sent, how keys are protected, free tier limits.
+4. **Smart mode internals** — engine selection algorithm.
+5. **Fine-tuning** — `compute_type`, `beam_size`, `vad`, `--no-fast-path`.
+6. **Extending** — how to add your own backend (implement the `Transcriber` interface).
+7. **Roadmap** — diarization (`pyannote-audio`), chunking for videos > 2h, auto-summary via Claude/Gemini.
 
-### Таблица «какое железо нужно»
+### "What hardware do I need" table
 
-| Железо | Подходящий бэкенд | Час видео = | Комментарий |
+| Hardware | Suitable backend | One hour of video = | Note |
 |---|---|---|---|
-| Любое (есть YouTube-субтитры) | `subtitles` | 2–10 сек | Среднее качество, мгновенно |
-| RTX 4090/4080/5090 (16+ GB) | whisper-local turbo | 30–60 сек | float16, идеал |
-| RTX 4070/3080/4060 Ti (12 GB) | whisper-local turbo | 1–2 мин | float16 |
-| RTX 3060/4060 (8–12 GB) | whisper-local turbo | 2–4 мин | float16 |
-| RTX 2060 / GTX 1660 Ti (6 GB) | whisper-local turbo | 5–10 мин | int8_float16 |
-| GTX 1060/1050 Ti (3–6 GB) | whisper-local medium | 15–30 мин | На грани |
-| M3 Max / M4 Pro | whisper-local turbo | 30–45 сек | mlx-whisper |
-| M2 Pro / M3 / M4 | whisper-local turbo | 1–2 мин | mlx-whisper |
-| M1 / M2 base (8 GB) | whisper-local turbo | 2–4 мин | mlx-whisper |
-| CPU only, Ryzen 7 / i7 | whisper-local small | 30–45 мин | Очень медленно |
-| Слабое железо в целом | `gemini` или `groq` | 30–120 сек | Облако, нужен интернет + ключ |
+| Anything (YouTube subtitles available) | `subtitles` | 2–10 sec | Medium quality, instant |
+| RTX 4090/4080/5090 (16+ GB) | whisper-local turbo | 30–60 sec | float16, ideal |
+| RTX 4070/3080/4060 Ti (12 GB) | whisper-local turbo | 1–2 min | float16 |
+| RTX 3060/4060 (8–12 GB) | whisper-local turbo | 2–4 min | float16 |
+| RTX 2060 / GTX 1660 Ti (6 GB) | whisper-local turbo | 5–10 min | int8_float16 |
+| GTX 1060/1050 Ti (3–6 GB) | whisper-local medium | 15–30 min | On the edge |
+| M3 Max / M4 Pro | whisper-local turbo | 30–45 sec | mlx-whisper |
+| M2 Pro / M3 / M4 | whisper-local turbo | 1–2 min | mlx-whisper |
+| M1 / M2 base (8 GB) | whisper-local turbo | 2–4 min | mlx-whisper |
+| CPU only, Ryzen 7 / i7 | whisper-local small | 30–45 min | Very slow |
+| Weak hardware overall | `gemini` or `groq` | 30–120 sec | Cloud, needs internet + key |
 
-**Рекомендация по железу для дефолтного режима (whisper-local):**
-- ✅ Идеально: NVIDIA RTX 30/40/50-серия (≥6 GB VRAM) или Apple Silicon M1+.
-- 🟡 Норм для коротких видео: GTX 16-серия, старые RTX 20.
-- 🔴 Лучше переключиться на `subtitles` или `gemini`/`groq`: интегрированная графика, ноутбуки без дискретной GPU.
-- ⛔ Не ставь whisper-local: машины <8 GB RAM. Используй облачные бэкенды.
-
----
-
-## 15. Тестирование
-
-### Уровень 1 — unit-тесты с моками
-
-- `test_platform_detect.py` — мокаем `subprocess` и `platform`, проверяем что выбор движка корректен для всех комбинаций OS × GPU.
-- `test_output_writer.py` — проверяем формат .txt (с/без таймкодов) и .srt.
-- `test_config.py` — загрузка/запись config.toml, приоритет env vars, маскирование ключей в логах.
-- `test_backends.py` — каждый бэкенд тестируется с замоканным внешним вызовом, проверяем что они корректно реализуют интерфейс.
-
-### Уровень 2 — интеграционные тесты
-
-- Smoke-тест на коротком (≤60 сек) публичном YouTube-видео для каждого бэкенда (whisper-local, subtitles; gemini/groq/openai — только если ключ настроен в окружении CI).
-- Тест fallback: yt-dlp ловит специально подготовленную ошибку → пробуется pytube (или возвращается понятная ошибка).
-- Тест cookies: проверка что флаг `--cookies-from-browser` правильно передаётся в yt-dlp (без реального вызова).
-
-### Уровень 3 — проверка вручную в финале
-
-- `python transcribe.py --help` — показывает все опции.
-- Прогон на тестовом 60-секундном русском видео с YouTube → получаем .txt и .srt.
-- Прогон того же видео с `--backend subtitles` → мгновенно.
-- Прогон того же видео с `--backend gemini` (если ключ есть) → результат сопоставим.
-- Wizard на свежей машине (через эмуляцию: удаляем `~/.youtube-transcribe/`, запускаем).
-- `youtube-transcribe config set backend groq && youtube-transcribe config show` — изменение видно.
+**Hardware recommendation for the default mode (whisper-local):**
+- ✅ Ideal: NVIDIA RTX 30/40/50-series (≥6 GB VRAM) or Apple Silicon M1+.
+- 🟡 OK for short videos: GTX 16-series, older RTX 20.
+- 🔴 Better to switch to `subtitles` or `gemini`/`groq`: integrated graphics, laptops without a discrete GPU.
+- ⛔ Don't install whisper-local: machines with <8 GB RAM. Use cloud backends.
 
 ---
 
-## 16. Что НЕ делаем в v1 (out of scope)
+## 15. Testing
 
-- **Диаризация** (определение спикеров) — `pyannote-audio` тяжёлый, требует HF-токен. Оставляем как опциональный плагин в roadmap.
-- **Чанкинг для видео > 2 ч** — для большинства бэкендов это не критично, но для надёжности — задача v2.
-- **Постобработка через локальную LLM** (исправление имён собственных, терминов) — пользователь может попросить Claude в чате после транскрипции.
-- **Авто-саммари как часть skill** — не нужно, Claude в чате всё равно читает результат и сам предлагает саммари.
-- **Web UI** — этот skill чисто CLI/chat.
-- **Стриминг** (live-транскрипция) — это совсем другой usecase.
-- **Поддержка не-OpenAI-compatible API** в `custom`-бэкенде — провайдер должен говорить на OpenAI-диалекте.
+### Level 1 — unit tests with mocks
 
----
+- `test_platform_detect.py` — mock `subprocess` and `platform`, verify the engine choice for every OS × GPU combo.
+- `test_output_writer.py` — verify .txt format (with/without timestamps) and .srt.
+- `test_config.py` — config.toml load/save, env var priority, key masking in logs.
+- `test_backends.py` — each backend tested with the external call mocked, check that they correctly implement the interface.
 
-## 17. Открытые вопросы / риски
+### Level 2 — integration tests
 
-1. **Версии моделей mlx-whisper.** Нужно проверить актуальные имена в репо `mlx-community` на huggingface — возможно, пути в `MODEL_MAP` изменятся к моменту реализации.
-2. **YouTube anti-bot обновления.** YouTube обновляет защиту регулярно. Возможно, к моменту релиза потребуется PO Token plugin (`bgutil-ytdlp-pot-provider`). README должен это упомянуть.
-3. **Gemini Files API лимиты.** Уточнить актуальные лимиты на размер файла (на момент написания — 2GB через Files API), длительность (до 1 часа — стабильно, дольше — есть нюансы).
-4. **mlx-whisper не тестируется на этапе написания кода** — у разработчика Windows-машина. Реализация по официальной документации `mlx-whisper`. Финальная отладка — у пользователя на его Mac через git pull → запуск → фидбек → фикс. В README раздел «macOS» помечается как «протестировано на M-серии вручную владельцем»; точная модель/версия macOS заполняется после прогона.
-5. **uv доступность.** На каких-то корпоративных Windows-машинах может быть запрет на скачивание бинарников. README должен иметь fallback-инструкцию через pip.
+- Smoke test on a short (≤60 sec) public YouTube video for every backend (whisper-local, subtitles; gemini/groq/openai — only when a key is configured in the CI environment).
+- Fallback test: yt-dlp catches a specially crafted error → pytube is tried (or a clear error is returned).
+- Cookies test: verify the `--cookies-from-browser` flag is forwarded into yt-dlp correctly (without a real call).
 
----
+### Level 3 — manual final check
 
-## 18. Финальный чек-лист (повторение для удобства)
-
-- ✅ Дефолтный бэкенд: `whisper-local` (оффлайн, приватно).
-- ✅ 8 бэкендов: subtitles, whisper-local, gemini, groq, openai, deepgram, assemblyai, custom + smart-композиция.
-- ✅ First-run wizard с автодетектом железа.
-- ✅ Переключение движков в чате (per-call / session / persistent).
-- ✅ Slash-команда `/transcribe`.
-- ✅ Расширенные мультиязычные триггеры + явные анти-триггеры.
-- ✅ Защита yt-dlp: cookies, auto-update, fallback на pytube, понятные ошибки.
-- ✅ Двухслойный README + честная таблица железа.
-- ✅ Три способа установки: plugin / skill / uv tool.
-- ✅ Безопасное хранение ключей: env vars > .env (0600), не в git, маскирование в логах.
-- ✅ Тесты: unit + интеграционные + ручная финальная проверка.
+- `python transcribe.py --help` — shows every option.
+- Run on a test 60-second Russian YouTube video → receive .txt and .srt.
+- Run the same video with `--backend subtitles` → instant.
+- Run the same video with `--backend gemini` (if a key is set) → comparable result.
+- Wizard on a fresh machine (simulate by deleting `~/.youtube-transcribe/`, then run).
+- `youtube-transcribe config set backend groq && youtube-transcribe config show` — the change shows up.
 
 ---
 
-## 19. Что дальше
+## 16. What we do NOT do in v1 (out of scope)
 
-После одобрения этого документа:
+- **Diarization** (speaker identification) — `pyannote-audio` is heavy and needs an HF token. Keep as an optional plugin in the roadmap.
+- **Chunking for videos > 2 h** — not critical for most backends, but for robustness — a v2 task.
+- **Post-processing via a local LLM** (correcting proper nouns, terms) — the user can ask Claude in chat after the transcription.
+- **Auto-summary as part of the skill** — not needed; Claude in chat reads the output anyway and offers a summary itself.
+- **Web UI** — this skill is pure CLI/chat.
+- **Streaming** (live transcription) — that's a different use case altogether.
+- **Non-OpenAI-compatible APIs** in the `custom` backend — the provider must speak the OpenAI dialect.
 
-1. Создаётся **детальный план реализации** через skill `superpowers:writing-plans` — пошаговый: что делаем сначала, что потом, как проверяем каждый шаг.
-2. Реализация по плану с регулярными чекпойнтами.
-3. Финальный прогон и проверка по списку из раздела 15.
+---
+
+## 17. Open questions / risks
+
+1. **mlx-whisper model versions.** Need to verify the current names in the `mlx-community` repo on huggingface — the paths in `MODEL_MAP` may change by implementation time.
+2. **YouTube anti-bot updates.** YouTube updates its protection regularly. By release time we may need the PO Token plugin (`bgutil-ytdlp-pot-provider`). The README should mention this.
+3. **Gemini Files API limits.** Confirm current file size limits (at the time of writing — 2 GB via Files API), duration (up to 1 hour — stable, longer — there are caveats).
+4. **mlx-whisper is not tested at coding time** — the developer is on a Windows machine. Implementation by the official `mlx-whisper` documentation. Final debugging happens with the user on their Mac via git pull → run → feedback → fix. The README's "macOS" section is marked "manually tested on M-series by the owner"; the exact model/macOS version is filled in after the run.
+5. **uv availability.** Some corporate Windows machines may forbid downloading binaries. The README needs a pip fallback instruction.
+
+---
+
+## 18. Final checklist (recap for convenience)
+
+- ✅ Default backend: `whisper-local` (offline, private).
+- ✅ 8 backends: subtitles, whisper-local, gemini, groq, openai, deepgram, assemblyai, custom + smart composition.
+- ✅ First-run wizard with hardware autodetect.
+- ✅ Engine switching in chat (per-call / session / persistent).
+- ✅ `/transcribe` slash command.
+- ✅ Extended multilingual triggers + explicit anti-triggers.
+- ✅ yt-dlp safety net: cookies, auto-update, pytube fallback, clear errors.
+- ✅ Two-layer README + honest hardware table.
+- ✅ Three install methods: plugin / skill / uv tool.
+- ✅ Secure key storage: env vars > .env (0600), not in git, masked in logs.
+- ✅ Tests: unit + integration + manual final check.
+
+---
+
+## 19. Next steps
+
+After this document is approved:
+
+1. A **detailed implementation plan** is produced via the `superpowers:writing-plans` skill — step by step: what we do first, what next, how we verify each step.
+2. Implementation against the plan with regular checkpoints.
+3. Final run and validation against the list in section 15.

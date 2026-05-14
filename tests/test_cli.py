@@ -95,4 +95,4 @@ def test_cli_transcribe_propagates_backend_not_configured(tmp_path):
                                      "--backend", "gemini",
                                      "--output-dir", str(tmp_path)])
     assert result.exit_code == 3
-    assert "не настроен" in result.output.lower() or "not configured" in result.output.lower()
+    assert "not configured" in result.output.lower() or "no api key" in result.output.lower()
