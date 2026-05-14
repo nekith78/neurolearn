@@ -56,3 +56,8 @@ graphify-out/*
 .claude/
 qa-out/
 ig-test/
+
+# Implementation plans are scaffolding used during development.
+# Useful locally on the dev machine, no need to publish to git.
+# Specs that survive should live in docs/specs/ (architecture-level only).
+docs/plans/
