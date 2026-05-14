@@ -5,7 +5,7 @@ repository.
 
 ## Repository state
 
-`youtube-transcribe` is a mature CLI tool: v0.8.0, ~900 unit tests
+`neurolearn` is a mature CLI tool: v0.8.0, ~900 unit tests
 passing, in active use. Shipped commands: `transcribe`, `batch`,
 `analyze`, `research`, `subscribes` (YouTube / Instagram / TikTok),
 `history`, `config`, `webui` (hidden).
@@ -48,18 +48,18 @@ uv run pytest tests/test_X.py -v   # one file
 uv run pytest -k keyword -v        # filter by keyword
 RUN_E2E_SMOKE=1 uv run pytest -v   # enable network-touching e2e
 
-uv run youtube-transcribe --help   # see all commands
+uv run neurolearn --help   # see all commands
 ```
 
 ## Architecture invariants
 
 These are load-bearing — breaking them silently breaks the tool.
 
-**Naming.** The Claude Code plugin / CLI binary is `youtube-transcribe`
-(kebab-case). The Python package is `skills/youtube_transcribe/`
+**Naming.** The Claude Code plugin / CLI binary is `neurolearn`
+(kebab-case). The Python package is `skills/neurolearn/`
 (snake_case). Both forms appear in the codebase and docs — use them
 by context. **`yt-tr` is not a valid alias** and never was; if you
-see it in any doc, fix it to `youtube-transcribe`.
+see it in any doc, fix it to `neurolearn`.
 
 **Cookies are strict file-only (v0.8 security migration).** All paths
 that previously accepted `--cookies-from-browser` now require an
@@ -71,7 +71,7 @@ all cookies. This is non-negotiable.
 - `transcribe` / `batch` — flag is `--cookies-file <path>`
 - `subscribes` (IG / TikTok) — register once via
   `subscribes cookies set <platform> <path>`; stored at
-  `~/.youtube-transcribe/<platform>-cookies.txt` with mode 0600.
+  `~/.neurolearn/<platform>-cookies.txt` with mode 0600.
 
 **Backend abstraction.** `backends/base.py` defines `Transcriber`
 (Protocol) and `TranscriptionResult` (dataclass). All 8 backends
@@ -101,9 +101,9 @@ Never `import` either unconditionally — both modules will be absent
 on the wrong platform.
 
 **Config and secrets.**
-- `~/.youtube-transcribe/config.toml` — settings (TOML, `tomli` to
+- `~/.neurolearn/config.toml` — settings (TOML, `tomli` to
   read, `tomli-w` to write, `tomlkit` for comment-preserving edits).
-- `~/.youtube-transcribe/.env` — API keys, mode 0600 on Unix.
+- `~/.neurolearn/.env` — API keys, mode 0600 on Unix.
 - Load order: process env > `.env` > error with instructions.
 - API keys are masked when printed (`sk-***...XYZ`). Never log full keys.
 

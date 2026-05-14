@@ -1,7 +1,7 @@
-# Agent reference — youtube-transcribe
+# Agent reference — NEUROLEARN
 
 Reference manual for LLM agents (Claude Code, GPT-based, local) that drive this
-skill. Pairs with `skills/youtube_transcribe/SKILL.md` (which is the trigger /
+skill. Pairs with `skills/neurolearn/SKILL.md` (which is the trigger /
 quick-rules layer) and the project knowledge graph in
 [`graphify-out/`](../graphify-out/) (for exploration).
 
@@ -35,7 +35,7 @@ diarization, ASR correction, history log.
 
 ### `transcribe [<URL_or_path>] [flags]`
 
-Single video. Bare `youtube-transcribe <URL>` (no sub-command) also routes here
+Single video. Bare `neurolearn <URL>` (no sub-command) also routes here
 for back-compat. Positional URL is **optional**: omit it and the command
 prompts (TTY) — `Paste URL or file path:`. Non-TTY without arg exits 2.
 
@@ -103,14 +103,14 @@ Key flags:
 - `--match "substring"` — case-insensitive substring on title
 - `--filter "LLM question"` — LLM pre-screen (e.g. "is this about politics?")
 - `--in-subscribes` — instead of YouTube search, use latest videos from
-  channels in `~/.youtube-transcribe/subscribes.toml`
+  channels in `~/.neurolearn/subscribes.toml`
 - `--group <name>` — restrict to channels in this group (only with `--in-subscribes`)
 - `--yes` — skip the TTY checkpoint
 - `--no-analyze` — force-skip the LLM pass (recommended when driven from chat)
 - `--analyze-backend {gemini,claude,openai,ollama}` — pick LLM explicitly
 - All `batch` flags (`--backend`, `--whisper-model`, `--workers`, etc.) pass through
 
-Output: same as batch + a row in `~/.youtube-transcribe/history.toml` with
+Output: same as batch + a row in `~/.neurolearn/history.toml` with
 id `r-MMDD-HHMMSS`.
 
 ### `subscribes` sub-commands (v0.7)
@@ -165,7 +165,7 @@ Read-only. IDs are short (`r-MMDD-HHMMSS` / `s-MMDD-HHMMSS`).
 
 ```
 config show                # current TOML + which API keys are set (masked)
-config set <key> <value>   # write to ~/.youtube-transcribe/config.toml
+config set <key> <value>   # write to ~/.neurolearn/config.toml
 config set-key <backend>   # interactively store an API key in .env
 config test <backend>      # sanity-check a backend's configuration
 config wizard              # re-run first-run setup
@@ -174,7 +174,7 @@ config wizard              # re-run first-run setup
 ### Hidden / experimental
 
 - `webui` — exists, hidden from `--help`. Gradio-based, not maintained. Code
-  preserved under `skills/youtube_transcribe/webui/` for future revival.
+  preserved under `skills/neurolearn/webui/` for future revival.
 
 ---
 
@@ -184,7 +184,7 @@ For deeper navigation use [`graphify-out/graph.json`](../graphify-out/graph.json
 or `/graphify query "..."`. High-level structure:
 
 ```
-skills/youtube_transcribe/
+skills/neurolearn/
 ├── transcribe.py             # CLI entry point — all sub-commands, also _run_batch_pipeline
 ├── pipeline.py               # single-video pipeline (download → backend → write)
 ├── pipeline_v02.py           # v0.2+ post-pipeline stages: quality, vision, OCR
@@ -276,7 +276,7 @@ from inside Claude Code, always pass `--no-analyze`. You will read
 point routing transcripts through a second LLM API.**
 
 The CLI's analyze resolution order
-([`backend_resolver.py`](../skills/youtube_transcribe/analyze/backend_resolver.py)):
+([`backend_resolver.py`](../skills/neurolearn/analyze/backend_resolver.py)):
 
 1. `--no-analyze` → return `None` (skip)
 2. `--analyze-backend X` → return `X`
@@ -299,7 +299,7 @@ fallback. If the primary backend has no key, exit 4 (don't silently substitute).
 
 ## 5. State and storage
 
-### Files in `~/.youtube-transcribe/`
+### Files in `~/.neurolearn/`
 
 | File | Purpose | Format |
 |---|---|---|
@@ -311,9 +311,9 @@ fallback. If the primary backend has no key, exit 4 (don't silently substitute).
 
 Schemas live in code:
 
-- `Config` — [`config.py`](../skills/youtube_transcribe/config.py)
-- `Channel` — [`subscribes/store.py`](../skills/youtube_transcribe/subscribes/store.py)
-- `RunEntry` — [`history/store.py`](../skills/youtube_transcribe/history/store.py)
+- `Config` — [`config.py`](../skills/neurolearn/config.py)
+- `Channel` — [`subscribes/store.py`](../skills/neurolearn/subscribes/store.py)
+- `RunEntry` — [`history/store.py`](../skills/neurolearn/history/store.py)
 
 ### `subscribes` state semantics (v0.7 bootstrap rule)
 
@@ -340,21 +340,21 @@ Failed video_ids stay in `errors.log` of each batch dir. Re-fetch them via
 | `subscribes` | ✓ (RSS) | ✓ (cookies + yt-dlp / instaloader fallback) | ✓ (cookies + yt-dlp) | ✗ | n/a |
 
 Instagram URL detector lives in
-[`utils/downloader.py`](../skills/youtube_transcribe/utils/downloader.py)
+[`utils/downloader.py`](../skills/neurolearn/utils/downloader.py)
 (`_INSTAGRAM_RE`). The friendly error message about cookies is printed
 upstream in the same file.
 
 `research` is YouTube-only because `yt-dlp ytsearchN:` only supports YouTube.
 
 `subscribes` per-platform source dispatch lives in
-[`subscribes/pipeline.py`](../skills/youtube_transcribe/subscribes/pipeline.py):
+[`subscribes/pipeline.py`](../skills/neurolearn/subscribes/pipeline.py):
 - **YouTube** — RSS feed (no cookies needed).
 - **Instagram** — yt-dlp first; if its profile extractor is marked broken
   upstream (signature: `"marked as broken"` / `"unable to extract data"` /
   `"empty media response"`), falls back to **instaloader** (`[instagram]`
   optional extra). Cookies come strictly from the registered Netscape file —
   never `cookies-from-browser`. See
-  [`subscribes/instagram_loader.py`](../skills/youtube_transcribe/subscribes/instagram_loader.py).
+  [`subscribes/instagram_loader.py`](../skills/neurolearn/subscribes/instagram_loader.py).
 - **TikTok** — yt-dlp only (no fallback library).
 
 Install the IG fallback with `uv sync --extra instagram`. It is intended for
@@ -389,9 +389,9 @@ Examples that exit 2:
 
 Single-video `transcribe` shows a Rich spinner with stage labels at
 each phase boundary (download / transcribe / post-process). Driver:
-[`shared/progress.py`](../skills/youtube_transcribe/shared/progress.py)
+[`shared/progress.py`](../skills/neurolearn/shared/progress.py)
 and `on_stage` callback in
-[`pipeline.run_pipeline`](../skills/youtube_transcribe/pipeline.py).
+[`pipeline.run_pipeline`](../skills/neurolearn/pipeline.py).
 
 | Mode | Spinner | Raw output |
 |---|---|---|
@@ -406,7 +406,7 @@ instead — different UI, same intent.
 **HF_TOKEN warning on first run** is benign. `sentence-transformers`
 downloads its model from Hugging Face on first call; anonymous
 downloads work but with rate limits. Cached after first run. Users
-can register a free `HF_TOKEN` in `~/.youtube-transcribe/.env` to
+can register a free `HF_TOKEN` in `~/.neurolearn/.env` to
 silence the warning.
 
 ---
@@ -414,11 +414,11 @@ silence the warning.
 ## 8. Important invariants
 
 - **Skill kebab-name, package snake_name.** The plugin / CLI is
-  `youtube-transcribe`; the Python package is `youtube_transcribe`.
+  `neurolearn`; the Python package is `neurolearn`.
 - **Cross-OS markers.** `mlx-whisper` is gated by `sys_platform == 'darwin'
   and platform_machine == 'arm64'`. `faster-whisper` is the symmetric marker
   (`not(...)` via De Morgan). Never import these unconditionally — see
-  [`utils/platform_detect.py`](../skills/youtube_transcribe/utils/platform_detect.py).
+  [`utils/platform_detect.py`](../skills/neurolearn/utils/platform_detect.py).
 - **`uv.lock` not committed.** Cross-platform skill, every platform resolves
   its own. Same for `.python-version`.
 - **Tests are pure unit-tests by default.** End-to-end smoke tests live
@@ -426,13 +426,13 @@ silence the warning.
   secrets.
 - **`--backend` is the canonical dest name.** Click options for `--backend`
   and `--language` MUST use the bare dest (no `_opt` rename) — see
-  [v0.7 fix `5551a5e`](https://github.com/nekith78/youtube-transcribe/commit/5551a5e)
+  [v0.7 fix `5551a5e`](https://github.com/nekith78/neurolearn/commit/5551a5e)
   for the bug they hide. The `_run_batch_pipeline` reads
   `opts.get("backend")`, not `opts.get("backend_opt")`.
 - **Cookies are strict file-only (v0.8).** All paths that previously
   accepted `--cookies-from-browser` now require an explicit Netscape
   `cookies.txt`. `transcribe`/`batch` take `--cookies-file <path>`;
-  `subscribes` reads from `~/.youtube-transcribe/<platform>-cookies.txt`
+  `subscribes` reads from `~/.neurolearn/<platform>-cookies.txt`
   registered via `subscribes cookies set <platform> <path>`.
   Rationale: `cookies-from-browser` reads the user's entire browser
   cookie store into process memory — refusing that is non-negotiable.
@@ -447,7 +447,7 @@ silence the warning.
 ## 9. How to add a new backend
 
 Concrete checklist (see existing implementations under
-[`backends/`](../skills/youtube_transcribe/backends/) for examples).
+[`backends/`](../skills/neurolearn/backends/) for examples).
 
 1. Create `backends/<name>.py` exposing a class that implements the
    `Transcriber` protocol from `backends/base.py`. Required methods:
@@ -473,7 +473,7 @@ Concrete checklist (see existing implementations under
 /graphify explain "_run_batch_pipeline"
 ```
 
-The graph is built from `skills/youtube_transcribe/` only (tests, docs/, .venv
+The graph is built from `skills/neurolearn/` only (tests, docs/, .venv
 excluded). Re-build it after touching code:
 
 ```bash

@@ -1,4 +1,4 @@
-# youtube-transcribe
+# NEUROLEARN
 
 Universal audio/video transcription — YouTube, Instagram (posts / reels / IGTV), TikTok, Vimeo, Twitter, Twitch, local files. 8 interchangeable backends. Offline-by-default.
 
@@ -12,7 +12,7 @@ Pass a video URL or local file → get `.txt` (with/without timestamps) and `.sr
 
 Works as:
 - A **Claude Code skill** — paste a URL in the chat, get analysis.
-- A **standalone CLI** — `youtube-transcribe transcribe <URL>` from any terminal.
+- A **standalone CLI** — `neurolearn transcribe <URL>` from any terminal.
 - A **slash command** in Claude Code — `/transcribe <URL>`.
 
 ---
@@ -52,28 +52,28 @@ v0.7 — production-ready:
 ### Option A — Claude Code plugin (recommended)
 
 ```bash
-git clone https://github.com/nekith78/youtube-transcribe ~/.claude/plugins/youtube-transcribe
-cd ~/.claude/plugins/youtube-transcribe
+git clone https://github.com/nekith78/neurolearn ~/.claude/plugins/neurolearn
+cd ~/.claude/plugins/neurolearn
 uv sync
 ```
 
-Then run `youtube-transcribe config wizard` to set up. Reload Claude Code if needed.
+Then run `neurolearn config wizard` to set up. Reload Claude Code if needed.
 
 ### Option B — Personal skill folder
 
 ```bash
-git clone https://github.com/nekith78/youtube-transcribe /tmp/yt-transcribe
-cp -r /tmp/yt-transcribe/skills/youtube_transcribe ~/.claude/skills/
-cd ~/.claude/skills/youtube_transcribe && uv sync
+git clone https://github.com/nekith78/neurolearn /tmp/yt-transcribe
+cp -r /tmp/yt-transcribe/skills/neurolearn ~/.claude/skills/
+cd ~/.claude/skills/neurolearn && uv sync
 ```
 
 ### Option C — Standalone CLI (no Claude needed)
 
 ```bash
-uv tool install git+https://github.com/nekith78/youtube-transcribe
+uv tool install git+https://github.com/nekith78/neurolearn
 ```
 
-**No `uv`?** Install it first: `curl -LsSf https://astral.sh/uv/install.sh | sh` (Mac/Linux) or `irm https://astral.sh/uv/install.ps1 | iex` (Windows PowerShell). Alternatively use `pip install git+https://github.com/nekith78/youtube-transcribe` with a regular virtualenv.
+**No `uv`?** Install it first: `curl -LsSf https://astral.sh/uv/install.sh | sh` (Mac/Linux) or `irm https://astral.sh/uv/install.ps1 | iex` (Windows PowerShell). Alternatively use `pip install git+https://github.com/nekith78/neurolearn` with a regular virtualenv.
 
 **System requirements:**
 - Python 3.11+
@@ -96,20 +96,20 @@ uv sync --extra dev             # pytest, coverage
 
 ```bash
 # Interactive — run the command, then paste the URL when prompted
-youtube-transcribe transcribe --language en
+neurolearn transcribe --language en
 # → "Paste URL or file path:"  <paste & Enter>
 
 # Or pass URL inline (good for scripts):
-youtube-transcribe transcribe https://youtu.be/dQw4w9WgXcQ --language en
+neurolearn transcribe https://youtu.be/dQw4w9WgXcQ --language en
 
 # Fastest: pull YouTube's own subtitles (no GPU needed)
-youtube-transcribe transcribe https://youtu.be/dQw4w9WgXcQ --backend subtitles
+neurolearn transcribe https://youtu.be/dQw4w9WgXcQ --backend subtitles
 
 # Use cloud backend
-youtube-transcribe transcribe video.mp4 --backend gemini
+neurolearn transcribe video.mp4 --backend gemini
 
 # Local file
-youtube-transcribe transcribe /path/to/lecture.mp4 --language ru
+neurolearn transcribe /path/to/lecture.mp4 --language ru
 
 # In Claude chat
 "Transcribe this: https://youtu.be/abc"
@@ -162,7 +162,7 @@ transcription. Two ways to silence it:
    never affects output.
 2. **Register a free token** — make an account at
    [huggingface.co](https://huggingface.co), Settings → Access Tokens
-   → New token (read-only), then add to `~/.youtube-transcribe/.env`:
+   → New token (read-only), then add to `~/.neurolearn/.env`:
    ```
    HF_TOKEN=hf_xxxxxxxxxxxxxxxxxxxxxxxxx
    ```
@@ -176,7 +176,7 @@ key visual moments with embedded screenshots in `combined.md`. Useful
 for tutorial videos: you get a markdown walkthrough with pictures.
 
 ```bash
-youtube-transcribe https://youtube.com/watch?v=... --with-visuals
+neurolearn https://youtube.com/watch?v=... --with-visuals
 ```
 
 Requires `GEMINI_API_KEY` (free tier ~1500 RPD is enough for ~75
@@ -187,26 +187,26 @@ disabled and you get a plain transcript.
 
 ```bash
 # Create a user triggers.toml
-youtube-transcribe triggers init
+neurolearn triggers init
 
 # Add phrases (separator: ;)
-youtube-transcribe triggers add --universal "look here; for example; demo"
+neurolearn triggers add --universal "look here; for example; demo"
 
 # Per-language strict (exact match)
-youtube-transcribe triggers add --strict --lang ru "баг; PR"
+neurolearn triggers add --strict --lang ru "баг; PR"
 
 # Bump the weight of an important phrase
-youtube-transcribe triggers weight set --universal "function" 1.5
+neurolearn triggers weight set --universal "function" 1.5
 
 # Check which triggers fire on a specific phrase
-youtube-transcribe triggers test "look at this code right here"
+neurolearn triggers test "look at this code right here"
 ```
 
 ### Presets
 
 A preset bundles several settings (transcribe backend, fallback, visual analysis,
 keyframe detection, quality check) under one name. Pick with `--preset <name>` or
-set `default_preset` in `~/.youtube-transcribe/config.toml`.
+set `default_preset` in `~/.neurolearn/config.toml`.
 
 | Preset | Transcribe | Quality check | Vision (visual moments) | Detection method |
 |---|---|---|---|---|
@@ -222,9 +222,9 @@ preset trades a small Gemini cost for cross-referenced keyframes + visual
 context in `combined.md`.
 
 ```bash
-youtube-transcribe URL --preset eco              # nothing leaves the machine
-youtube-transcribe URL --preset standard         # whisper-local + visual moments
-youtube-transcribe URL --preset smart --frames-per-window 5
+neurolearn URL --preset eco              # nothing leaves the machine
+neurolearn URL --preset standard         # whisper-local + visual moments
+neurolearn URL --preset smart --frames-per-window 5
 ```
 
 ---
@@ -238,23 +238,23 @@ reads end-to-end and turns into a note or summary.
 
 ```bash
 # Interactive — paste URLs one per line, empty line to finish
-youtube-transcribe batch
+neurolearn batch
 # → "Paste URLs (one per line, empty line to finish):"
 #    > https://youtu.be/AAA
 #    > https://youtu.be/BBB
 #    > <Enter>
 
 # Inline (good for scripts):
-youtube-transcribe batch https://youtu.be/AAA https://youtu.be/BBB
+neurolearn batch https://youtu.be/AAA https://youtu.be/BBB
 
 # Whole channel (top-10 recent videos), fast path via YouTube subtitles
-youtube-transcribe batch https://youtube.com/@anthropicai --limit 10 --backend subtitles
+neurolearn batch https://youtube.com/@anthropicai --limit 10 --backend subtitles
 
 # From a file (1 URL per line, # — comment)
-youtube-transcribe batch --from-file ~/learn/claude-videos.txt --backend gemini
+neurolearn batch --from-file ~/learn/claude-videos.txt --backend gemini
 
 # Playlist, 5 videos via local Whisper
-youtube-transcribe batch https://youtube.com/playlist?list=PLxxx --limit 5 \
+neurolearn batch https://youtube.com/playlist?list=PLxxx --limit 5 \
     --backend whisper-local --whisper-model turbo
 ```
 
@@ -290,23 +290,23 @@ produce a summary — that's the LLM's job once `combined.md` is ready.
 
 ```bash
 # Channel filters — date and duration window
-youtube-transcribe batch https://youtube.com/@anthropicai \
+neurolearn batch https://youtube.com/@anthropicai \
     --since 2026-01-01 --until 2026-12-31 \
     --min-duration 300 --max-duration 3600 \
     --no-shorts --limit 20
 
 # Incremental re-fetch: skip videos already transcribed
-youtube-transcribe batch https://youtube.com/@anthropicai --skip-existing --limit 50
+neurolearn batch https://youtube.com/@anthropicai --skip-existing --limit 50
 
 # Run 4 videos in parallel (useful for cloud backends with large RPM
 # budgets; whisper-local won't gain — CPU/GPU bound)
-youtube-transcribe batch <playlist> --workers 4 --backend gemini
+neurolearn batch <playlist> --workers 4 --backend gemini
 
 # Search YouTube by topic — no API key needed
-youtube-transcribe batch --search "claude code tutorial" --limit 10
+neurolearn batch --search "claude code tutorial" --limit 10
 
 # Combination: search + filters + parallelism
-youtube-transcribe batch --search "transformer architecture" \
+neurolearn batch --search "transformer architecture" \
     --since 2025-01-01 --no-shorts --min-duration 600 \
     --limit 20 --workers 4 --backend gemini --with-visuals
 ```
@@ -332,26 +332,26 @@ the LLM of your choice.
 
 ```bash
 # Analyze a single transcript
-youtube-transcribe analyze ./transcripts/x.txt \
+neurolearn analyze ./transcripts/x.txt \
   --prompt "Extract the main argument and counter-examples." \
   --backend gemini
 
 # Analyze the most recent batch (skips picker)
-youtube-transcribe analyze --latest \
+neurolearn analyze --latest \
   --prompt-file my-prompt.md --backend claude
 
 # Pick a subset of videos in a folder interactively
-youtube-transcribe analyze ./transcripts/batch_2026-05-11_claude/ \
+neurolearn analyze ./transcripts/batch_2026-05-11_claude/ \
   --prompt "Compare how each speaker frames the problem." \
   --backend openai
 
 # Append a new analysis block to an existing combined.md
-youtube-transcribe analyze --latest \
+neurolearn analyze --latest \
   --prompt "Now extract every URL mentioned." \
   --append-to ./transcripts/batch_X/notes.md
 
 # Local LLM, no API keys
-youtube-transcribe analyze ./transcripts/x.json \
+neurolearn analyze ./transcripts/x.json \
   --prompt "Summarize for a 12-year-old." \
   --backend ollama --ollama-model llama3.2:3b
 ```
@@ -363,7 +363,7 @@ printed to stdout so it's visible inline when invoked from Claude Code.
 `batch --then-analyze` chains a batch with an immediate analyze pass:
 
 ```bash
-youtube-transcribe batch https://www.youtube.com/@channel --limit 5 \
+neurolearn batch https://www.youtube.com/@channel --limit 5 \
   --backend smart \
   --then-analyze --prompt "Bullet the main takeaways from each video." \
   --analyze-backend gemini
@@ -379,7 +379,7 @@ ranking decides relevance, you decide period + analysis angle.
 > **About the analyze step.** By default, on the first interactive run
 > `research` / `subscribes update` / `batch --then-analyze` asks once
 > which LLM to use for the analyze pass (skip / gemini / claude / openai
-> / ollama) and persists the choice in `~/.youtube-transcribe/config.toml`.
+> / ollama) and persists the choice in `~/.neurolearn/config.toml`.
 > Override per-call with `--analyze-backend X`. In a non-TTY context
 > (Claude Code subprocess, CI, piped run) the prompt is skipped and the
 > analyze pass is silently skipped — `combined.md` is the output and the
@@ -387,36 +387,36 @@ ranking decides relevance, you decide period + analysis angle.
 
 ```bash
 # Interactive — run the command, paste the query when asked
-youtube-transcribe research \
+neurolearn research \
   --prompt "Outline the key ideas" \
   --analyze-backend gemini
 # → "Enter search query:" <type & Enter>
 
 # Default — last 30 days, ru+en search, top 20 results
-youtube-transcribe research "Claude updates" \
+neurolearn research "Claude updates" \
   --prompt "Outline the key ideas" \
   --analyze-backend gemini
 
 # Narrower: 7 days, single language, fewer videos
-youtube-transcribe research "AI agents 2026" \
+neurolearn research "AI agents 2026" \
   --days 7 --languages en --limit 10 \
   --prompt "Compare design choices"
 
 # Historical: specific window
-youtube-transcribe research "LangChain release" \
+neurolearn research "LangChain release" \
   --since 2024-06-01 --until 2024-08-31 \
   --prompt "What's new"
 
 # Substring + LLM filter combo
-youtube-transcribe research "machine learning" \
+neurolearn research "machine learning" \
   --match "tutorial" --filter "beginner-friendly tutorials" \
   --prompt "What's in common, what's unique"
 
 # Just transcripts, no analyze
-youtube-transcribe research "AI news 2026" --no-analyze
+neurolearn research "AI news 2026" --no-analyze
 
 # Cross-pollination: only from my subscribed channels
-youtube-transcribe research "Claude" --in-subscribes --group ai-research \
+neurolearn research "Claude" --in-subscribes --group ai-research \
   --days 14 --prompt "Recent updates"
 ```
 
@@ -424,42 +424,42 @@ youtube-transcribe research "Claude" --in-subscribes --group ai-research \
 
 ```bash
 # Add a channel — interactive (run, then paste the URL)
-youtube-transcribe subscribes add --group ai
+neurolearn subscribes add --group ai
 # → "Paste channel URL:"
 
 # Or inline:
-youtube-transcribe subscribes add https://www.youtube.com/@anthropic-ai --group ai
-youtube-transcribe subscribes add https://www.youtube.com/@lexfridman --group philosophy
+neurolearn subscribes add https://www.youtube.com/@anthropic-ai --group ai
+neurolearn subscribes add https://www.youtube.com/@lexfridman --group philosophy
 
 # List (optionally by group)
-youtube-transcribe subscribes list
-youtube-transcribe subscribes list --group ai
+neurolearn subscribes list
+neurolearn subscribes list --group ai
 
 # Edit subscribes.toml manually (cross-OS $EDITOR)
-youtube-transcribe subscribes edit
+neurolearn subscribes edit
 
 # Remove
-youtube-transcribe subscribes remove @anthropic-ai
+neurolearn subscribes remove @anthropic-ai
 
 # Update: incremental (stateful per channel)
-youtube-transcribe subscribes update --prompt "What was discussed"
+neurolearn subscribes update --prompt "What was discussed"
 
 # Update: force window
-youtube-transcribe subscribes update --days 7 --group ai \
+neurolearn subscribes update --days 7 --group ai \
   --filter "only about new models" \
   --prompt "Compare approaches"
 
 # Generate scheduler snippet (no automatic install)
-youtube-transcribe subscribes schedule install --every 1h --prompt "your usual prompt"
+neurolearn subscribes schedule install --every 1h --prompt "your usual prompt"
 # → prints launchd/cron/systemd/Task Scheduler snippet + install instructions
 
 # View past runs
-youtube-transcribe history list
-youtube-transcribe history list --type research --last 5
-youtube-transcribe history show <run-id>
+neurolearn history list
+neurolearn history list --type research --last 5
+neurolearn history show <run-id>
 ```
 
-The `subscribes` store lives at `~/.youtube-transcribe/subscribes.toml`
+The `subscribes` store lives at `~/.neurolearn/subscribes.toml`
 and is safe to hand-edit; CLI mutations preserve your comments via
 `tomlkit`.
 
@@ -470,21 +470,21 @@ Both platforms need cookies (no anonymous access for profile listing):
 ```bash
 # Export cookies.txt from your browser via the
 # "Get cookies.txt LOCALLY" extension, then:
-youtube-transcribe subscribes cookies set instagram /path/to/ig-cookies.txt
-youtube-transcribe subscribes cookies set tiktok    /path/to/tt-cookies.txt
+neurolearn subscribes cookies set instagram /path/to/ig-cookies.txt
+neurolearn subscribes cookies set tiktok    /path/to/tt-cookies.txt
 ```
 
 Add channels:
 
 ```bash
-youtube-transcribe subscribes add https://www.instagram.com/natgeo/   --group walk-ig
-youtube-transcribe subscribes add https://www.tiktok.com/@anthropic    --group dev
+neurolearn subscribes add https://www.instagram.com/natgeo/   --group walk-ig
+neurolearn subscribes add https://www.tiktok.com/@anthropic    --group dev
 ```
 
 Update only one platform at a time:
 
 ```bash
-youtube-transcribe subscribes update --platform instagram --days 7 \
+neurolearn subscribes update --platform instagram --days 7 \
   --backend whisper-local --yes --no-analyze
 ```
 
@@ -577,17 +577,17 @@ call.
 Change the default via CLI or from chat:
 
 ```bash
-youtube-transcribe config show
-youtube-transcribe config set backend groq
-youtube-transcribe config set whisper-model turbo
-youtube-transcribe config set language ru
-youtube-transcribe config set-key gemini       # interactive key entry
-youtube-transcribe config test groq            # verify the key works
-youtube-transcribe config wizard               # re-run the setup wizard
+neurolearn config show
+neurolearn config set backend groq
+neurolearn config set whisper-model turbo
+neurolearn config set language ru
+neurolearn config set-key gemini       # interactive key entry
+neurolearn config test groq            # verify the key works
+neurolearn config wizard               # re-run the setup wizard
 ```
 
 From chat: "switch the default to groq" → Claude runs
-`youtube-transcribe config set backend groq`.
+`neurolearn config set backend groq`.
 
 ---
 
@@ -599,18 +599,18 @@ YouTube periodically updates its anti-bot defences, breaking yt-dlp
 for 1–3 months at a time worldwide. **This is not a bug in this tool.**
 Fix:
 
-1. `youtube-transcribe update-deps` — pulls the latest yt-dlp release.
+1. `neurolearn update-deps` — pulls the latest yt-dlp release.
 2. If that doesn't help — register a cookies file:
    ```bash
    # Install the "Get cookies.txt LOCALLY" extension in any browser
    # (Chrome / Firefox / Edge / Brave — same Netscape cookies.txt format).
    # Open youtube.com (logged in) → click the extension → Export.
 
-   youtube-transcribe config set-cookies ~/Downloads/youtube_cookies.txt
+   neurolearn config set-cookies ~/Downloads/youtube_cookies.txt
    ```
    After that `transcribe` / `batch` pick up the cookies automatically.
    You can also pass them per-call:
-   `youtube-transcribe transcribe <URL> --cookies-file ~/path/file.txt`.
+   `neurolearn transcribe <URL> --cookies-file ~/path/file.txt`.
 3. If it still doesn't work — open an issue; fixes usually land within
    a few days.
 
@@ -627,11 +627,11 @@ Fix:
 ### Missing API key
 
 ```
-Error: GEMINI_API_KEY not set. Run: youtube-transcribe config set-key gemini
+Error: GEMINI_API_KEY not set. Run: neurolearn config set-key gemini
 ```
 
-Run `youtube-transcribe config set-key <backend>` — it prompts for the
-key interactively and stores it in `~/.youtube-transcribe/.env` with
+Run `neurolearn config set-key <backend>` — it prompts for the
+key interactively and stores it in `~/.neurolearn/.env` with
 mode `0600`.
 
 ### `distil` model on Mac
@@ -655,7 +655,7 @@ ffmpeg is required to extract audio from video before transcription.
 ### CUDA not found / GPU crashes
 
 ```bash
-youtube-transcribe transcribe <URL> --device cpu --compute-type int8
+neurolearn transcribe <URL> --device cpu --compute-type int8
 ```
 
 Or switch to a different backend: `subtitles` / `gemini` / `groq`.
@@ -698,11 +698,11 @@ API keys are never printed in full to logs — they're masked as
 ### Project layout
 
 ```
-youtube-transcribe/
+neurolearn/
 ├── .claude-plugin/
 │   └── plugin.json                       # Claude Code plugin metadata
 ├── skills/
-│   └── youtube_transcribe/               # Python package (snake_case)
+│   └── neurolearn/               # Python package (snake_case)
 │       ├── SKILL.md                      # Triggers + rules for Claude
 │       ├── transcribe.py                 # CLI entry point
 │       ├── wizard.py                     # First-run setup wizard
@@ -780,15 +780,15 @@ to pick:
 
 ### Config and secrets
 
-- `~/.youtube-transcribe/config.toml` — settings (TOML).
-- `~/.youtube-transcribe/.env` — API keys, mode `0600` on Unix.
+- `~/.neurolearn/config.toml` — settings (TOML).
+- `~/.neurolearn/.env` — API keys, mode `0600` on Unix.
 - Priority: process env vars > `.env` > error with instructions.
 
 ---
 
 ## Adding a new backend
 
-1. Create `skills/youtube_transcribe/backends/my_provider.py`.
+1. Create `skills/neurolearn/backends/my_provider.py`.
 2. Implement the `Transcriber` Protocol (see `backends/base.py`).
 3. Register it in the factory (`backends/__init__.py`):
    ```python
@@ -851,7 +851,7 @@ to be useful), platforms beyond {YouTube, Instagram, TikTok} for `subscribes`.
 
 If you're an LLM driving this skill, start here:
 
-- [`skills/youtube_transcribe/SKILL.md`](skills/youtube_transcribe/SKILL.md) — when to invoke, which command to pick, the `--no-analyze` rule for chat-driven use.
+- [`skills/neurolearn/SKILL.md`](skills/neurolearn/SKILL.md) — when to invoke, which command to pick, the `--no-analyze` rule for chat-driven use.
 - [`docs/agent-reference.md`](docs/agent-reference.md) — full CLI surface, file/module map, exit codes, state semantics, how to add a backend.
 - [`graphify-out/GRAPH_REPORT.md`](graphify-out/GRAPH_REPORT.md) — top god-nodes, hyperedges (subscribes flow, analyze pipeline, detection pipeline, vision backends), suggested questions.
 - [`graphify-out/graph.json`](graphify-out/graph.json) — queryable via `/graphify query "..."`.

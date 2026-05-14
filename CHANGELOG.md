@@ -1,7 +1,40 @@
 # Changelog
 
-All notable changes to youtube-transcribe will be documented here.
+All notable changes to neurolearn will be documented here.
 The format is loosely based on [Keep a Changelog](https://keepachangelog.com/).
+
+## [0.9.0] — 2026-05-14
+
+### Renamed
+- **Project renamed from `youtube-transcribe` to `neurolearn`.**
+  Scope:
+  - Python package: `skills/youtube_transcribe/` → `skills/neurolearn/`
+  - PyPI / CLI binary: `youtube-transcribe` → `neurolearn`
+  - Config directory: `~/.youtube-transcribe/` → `~/.neurolearn/`
+  - Claude Code plugin name: `youtube-transcribe` → `neurolearn`
+  - GitHub repository: github.com/nekith78/youtube-transcribe → github.com/nekith78/neurolearn
+    (the old URL keeps redirecting for ~3 months per GitHub policy)
+  - Scheduler identifiers: `youtube-transcribe-subscribes` →
+    `neurolearn-subscribes` (cron / launchd / systemd / Task Scheduler
+    snippets). Any previously installed scheduler entries with the old
+    label need to be reinstalled — `neurolearn subscribes schedule
+    install` prints the new snippets.
+
+### Auto-migration on first run
+- If `~/.youtube-transcribe/` exists and `~/.neurolearn/` doesn't, the
+  CLI renames the directory once on first invocation and prints a
+  one-line notice to stderr. Idempotent. All API keys, cookies,
+  subscribes.toml, history.toml, and triggers.toml carry over without
+  user action.
+
+### Why the rename
+- The skill outgrew its original scope. v0.7+ added research, subscribes,
+  and analyze; v0.8 added Instagram and TikTok. "youtube-transcribe" no
+  longer described what the tool does. `neurolearn` better reflects the
+  current focus: learning from videos across platforms — transcribe,
+  analyze, research a topic, follow channels over time.
+
+---
 
 ## [0.8.0] — 2026-05-14
 
@@ -32,7 +65,7 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/).
 - **Cookies onboarding wizard** — `subscribes cookies set <platform>`
   with interactive `questionary.path()` prompt (Tab-completion +
   drag-and-drop). Validates Netscape format before saving. Stores
-  registered file at `~/.youtube-transcribe/<platform>-cookies.txt`
+  registered file at `~/.neurolearn/<platform>-cookies.txt`
   with mode 0600. See `subscribes/cookies_onboarding.py`.
 
 ### Changed
@@ -62,7 +95,7 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/).
   this, the subscribes pipeline's broken-extractor detection never
   fired for IG and the instaloader fallback was silent.
 - **Stale `yt-tr` references removed from README.** The real CLI
-  binary has always been `youtube-transcribe`; `yt-tr` was never an
+  binary has always been `neurolearn`; `yt-tr` was never an
   alias. 18 occurrences corrected.
 
 ### Dependencies
@@ -94,7 +127,7 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/).
   launchd / systemd / Windows Task Scheduler snippet + install
   instructions. Does NOT install automatically.
 - `history list` / `history show` — persistent log of research and
-  subscribes runs in `~/.youtube-transcribe/history.toml`.
+  subscribes runs in `~/.neurolearn/history.toml`.
 - Web UI tab builders — `build_research_tab(gr)` and
   `build_subscribes_tab(gr)`. (Default `build_ui()` still ships the
   v0.5 transcribe form; call the new builders from your custom
@@ -106,7 +139,7 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/).
 - `batch_cmd` refactored: post-args-resolution core extracted as
   `_run_batch_pipeline(targets, cfg, opts)` so research/subscribes
   pipelines reuse it without duplication. External behavior of
-  `youtube-transcribe batch` preserved byte-for-byte (all 614 v0.6
+  `neurolearn batch` preserved byte-for-byte (all 614 v0.6
   tests stay green).
 
 ### Dependencies
@@ -116,7 +149,7 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/).
 ## [0.6.0] — 2026-05-12
 
 ### Added
-- `youtube-transcribe analyze [SOURCE]` — free-form LLM analysis over
+- `neurolearn analyze [SOURCE]` — free-form LLM analysis over
   one or more existing transcripts. Supports `--prompt`/`--prompt-file`,
   `--backend gemini|claude|openai|ollama`, `--latest`, `--all`,
   `--select "1,3,5-7"`, `--append-to <md>`, `--output <path>`,
@@ -150,7 +183,7 @@ Course-correct: revert / refactor v0.5.1 additions that drifted from spec.
 
 ### Added
 
-- **`youtube-transcribe summarize <transcript-path>`** — standalone
+- **`neurolearn summarize <transcript-path>`** — standalone
   sub-command. User invokes explicitly on an existing
   transcript file (`.txt` / `.json` / `.srt`). Backend picked via
   `--backend gemini|claude|openai|ollama`. Output: `<file>.summary.md`
@@ -254,7 +287,7 @@ Multimodal alternatives + post-processing + Instagram + Web UI.
   `extract_instagram_shortcode` for `/p/`, `/reel/`, `/tv/`, `/reels/`
   patterns. yt-dlp handles the downloading; tailored error message hints
   to `--cookies-from-browser` when login required.
-- **Web UI** via Gradio (`youtube-transcribe webui`). URL/file input,
+- **Web UI** via Gradio (`neurolearn webui`). URL/file input,
   preset/backend selectors, visual + ASR-correct toggles. Output tabbed:
   Transcript / Visual moments / Quality. Local-only by default
   (127.0.0.1:7860). Opt-in via `[webui]` extra.
@@ -406,7 +439,7 @@ Major batch features.
 - `combined.md` contains a `### Visual moments` section with inline screenshots.
 
 ### Migration v0.1.x → v0.2
-- Auto-migration of an existing `~/.youtube-transcribe/config.toml` into
+- Auto-migration of an existing `~/.neurolearn/config.toml` into
   the `[presets.custom_legacy]` shape, preserving every user setting.
 - When `GEMINI_API_KEY` is set, visual mode is silently enabled in
   the smart preset. Otherwise behaviour is fully v0.1-compatible.
@@ -424,7 +457,7 @@ Major batch features.
 - **`resolver.resolve()` now collect-and-continue per spec §5.** Previously raised `UnresolvableInput` on the first inline URL probe failure, aborting the whole batch. Now returns `(targets, failures)` tuple — bad URLs are logged in `errors.log` (stage `resolve`), good URLs continue. Both `transcribe` (single) and `batch` sub-commands updated.
 - **`wizard.py` API key prompt now hides input** (`password=True`). Previously the entered key echoed visibly to the terminal.
 - **PEP 508 marker for `faster-whisper`** uses de-Morgan form `sys_platform != 'darwin' or platform_machine != 'arm64'` (hatchling rejects `not (...)` syntax).
-- **`packages = ["skills"]`** in `[tool.hatch.build.targets.wheel]` so editable install resolves `skills.youtube_transcribe.*` correctly. Without this fix the entry-point script failed with `ModuleNotFoundError`.
+- **`packages = ["skills"]`** in `[tool.hatch.build.targets.wheel]` so editable install resolves `skills.neurolearn.*` correctly. Without this fix the entry-point script failed with `ModuleNotFoundError`.
 - **`config.save_config` is atomic** (write-temp-then-rename) so a killed process doesn't leave a truncated TOML file.
 - **`config.set_api_key` rejects `\n`/`\r` in values** to prevent newline-injection into `.env`.
 - **`config.load_config` wraps malformed TOML errors** into a friendly `ValueError` pointing at the wizard.
@@ -460,7 +493,7 @@ First public release.
 - `smart` is a composition (subtitles fast-path → fallback), not a backend.
 - `Resolver` translates inline URLs / channel-URLs / `--from-file` lists into `ResolvedTarget`s with dedup by `video_id`.
 - Single (`transcribe`) and batch (`batch`) sub-commands share a single `run_pipeline()` core (single = batch of 1).
-- Bare-URL routing: `youtube-transcribe https://youtu.be/X` lands on `transcribe` via `_BareURLGroup`.
+- Bare-URL routing: `neurolearn https://youtu.be/X` lands on `transcribe` via `_BareURLGroup`.
 
 ### Output
 - Single: `<output-dir>/<slug>_<id>.txt` (with timestamps) + `.srt`.
@@ -473,7 +506,7 @@ First public release.
 
 ### Privacy
 - `whisper-local` and `subtitles` never send audio to third parties.
-- API keys live in `~/.youtube-transcribe/.env` (mode `0600` on Unix); they are never echoed back unmasked.
+- API keys live in `~/.neurolearn/.env` (mode `0600` on Unix); they are never echoed back unmasked.
 
 ### Tests
 - 207 unit tests + 2 e2e smoke tests gated by `RUN_E2E_SMOKE=1`.

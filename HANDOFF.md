@@ -57,8 +57,8 @@ uv --version   # should print 0.4+
 ### Install the project
 
 ```bash
-git clone https://github.com/nekith78/youtube-transcribe.git
-cd youtube-transcribe
+git clone https://github.com/nekith78/neurolearn.git
+cd neurolearn
 uv sync                          # base install
 uv sync --extra dev              # + pytest, coverage
 uv sync --extra instagram        # + instaloader (IG profile fallback)
@@ -72,19 +72,19 @@ You can pass multiple `--extra` flags together.
 ### Configure backends
 
 ```bash
-uv run youtube-transcribe config wizard   # first-time setup, asks for keys
-uv run youtube-transcribe config show     # see current state + masked keys
+uv run neurolearn config wizard   # first-time setup, asks for keys
+uv run neurolearn config show     # see current state + masked keys
 ```
 
 Or set keys directly:
 
 ```bash
-uv run youtube-transcribe config set-key gemini   # prompts for key
-uv run youtube-transcribe config set-key groq
+uv run neurolearn config set-key gemini   # prompts for key
+uv run neurolearn config set-key groq
 # ... openai / deepgram / assemblyai / anthropic
 ```
 
-Keys are stored in `~/.youtube-transcribe/.env` with mode 0600.
+Keys are stored in `~/.neurolearn/.env` with mode 0600.
 
 ---
 
@@ -106,12 +106,12 @@ browser using the "Get cookies.txt LOCALLY" Chrome/Firefox extension,
 then:
 
 ```bash
-uv run youtube-transcribe subscribes cookies set instagram /path/to/ig-cookies.txt
-uv run youtube-transcribe subscribes cookies set tiktok    /path/to/tt-cookies.txt
-uv run youtube-transcribe subscribes cookies show
+uv run neurolearn subscribes cookies set instagram /path/to/ig-cookies.txt
+uv run neurolearn subscribes cookies set tiktok    /path/to/tt-cookies.txt
+uv run neurolearn subscribes cookies show
 ```
 
-The file is copied to `~/.youtube-transcribe/<platform>-cookies.txt`
+The file is copied to `~/.neurolearn/<platform>-cookies.txt`
 with mode 0600.
 
 **Strict file-only.** We do NOT support `--cookies-from-browser` —
@@ -131,18 +131,18 @@ RUN_E2E_SMOKE=1 uv run pytest -v           # include real-network e2e (rare)
 ```
 
 ```bash
-uv run youtube-transcribe --help           # see all commands
-uv run youtube-transcribe transcribe       # interactive prompt
-uv run youtube-transcribe batch            # interactive multi-URL prompt
-uv run youtube-transcribe research         # interactive query prompt
+uv run neurolearn --help           # see all commands
+uv run neurolearn transcribe       # interactive prompt
+uv run neurolearn batch            # interactive multi-URL prompt
+uv run neurolearn research         # interactive query prompt
 ```
 
 ---
 
 ## Architecture invariants — don't break these
 
-1. **Skill name `youtube-transcribe` (kebab); Python package
-   `youtube_transcribe` (snake).** Both. Use by context.
+1. **Skill name `neurolearn` (kebab); Python package
+   `neurolearn` (snake).** Both. Use by context.
 2. **Cookies file-only**, never `cookies-from-browser`.
 3. **`uv.lock` and `.python-version` are NOT committed** — each
    platform resolves its own.
@@ -158,7 +158,7 @@ uv run youtube-transcribe research         # interactive query prompt
 
 ## Working with the spec/plan when something is unclear
 
-Original design: `docs/specs/2026-05-08-youtube-transcribe-design.md`
+Original design: `docs/specs/2026-05-08-neurolearn-design.md`
 (v0.1 baseline). v0.2 through v0.8 added features per their own
 spec/plan docs in the same directory.
 

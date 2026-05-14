@@ -1,4 +1,4 @@
-# Design doc: youtube-transcribe
+# Design doc: neurolearn
 
 **Date:** 2026-05-08
 **Status:** Draft for review
@@ -8,7 +8,7 @@
 
 ## 1. Goal
 
-Build a reusable `youtube-transcribe` skill that:
+Build a reusable `neurolearn` skill that:
 
 1. Accepts a YouTube video URL (or another supported platform) or a path to a local media file.
 2. Transcribes the content via one of six interchangeable engines (backends).
@@ -33,7 +33,7 @@ Build a reusable `youtube-transcribe` skill that:
 
 - **Default mode = offline.** The `whisper-local` backend sends nothing over the network after the model is installed.
 - **Cloud backends** (gemini, groq, openai, custom) send audio to the provider's servers. The README and wizard warn about this explicitly.
-- API keys **never** end up in git, in logs, or in chat with Claude. Storage — env vars or `~/.youtube-transcribe/.env` with `0600` permissions.
+- API keys **never** end up in git, in logs, or in chat with Claude. Storage — env vars or `~/.neurolearn/.env` with `0600` permissions.
 
 ---
 
@@ -44,7 +44,7 @@ A single GitHub repository powers three install variants. All three must work ou
 ### Method A — Claude Code Plugin (recommended for most users)
 
 ```bash
-git clone https://github.com/<user>/youtube-transcribe ~/.claude/plugins/youtube-transcribe
+git clone https://github.com/<user>/neurolearn ~/.claude/plugins/neurolearn
 ```
 
 Claude picks up the skill and the slash command automatically. The wizard runs on first use.
@@ -52,9 +52,9 @@ Claude picks up the skill and the slash command automatically. The wizard runs o
 ### Method B — Personal skill folder
 
 ```bash
-git clone https://github.com/<user>/youtube-transcribe /tmp/yt-transcribe
-cp -r /tmp/yt-transcribe/skills/youtube-transcribe ~/.claude/skills/
-cd ~/.claude/skills/youtube-transcribe && uv sync
+git clone https://github.com/<user>/neurolearn /tmp/yt-transcribe
+cp -r /tmp/yt-transcribe/skills/neurolearn ~/.claude/skills/
+cd ~/.claude/skills/neurolearn && uv sync
 ```
 
 No plugin wrapping. Works as a skill only (no slash command).
@@ -62,10 +62,10 @@ No plugin wrapping. Works as a skill only (no slash command).
 ### Method C — CLI only, no Claude
 
 ```bash
-uv tool install git+https://github.com/<user>/youtube-transcribe
+uv tool install git+https://github.com/<user>/neurolearn
 ```
 
-A `youtube-transcribe` command appears in the terminal. Usable in scripts, other IDEs, without Claude at all.
+A `neurolearn` command appears in the terminal. Usable in scripts, other IDEs, without Claude at all.
 
 ### Dependency loader: `uv`
 
@@ -82,11 +82,11 @@ We use `uv` (Astral) instead of `pip`:
 ## 4. Architecture and file layout
 
 ```
-youtube-transcribe/
+neurolearn/
 ├── .claude-plugin/
 │   └── plugin.json                       # Claude Code plugin metadata
 ├── skills/
-│   └── youtube-transcribe/
+│   └── neurolearn/
 │       ├── SKILL.md                      # Triggers + usage rules
 │       ├── transcribe.py                 # CLI entry point
 │       ├── wizard.py                     # First-run setup wizard
@@ -122,7 +122,7 @@ youtube-transcribe/
 ├── LICENSE
 └── docs/
     ├── specs/
-    │   └── 2026-05-08-youtube-transcribe-design.md
+    │   └── 2026-05-08-neurolearn-design.md
     └── plans/
         └── (implementation plan added later)
 ```
@@ -291,7 +291,7 @@ When `default_backend = "smart"`:
 
 ## 6. First-run wizard
 
-Runs on the first invocation of the skill (when `~/.youtube-transcribe/config.toml` is missing) **or** via `youtube-transcribe config wizard`.
+Runs on the first invocation of the skill (when `~/.neurolearn/config.toml` is missing) **or** via `neurolearn config wizard`.
 
 ### Behaviour
 
@@ -303,12 +303,12 @@ Runs on the first invocation of the skill (when `~/.youtube-transcribe/config.to
 4. Backend choice menu (see below).
 5. If a cloud backend is picked — request an API key with a link where to get it, validate it with a 5-second test request.
 6. If `smart` is picked — fallback backend chosen via a separate question.
-7. Save to `~/.youtube-transcribe/config.toml`. Keys go into `~/.youtube-transcribe/.env`.
+7. Save to `~/.neurolearn/config.toml`. Keys go into `~/.neurolearn/.env`.
 
 ### Sample menu (textual)
 
 ```
-🎬 youtube-transcribe — first setup
+🎬 neurolearn — first setup
 
 Detected: Windows + NVIDIA RTX 4090 (24 GB)
 Recommendation: whisper-local (fully offline, best quality)
@@ -349,8 +349,8 @@ Which engine should be the default?
 > 1
 ✅ Saved. Default engine: whisper-local
 
-Change the choice: youtube-transcribe config wizard
-Use a different engine once: youtube-transcribe <URL> --backend gemini
+Change the choice: neurolearn config wizard
+Use a different engine once: neurolearn <URL> --backend gemini
 ```
 
 ---
@@ -365,7 +365,7 @@ Claude sees an explicit engine mention in the message and adds `--backend X` to 
 
 | User phrase | Command |
 |---|---|
-| "transcribe this through gemini: <URL>" | `youtube-transcribe <URL> --backend gemini` |
+| "transcribe this through gemini: <URL>" | `neurolearn <URL> --backend gemini` |
 | "run via groq" | `... --backend groq` |
 | "locally with whisper large" | `... --backend whisper-local --model large` |
 | "grab YouTube subtitles" | `... --backend subtitles` |
@@ -380,23 +380,23 @@ The user says "use groq for the rest of this conversation" — Claude remembers 
 Changes the default via CLI:
 
 ```bash
-youtube-transcribe config show
-youtube-transcribe config set backend groq
-youtube-transcribe config set whisper-model turbo
-youtube-transcribe config set language ru
-youtube-transcribe config set-key gemini       # interactive key entry
-youtube-transcribe config test groq            # check that the key works
-youtube-transcribe config wizard               # rerun the wizard
+neurolearn config show
+neurolearn config set backend groq
+neurolearn config set whisper-model turbo
+neurolearn config set language ru
+neurolearn config set-key gemini       # interactive key entry
+neurolearn config test groq            # check that the key works
+neurolearn config wizard               # rerun the wizard
 ```
 
-Works from chat too: "switch the default to groq" → Claude runs `youtube-transcribe config set backend groq`.
+Works from chat too: "switch the default to groq" → Claude runs `neurolearn config set backend groq`.
 
 ---
 
 ## 8. CLI parameters
 
 ```
-youtube-transcribe <URL_or_path_to_file> [options]
+neurolearn <URL_or_path_to_file> [options]
 
 Engine selection:
   --backend {smart,subtitles,whisper-local,gemini,groq,openai,deepgram,assemblyai,custom}
@@ -498,7 +498,7 @@ The skill fires on semantic matching of `description`. So the description has to
 
 `yt-dlp` is the main tool. Our wrapper adds:
 
-1. **Auto-update of yt-dlp** on the first run of the day (`yt-dlp -U`). The last-update flag is cached in `~/.youtube-transcribe/state.json`.
+1. **Auto-update of yt-dlp** on the first run of the day (`yt-dlp -U`). The last-update flag is cached in `~/.neurolearn/state.json`.
 2. **Cookies support** via `--cookies-from-browser`, the flag is forwarded from the CLI.
 3. **Geobypass** by default: `--geo-bypass`.
 4. **Handling of common errors:**
@@ -546,7 +546,7 @@ the first thing to understand is…
 
 ## 13. Config and key storage
 
-### `~/.youtube-transcribe/config.toml`
+### `~/.neurolearn/config.toml`
 
 ```toml
 default_backend = "whisper-local"
@@ -591,7 +591,7 @@ cookies_browser = ""                   # "" | "chrome" | "firefox" | "edge"
 fast_path_enabled = true               # try subtitles in smart mode
 ```
 
-### `~/.youtube-transcribe/.env`
+### `~/.neurolearn/.env`
 
 ```
 GEMINI_API_KEY=...
@@ -608,8 +608,8 @@ CUSTOM_API_KEY=...
 
 ### Key loading priority
 
-1. Process environment variables (e.g. `GEMINI_API_KEY=xxx youtube-transcribe ...`).
-2. `~/.youtube-transcribe/.env`.
+1. Process environment variables (e.g. `GEMINI_API_KEY=xxx neurolearn ...`).
+2. `~/.neurolearn/.env`.
 3. If neither — wizard or CLI prints a clear error with instructions.
 
 ### Security
@@ -689,8 +689,8 @@ Two-layered layout:
 - Run on a test 60-second Russian YouTube video → receive .txt and .srt.
 - Run the same video with `--backend subtitles` → instant.
 - Run the same video with `--backend gemini` (if a key is set) → comparable result.
-- Wizard on a fresh machine (simulate by deleting `~/.youtube-transcribe/`, then run).
-- `youtube-transcribe config set backend groq && youtube-transcribe config show` — the change shows up.
+- Wizard on a fresh machine (simulate by deleting `~/.neurolearn/`, then run).
+- `neurolearn config set backend groq && neurolearn config show` — the change shows up.
 
 ---
 

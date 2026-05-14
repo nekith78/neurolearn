@@ -6,7 +6,7 @@ description: |
 argument-hint: <URL_or_path> | batch <inputs...> [flags]
 ---
 
-Run `youtube-transcribe $ARGUMENTS` and report results back to the user.
+Run `neurolearn $ARGUMENTS` and report results back to the user.
 
 - If `$ARGUMENTS` starts with `batch ` (or contains a channel/playlist URL or 2+ URLs), the CLI routes to the batch sub-command. Otherwise — to single (`transcribe`).
 - A bare URL/path without sub-command word is auto-routed to `transcribe`.

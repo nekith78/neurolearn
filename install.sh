@@ -26,7 +26,7 @@ echo "==> Syncing dependencies..."
 uv sync
 
 echo "==> Running wizard..."
-uv run youtube-transcribe config wizard
+uv run neurolearn config wizard
 
 echo "==> Done!"
-echo "Try: uv run youtube-transcribe transcribe https://youtu.be/<id>"
+echo "Try: uv run neurolearn transcribe https://youtu.be/<id>"

@@ -16,14 +16,14 @@ automated end-to-end because:
 
 ```bash
 mkdir -p ~/yt-tr-walkthrough-bak
-[[ -f ~/.youtube-transcribe/subscribes.toml ]] && \
-  cp ~/.youtube-transcribe/subscribes.toml ~/yt-tr-walkthrough-bak/
-[[ -f ~/.youtube-transcribe/config.toml ]] && \
-  cp ~/.youtube-transcribe/config.toml ~/yt-tr-walkthrough-bak/
-[[ -f ~/.youtube-transcribe/instagram-cookies.txt ]] && \
-  cp ~/.youtube-transcribe/instagram-cookies.txt ~/yt-tr-walkthrough-bak/
-[[ -f ~/.youtube-transcribe/tiktok-cookies.txt ]] && \
-  cp ~/.youtube-transcribe/tiktok-cookies.txt ~/yt-tr-walkthrough-bak/
+[[ -f ~/.neurolearn/subscribes.toml ]] && \
+  cp ~/.neurolearn/subscribes.toml ~/yt-tr-walkthrough-bak/
+[[ -f ~/.neurolearn/config.toml ]] && \
+  cp ~/.neurolearn/config.toml ~/yt-tr-walkthrough-bak/
+[[ -f ~/.neurolearn/instagram-cookies.txt ]] && \
+  cp ~/.neurolearn/instagram-cookies.txt ~/yt-tr-walkthrough-bak/
+[[ -f ~/.neurolearn/tiktok-cookies.txt ]] && \
+  cp ~/.neurolearn/tiktok-cookies.txt ~/yt-tr-walkthrough-bak/
 echo "✓ backup saved to ~/yt-tr-walkthrough-bak/"
 ```
 
@@ -48,14 +48,14 @@ Clear only the cookies settings (keep any existing subscribed
 channels):
 
 ```bash
-youtube-transcribe subscribes cookies clear instagram 2>/dev/null || true
-youtube-transcribe subscribes cookies clear tiktok    2>/dev/null || true
+neurolearn subscribes cookies clear instagram 2>/dev/null || true
+neurolearn subscribes cookies clear tiktok    2>/dev/null || true
 ```
 
 ### A.2. Add an Instagram channel
 
 ```bash
-youtube-transcribe subscribes add https://www.instagram.com/natgeo/ --group walk-ig
+neurolearn subscribes add https://www.instagram.com/natgeo/ --group walk-ig
 ```
 
 **What you should see:**
@@ -89,14 +89,14 @@ Path to cookies.txt:
 Expected output:
 
 ```
-✓ instagram cookies saved: /Users/<you>/.youtube-transcribe/instagram-cookies.txt (mode 0600)
-Change later: youtube-transcribe subscribes cookies set instagram <new-path>.
+✓ instagram cookies saved: /Users/<you>/.neurolearn/instagram-cookies.txt (mode 0600)
+Change later: neurolearn subscribes cookies set instagram <new-path>.
 ```
 
 ### A.5. Verify the cookies are registered
 
 ```bash
-youtube-transcribe subscribes cookies show
+neurolearn subscribes cookies show
 ```
 
 The table should show:
@@ -108,7 +108,7 @@ The table should show:
 ## Scenario B: repeat `add` — wizard should NOT launch
 
 ```bash
-youtube-transcribe subscribes add https://www.instagram.com/nasa/ --group walk-ig
+neurolearn subscribes add https://www.instagram.com/nasa/ --group walk-ig
 ```
 
 **Expected:** the channel is added without any cookies prompt (cookies
@@ -124,7 +124,7 @@ are already configured). Just:
 
 ```bash
 rm -rf /tmp/yt-walk-ig
-youtube-transcribe subscribes update --platform instagram --group walk-ig --days 7 \
+neurolearn subscribes update --platform instagram --group walk-ig --days 7 \
   --backend subtitles --no-analyze --yes \
   --output-dir /tmp/yt-walk-ig
 ```
@@ -142,8 +142,8 @@ For case (3) try:
 
 ```bash
 # Clear → re-export → re-set
-youtube-transcribe subscribes cookies clear instagram
-youtube-transcribe subscribes cookies set instagram ~/Downloads/instagram_cookies.txt
+neurolearn subscribes cookies clear instagram
+neurolearn subscribes cookies set instagram ~/Downloads/instagram_cookies.txt
 ```
 
 Then re-run scenario C.
@@ -156,8 +156,8 @@ Clear cookies again to walk the "no cookies, offer to configure"
 branch:
 
 ```bash
-youtube-transcribe subscribes cookies clear instagram
-youtube-transcribe subscribes update --platform instagram --group walk-ig --days 7 \
+neurolearn subscribes cookies clear instagram
+neurolearn subscribes update --platform instagram --group walk-ig --days 7 \
   --backend subtitles --no-analyze --yes \
   --output-dir /tmp/yt-walk-ig-d
 ```
@@ -177,8 +177,8 @@ scenario A opens.
 ## Scenario E: TikTok with a similar flow
 
 ```bash
-youtube-transcribe subscribes cookies clear tiktok 2>/dev/null || true
-youtube-transcribe subscribes add https://www.tiktok.com/@duolingo --group walk-tt
+neurolearn subscribes cookies clear tiktok 2>/dev/null || true
+neurolearn subscribes add https://www.tiktok.com/@duolingo --group walk-tt
 ```
 
 Expected: `Cookies for tiktok are not configured yet. Set them up
@@ -196,9 +196,9 @@ works anonymously for public accounts) — `n`, and a regular
 - **The prompt fires only the first time**; subsequent runs read the
   saved choice from config.
 - **You can change it later** —
-  `youtube-transcribe subscribes cookies set instagram <new-path>`.
+  `neurolearn subscribes cookies set instagram <new-path>`.
 - **You can remove it** —
-  `youtube-transcribe subscribes cookies clear instagram`.
+  `neurolearn subscribes cookies clear instagram`.
 
 ---
 
@@ -208,19 +208,19 @@ After the walkthrough:
 
 ```bash
 # Drop the test channels
-youtube-transcribe subscribes remove "@natgeo" 2>/dev/null || true
-youtube-transcribe subscribes remove "@nasa" 2>/dev/null || true
-youtube-transcribe subscribes remove "@duolingo" 2>/dev/null || true
+neurolearn subscribes remove "@natgeo" 2>/dev/null || true
+neurolearn subscribes remove "@nasa" 2>/dev/null || true
+neurolearn subscribes remove "@duolingo" 2>/dev/null || true
 
 # Restore from backup if you had your own data
 [[ -f ~/yt-tr-walkthrough-bak/subscribes.toml ]] && \
-  cp ~/yt-tr-walkthrough-bak/subscribes.toml ~/.youtube-transcribe/
+  cp ~/yt-tr-walkthrough-bak/subscribes.toml ~/.neurolearn/
 [[ -f ~/yt-tr-walkthrough-bak/config.toml ]] && \
-  cp ~/yt-tr-walkthrough-bak/config.toml ~/.youtube-transcribe/
+  cp ~/yt-tr-walkthrough-bak/config.toml ~/.neurolearn/
 [[ -f ~/yt-tr-walkthrough-bak/instagram-cookies.txt ]] && \
-  cp ~/yt-tr-walkthrough-bak/instagram-cookies.txt ~/.youtube-transcribe/
+  cp ~/yt-tr-walkthrough-bak/instagram-cookies.txt ~/.neurolearn/
 [[ -f ~/yt-tr-walkthrough-bak/tiktok-cookies.txt ]] && \
-  cp ~/yt-tr-walkthrough-bak/tiktok-cookies.txt ~/.youtube-transcribe/
+  cp ~/yt-tr-walkthrough-bak/tiktok-cookies.txt ~/.neurolearn/
 
 # Delete the test batches and the backup folder
 rm -rf /tmp/yt-walk-ig /tmp/yt-walk-ig-d ~/yt-tr-walkthrough-bak
