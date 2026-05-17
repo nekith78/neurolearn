@@ -305,10 +305,26 @@ def _build_meta(
         duration_str = ""
 
     return {
-        "source_url": video.get("url", "") or "",
+        "source_url": _safe_url(video.get("url", "")),
         "channel": video.get("channel", "") or "",
         "duration": duration_str,
         "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
         "report_type": report_type,
         "batch_name": manifest.get("batch_name", "") or "",
     }
+
+
+def _safe_url(url: str | None) -> str:
+    """Return the URL only if it uses http/https. Anything else
+    (javascript:, file:, data:, malformed) is dropped — the renderer
+    embeds source_url into an <a href="…">, and a javascript: URL
+    would execute on click when the user opens the HTML output via
+    --keep-html in a browser."""
+    if not url:
+        return ""
+    from urllib.parse import urlparse
+    try:
+        scheme = urlparse(url).scheme.lower()
+    except ValueError:
+        return ""
+    return url if scheme in {"http", "https"} else ""

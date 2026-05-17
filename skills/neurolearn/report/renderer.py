@@ -63,6 +63,11 @@ def downscale_image(
         # silently degrade (image won't appear).
         return None
 
+    # Decompression-bomb defense: reject sources that decode to more
+    # than ~25 megapixels before they exhaust memory. Stock Pillow caps
+    # at ~89 MP; ours is tighter because keyframes are screen-sized.
+    Image.MAX_IMAGE_PIXELS = 25_000_000
+
     try:
         with Image.open(src) as img:
             img.load()
@@ -99,26 +104,43 @@ def _to_data_uri(image_bytes: bytes, mime: str = "image/jpeg") -> str:
 # ---------------------------------------------------------------------------
 
 
-def _resolve_image_path(batch_dir: Path, ref: str) -> Path:
-    """Resolve an image_ref (path string from outline) to a real path.
+def _resolve_image_path(batch_dir: Path, ref: str) -> Path | None:
+    """Resolve an image_ref (path string from outline) to a real path
+    INSIDE batch_dir, or None if it escapes the directory.
 
-    image_refs come straight from the visual_segments manifest entry —
-    typically relative paths like "frames/foo.jpg". We try a few
-    locations to be forgiving:
-      1. ref as given (could be absolute)
-      2. batch_dir / ref
-      3. batch_dir / "frames" / basename(ref)
+    image_refs are LLM-controlled (the outliner pulls them from the
+    parsed model response). An adversarial / hallucinated LLM could
+    emit absolute paths ("/etc/passwd") or relative traversals
+    ("../../etc/shadow") — we never honor either. The resolved path
+    must stay inside `batch_dir` or we return None and the caller
+    silently skips the image.
+
+    Tries, in order:
+      1. batch_dir / ref
+      2. batch_dir / "frames" / basename(ref)
     """
-    p = Path(ref)
-    if p.is_absolute() and p.exists():
-        return p
-    candidate = batch_dir / ref
-    if candidate.exists():
-        return candidate
-    candidate = batch_dir / "frames" / p.name
-    if candidate.exists():
-        return candidate
-    return candidate    # may not exist — downscale_image will return None
+    batch_root = batch_dir.resolve()
+
+    def _safe_under_batch(candidate: Path) -> Path | None:
+        try:
+            resolved = candidate.resolve()
+        except (OSError, RuntimeError):
+            return None
+        # Strict containment: resolved must be batch_root or strictly
+        # below it. Using is_relative_to (3.9+) keeps the intent obvious.
+        try:
+            resolved.relative_to(batch_root)
+        except ValueError:
+            return None
+        return resolved if resolved.exists() else None
+
+    safe = _safe_under_batch(batch_dir / ref)
+    if safe is not None:
+        return safe
+    safe = _safe_under_batch(batch_dir / "frames" / Path(ref).name)
+    if safe is not None:
+        return safe
+    return None
 
 
 def _prepare_section_images(
@@ -144,6 +166,8 @@ def _prepare_section_images(
             if remaining <= 0:
                 break
             path = _resolve_image_path(batch_dir, ref)
+            if path is None:
+                continue
             jpg_bytes = downscale_image(path, max_width=max_width)
             if jpg_bytes is None:
                 continue
@@ -253,25 +277,6 @@ def render_html(
 # ---------------------------------------------------------------------------
 
 
-def _prime_native_libs_for_weasyprint() -> None:
-    """On macOS+Apple Silicon, WeasyPrint can't find brew libs (pango,
-    cairo, gobject) without DYLD_FALLBACK_LIBRARY_PATH pointing at
-    /opt/homebrew/lib. We set it in-process before importing weasyprint
-    so users don't have to wrap every command in env vars."""
-    import os
-    import platform
-    if platform.system() != "Darwin":
-        return
-    for brew_lib in ("/opt/homebrew/lib", "/usr/local/lib"):
-        if not os.path.exists(brew_lib):
-            continue
-        existing = os.environ.get("DYLD_FALLBACK_LIBRARY_PATH", "")
-        if brew_lib not in existing.split(":"):
-            os.environ["DYLD_FALLBACK_LIBRARY_PATH"] = (
-                brew_lib + (":" + existing if existing else "")
-            )
-
-
 def render_pdf(
     outline: Outline,
     *,
@@ -290,7 +295,10 @@ def render_pdf(
     keep_html=True also writes the intermediate HTML alongside the PDF
     (same stem, .html extension) for debugging.
     """
-    _prime_native_libs_for_weasyprint()
+    from skills.neurolearn.report._macos import (
+        prime_native_libs_for_weasyprint,
+    )
+    prime_native_libs_for_weasyprint()
     try:
         import weasyprint
     except ImportError as e:

@@ -12,7 +12,7 @@ from unittest.mock import patch
 import pytest
 
 from skills.neurolearn.report.orchestrator import (
-    ReportResult, _parse_srt, generate_report,
+    ReportResult, _parse_srt, _safe_url, generate_report,
 )
 
 
@@ -134,6 +134,25 @@ def test_parse_srt_handles_multiline_text(tmp_path):
 # ---------------------------------------------------------------------------
 # Orchestrator end-to-end (with mocked LLM)
 # ---------------------------------------------------------------------------
+
+
+# ---------------------------------------------------------------------------
+# Security: _safe_url scheme filter
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("url,expected", [
+    ("https://youtu.be/abc", "https://youtu.be/abc"),
+    ("http://example.com", "http://example.com"),
+    ("javascript:alert(1)", ""),
+    ("file:///etc/passwd", ""),
+    ("data:text/html,<script>", ""),
+    ("ftp://anonymous@example.com", ""),
+    ("", ""),
+    (None, ""),
+])
+def test_safe_url_blocks_non_http_schemes(url, expected):
+    assert _safe_url(url) == expected
 
 
 def test_generate_report_end_to_end_pdf(tmp_path):

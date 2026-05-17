@@ -18,32 +18,13 @@ keeps the base install lean for users who never touch reporting.
 """
 from __future__ import annotations
 
-import os
-import platform
 from importlib import import_module
 
-
-def _prime_native_libs_for_weasyprint() -> None:
-    """macOS+Apple Silicon: WeasyPrint can't find Homebrew-installed
-    pango / cairo / gobject because brew puts them under /opt/homebrew/lib
-    which isn't on the system dyld search path. We prepend it to
-    DYLD_FALLBACK_LIBRARY_PATH so `import weasyprint` succeeds without
-    the user having to wrap commands in env vars. No-op on other OSes
-    and when /opt/homebrew/lib doesn't exist."""
-    if platform.system() != "Darwin":
-        return
-    for brew_lib in ("/opt/homebrew/lib", "/usr/local/lib"):
-        if not os.path.isdir(brew_lib):
-            continue
-        existing = os.environ.get("DYLD_FALLBACK_LIBRARY_PATH", "")
-        if brew_lib not in existing.split(":"):
-            os.environ["DYLD_FALLBACK_LIBRARY_PATH"] = (
-                brew_lib + (":" + existing if existing else "")
-            )
+from skills.neurolearn.report._macos import prime_native_libs_for_weasyprint
 
 
 # Prime before any submodule imports weasyprint.
-_prime_native_libs_for_weasyprint()
+prime_native_libs_for_weasyprint()
 
 
 # ---------------------------------------------------------------------------

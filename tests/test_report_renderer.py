@@ -15,7 +15,7 @@ import pytest
 
 from skills.neurolearn.report.outliner import Outline, Section
 from skills.neurolearn.report.renderer import (
-    downscale_image, render_html, render_pdf,
+    _resolve_image_path, downscale_image, render_html, render_pdf,
 )
 
 
@@ -201,6 +201,82 @@ def test_render_pdf_with_keep_html(tmp_path):
     html_file = out.with_suffix(".html")
     assert html_file.exists()
     assert "My Test Tutorial" in html_file.read_text(encoding="utf-8")
+
+
+# ---------------------------------------------------------------------------
+# Security: path traversal in LLM-controlled image_refs
+# ---------------------------------------------------------------------------
+
+
+def test_resolve_image_path_rejects_absolute_outside_batch(tmp_path):
+    """An LLM-hallucinated absolute path must NOT escape batch_dir."""
+    batch = tmp_path / "batch"
+    batch.mkdir()
+    # /etc/passwd is the canonical "got out of the sandbox" smoke check.
+    result = _resolve_image_path(batch, "/etc/passwd")
+    assert result is None
+
+
+def test_resolve_image_path_rejects_relative_traversal(tmp_path):
+    """`../../something-outside` must not escape batch_dir."""
+    outside = tmp_path / "outside.jpg"
+    _make_dummy_image(outside)
+    batch = tmp_path / "batch"
+    batch.mkdir()
+    # ../outside.jpg from batch_dir would resolve to outside.jpg.
+    result = _resolve_image_path(batch, "../outside.jpg")
+    assert result is None
+
+
+def test_resolve_image_path_accepts_in_batch(tmp_path):
+    """Legitimate relative paths inside batch_dir are returned."""
+    batch = tmp_path / "batch"
+    (batch / "frames").mkdir(parents=True)
+    img = batch / "frames" / "f.jpg"
+    _make_dummy_image(img)
+    result = _resolve_image_path(batch, "frames/f.jpg")
+    assert result is not None
+    assert result.exists()
+    # Must be inside batch_dir.
+    assert result.resolve().is_relative_to(batch.resolve())
+
+
+def test_resolve_image_path_falls_back_to_frames_subdir(tmp_path):
+    """Bare filename → batch_dir / "frames" / name."""
+    batch = tmp_path / "batch"
+    (batch / "frames").mkdir(parents=True)
+    img = batch / "frames" / "lone.jpg"
+    _make_dummy_image(img)
+    result = _resolve_image_path(batch, "lone.jpg")
+    assert result is not None
+    assert result.exists()
+
+
+def test_resolve_image_path_returns_none_for_nonexistent(tmp_path):
+    batch = tmp_path / "batch"
+    batch.mkdir()
+    result = _resolve_image_path(batch, "missing.jpg")
+    assert result is None
+
+
+def test_render_html_drops_traversal_image_refs(tmp_path):
+    """Outline with malicious image_refs must produce HTML without
+    leaking the rejected paths into <img> tags."""
+    pytest.importorskip("PIL")
+    outline = Outline(
+        title="X", summary="",
+        sections=[Section(
+            title="S",
+            image_refs=["/etc/passwd", "../../../etc/shadow"],
+            timestamps=["00:00:00"],
+        )],
+    )
+    html = render_html(outline, batch_dir=tmp_path, include_screenshots=True)
+    # No images embedded → no <img> tags.
+    assert "<img" not in html
+    # Sensitive system path must not appear anywhere in the HTML.
+    assert "/etc/passwd" not in html
+    assert "shadow" not in html
 
 
 def test_render_pdf_overwrites_existing(tmp_path):
