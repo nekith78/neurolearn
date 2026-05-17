@@ -1,16 +1,54 @@
 {
   "name": "neurolearn",
-  "version": "0.9.0",
-  "description": "NEUROLEARN — learn from videos. Transcribe / analyze / research / subscribe to YouTube, Instagram, TikTok, and local media via 8 interchangeable backends with an offline default.",
+  "version": "0.10.2",
+  "description": "Transcribe YouTube / Instagram / TikTok / local-file videos via 8 interchangeable backends (Whisper local, subtitles, Gemini, Groq, OpenAI, Deepgram, AssemblyAI, custom). Research topics, subscribe to channels with RSS, and render structured PDF reports.",
   "author": {
-    "name": "NEUROLEARN contributors"
+    "name": "Nikita Khan",
+    "email": "nekith78@gmail.com"
   },
   "license": "MIT",
   "homepage": "https://github.com/nekith78/neurolearn",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/nekith78/neurolearn"
+  },
   "skills": [
     "skills/neurolearn"
   ],
   "commands": [
     "commands/transcribe.md"
+  ],
+  "category": "productivity",
+  "keywords": [
+    "transcription",
+    "video",
+    "youtube",
+    "instagram",
+    "tiktok",
+    "whisper",
+    "mlx-whisper",
+    "subtitles",
+    "gemini",
+    "claude",
+    "openai",
+    "groq",
+    "deepgram",
+    "assemblyai",
+    "batch-processing",
+    "rss",
+    "subscribes",
+    "pdf-report",
+    "research",
+    "vision",
+    "keyframes",
+    "ocr",
+    "cli"
+  ],
+  "tags": [
+    "transcription",
+    "ai-video",
+    "self-hosted",
+    "multi-backend",
+    "report-generation"
   ]
 }

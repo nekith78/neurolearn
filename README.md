@@ -3,6 +3,13 @@
 Universal audio/video transcription — YouTube, Instagram (posts / reels / IGTV), TikTok, Vimeo, Twitter, Twitch, local files. 8 interchangeable backends. Offline-by-default.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Claude Code Plugin](https://img.shields.io/badge/Claude_Code-plugin-7C3AED.svg)](#install)
+[![Python 3.11+](https://img.shields.io/badge/Python-3.11+-3776AB.svg)](https://www.python.org/downloads/)
+
+<!-- Demo GIF: generated with `vhs assets/demo.tape` — see assets/demo.tape -->
+<!-- Once generated, uncomment the line below and commit assets/demo.gif:
+![neurolearn demo](assets/demo.gif)
+-->
 
 ---
 
@@ -51,7 +58,31 @@ v0.10.2 — production-ready:
 
 ## Install
 
-### Option A — Claude Code plugin (recommended)
+### Option A — Claude Code plugin via marketplace (recommended)
+
+Inside Claude Code:
+
+```
+/plugin marketplace add nekith78/neurolearn
+```
+
+```
+/plugin install neurolearn@neurolearn
+```
+
+Then in your shell:
+
+```bash
+uv sync
+```
+
+```bash
+neurolearn config wizard
+```
+
+To upgrade later: `/plugin update neurolearn` inside Claude Code, then `uv sync` again.
+
+### Option B — Claude Code plugin via manual clone
 
 ```bash
 git clone https://github.com/nekith78/neurolearn ~/.claude/plugins/neurolearn
@@ -61,7 +92,7 @@ uv sync
 
 Then run `neurolearn config wizard` to set up. Reload Claude Code if needed.
 
-### Option B — Personal skill folder
+### Option C — Personal skill folder
 
 ```bash
 git clone https://github.com/nekith78/neurolearn /tmp/yt-transcribe
@@ -69,7 +100,7 @@ cp -r /tmp/yt-transcribe/skills/neurolearn ~/.claude/skills/
 cd ~/.claude/skills/neurolearn && uv sync
 ```
 
-### Option C — Standalone CLI (no Claude needed)
+### Option D — Standalone CLI (no Claude needed)
 
 ```bash
 uv tool install git+https://github.com/nekith78/neurolearn
