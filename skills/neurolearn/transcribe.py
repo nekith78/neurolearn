@@ -2130,13 +2130,24 @@ def report_cmd(
     ollama_host_opt: str | None,
 ) -> None:
     """Render a PDF report from a transcribed batch directory."""
-    # 1. Optional deps gate (weasyprint + jinja2 + markdown).
+    # 1. Cheap flag validation FIRST — fast feedback on typos before
+    #    we tell the user to install heavy native deps. The mutex
+    #    between --prompt and --prompt-file would otherwise be hidden
+    #    behind a missing-deps message on environments that haven't
+    #    installed `uv sync --extra report`.
+    if prompt_inline and prompt_file:
+        console.print(
+            "[red]Pass at most one of[/red] --prompt / --prompt-file."
+        )
+        sys.exit(2)
+
+    # 2. Optional deps gate (weasyprint + jinja2 + markdown).
     from skills.neurolearn.report import require_report_deps_or_exit
     require_report_deps_or_exit()
 
     from skills.neurolearn.report.orchestrator import generate_report
 
-    # 2. Resolve batch_dir.
+    # 3. Resolve batch_dir.
     cfg = load_config(CONFIG_PATH)
     outputs_dir = Path(cfg.output_dir).expanduser()
 
@@ -2184,12 +2195,8 @@ def report_cmd(
         )
         sys.exit(3)
 
-    # 3. Resolve --prompt / --prompt-file (user filter, optional).
-    if prompt_inline and prompt_file:
-        console.print(
-            "[red]Pass at most one of[/red] --prompt / --prompt-file."
-        )
-        sys.exit(2)
+    # 4. Resolve --prompt / --prompt-file (user filter, optional).
+    #    Mutex was validated in step 1; here just materialize the value.
     user_filter = prompt_inline or ""
     if prompt_file is not None:
         user_filter = prompt_file.read_text(encoding="utf-8")
