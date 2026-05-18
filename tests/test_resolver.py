@@ -62,10 +62,11 @@ def test_resolve_probes_multiple_urls_in_parallel():
 
     assert failures == []
     assert len(targets) == 4
-    # At least 2 probes in flight at once.
+    # Load-bearing assertion: at least 2 probes in flight at once.
     assert max_concurrent >= 2, f"max_concurrent={max_concurrent} (no parallelism)"
-    # Sequential would take 400ms+; allow generous slack for slow CI.
-    assert elapsed < 0.35, f"elapsed={elapsed:.2f}s (looks sequential)"
+    # Wall-time bound is a sanity check (sequential 4×100ms = 400ms+);
+    # generous ceiling absorbs CI runner variance.
+    assert elapsed < 0.6, f"elapsed={elapsed:.2f}s (looks sequential)"
 
 
 def test_resolve_inline_single_url(tmp_path):

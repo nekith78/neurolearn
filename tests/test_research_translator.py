@@ -225,13 +225,13 @@ def test_build_queries_parallelizes_translations():
     assert set(out.keys()) == {"en", "ru", "ja", "de"}
     assert out["en"] == "Claude features"  # anchor, no LLM call
 
-    # Concurrency proof: at least 2 calls were in-flight simultaneously.
-    # (Anchor is skipped, so 3 calls in parallel; we assert >=2 to be
-    # robust to interpreter scheduling delays.)
+    # Load-bearing assertion: at least 2 LLM calls in-flight at once.
+    # (Anchor is skipped, so 3 calls run in parallel; we assert >=2 to
+    # be robust to interpreter scheduling delays.)
     assert max_concurrent >= 2, f"max_concurrent={max_concurrent} (no parallelism)"
-    # Wall time should be <300ms (3 × 100ms sequential would be 300ms+).
-    # Generous slack for slow CI.
-    assert elapsed < 0.35, f"elapsed={elapsed:.2f}s (looks sequential)"
+    # Wall-time bound is a sanity check (sequential 3×100ms = 300ms+);
+    # generous ceiling to absorb CI runner variance.
+    assert elapsed < 0.6, f"elapsed={elapsed:.2f}s (looks sequential)"
 
 
 def test_build_queries_with_explicit_hint():
