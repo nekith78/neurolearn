@@ -12,7 +12,8 @@
 #   scripts/qa.sh phase5.4         # history list/show
 #   scripts/qa.sh cleanup          # remove all QA artefacts
 #
-# Run from the repo root: /Users/nekith78/neurolearn.
+# Run from the repo root (i.e. the directory containing this script's
+# parent — wherever you cloned neurolearn).
 
 set -u
 
@@ -752,7 +753,7 @@ Usage: scripts/qa.sh <phase>
   cleanup        — remove all QA artefacts + restore subscribes.toml
 
 Each phase is self-contained and reports PASS/FAIL.
-Run from repo root: cd /Users/nekith78/neurolearn && scripts/qa.sh <phase>
+Run from repo root: cd /path/to/neurolearn && scripts/qa.sh <phase>
 EOF
 }
 
