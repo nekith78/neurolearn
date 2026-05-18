@@ -109,9 +109,24 @@ def run_smart(
     fb_name = cfg.fallback_backend
     fb = build_backend(fb_name, cfg)
     if is_url(src):
-        # Fallback backend needs a local file. Download into a temp dir;
-        # the file is cleaned up on context exit (transcription has
-        # already returned by then with its result in memory).
+        # v0.10.3 fast path: if the fallback is Gemini AND the URL is
+        # YouTube, the backend can fetch the video itself via `file_uri`.
+        # No download, no upload — saves 30-90s per video and ~100 MB of
+        # temp disk. Non-YouTube URLs (IG, TikTok, Vimeo) still need
+        # local download because Gemini can only fetch YouTube URLs.
+        if fb_name == "gemini" and is_youtube_url(src):
+            notify("Transcribing via gemini (direct YouTube URL)...")
+            try:
+                return fb.transcribe(src, language=language)
+            except BackendError as e:
+                # On 429 / private video / any other failure, fall back
+                # to download+upload so the user still gets a transcript.
+                notify(f"Direct URL failed ({e}); downloading audio...")
+
+        # Default fallback path: download audio to a temp dir, then
+        # transcribe from that local file. Temp dir auto-cleaned on
+        # context exit (transcription has already returned by then with
+        # its result in memory).
         import tempfile
         notify("Downloading audio...")
         with tempfile.TemporaryDirectory(prefix="yt-smart-fb-") as tmp:

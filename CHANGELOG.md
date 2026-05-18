@@ -3,6 +3,64 @@
 All notable changes to neurolearn will be documented here.
 The format is loosely based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.10.3] — 2026-05-18
+
+### Gemini accepts YouTube URLs directly (no download)
+
+Before this release, `neurolearn transcribe <YouTube URL> --backend
+gemini` was a three-stage pipeline: yt-dlp downloads audio, we upload
+that audio to the Gemini Files API, then we ask the model to
+transcribe. That meant ~10-60 s of yt-dlp time, ~1-5 s/MB of upload
+time, and 50-200 MB of temp disk usage per video.
+
+Gemini's video-understanding endpoint accepts a YouTube URL via
+`Part.from_uri` and fetches the video server-side. v0.10.3 routes
+YouTube URLs through that path:
+
+- `backends/gemini.py::GeminiBackend.transcribe(url)` detects YouTube
+  URLs and uses `types.Part.from_uri(file_uri=url, mime_type="video/*")`
+  with `models.generate_content`. Local file inputs still use the
+  upload path unchanged.
+- `supports_url` flipped to `True` for Gemini.
+- Non-YouTube URLs (Instagram / TikTok / Vimeo / arbitrary `https://`)
+  fail fast with an explicit "Gemini only accepts YouTube URLs
+  directly; download audio first" message — the smart composer (or
+  the user) handles the download.
+- `backends/factory.py::run_smart` fast-paths YouTube URLs to
+  Gemini when fallback is Gemini, skipping `download_audio`. On any
+  `BackendError` from the URL path (429 daily-quota, private video,
+  network), it falls back to the download+upload pipeline so the
+  user still gets a transcript.
+
+### Robust JSON response parsing
+
+Gemini occasionally appends a second JSON object or a few lines of
+commentary after the main response (observed in production on the
+real YouTube URL path). The old parser blew up with `json.JSONDecodeError:
+Extra data`. `_extract_json` now uses `JSONDecoder().raw_decode()`,
+which parses up to the end of the first valid object and ignores
+trailing data. Also tolerates a leading "Here is the JSON:" preamble.
+
+### Trade-offs (read before relying on this)
+
+- **Free tier daily cap**: 8 hours of YouTube video per day. After
+  that Gemini returns 429 and the smart composer falls back to the
+  download path automatically.
+- **Public videos only**: private and unlisted YouTube videos can't
+  be fetched via `file_uri`. The smart composer falls back to
+  download (which uses cookies-file if configured for private content).
+- **Preview status**: Google labels the YouTube-URL ingestion as
+  preview. Pricing and limits may change.
+- **Other backends unchanged**: groq / deepgram / assemblyai accept
+  direct media URLs (`.mp3`, `.wav`) but NOT YouTube URLs, because
+  YouTube URLs are HTML pages. Those backends still go through the
+  download+upload pipeline.
+
+### Tests
+
++9 tests across `tests/test_backend_gemini.py` and
+`tests/test_factory.py`. Full suite: 1052 passed, 3 skipped.
+
 ## [0.10.2] — 2026-05-16
 
 ### PDF report generation

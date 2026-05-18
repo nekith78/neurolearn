@@ -5,11 +5,17 @@ repository.
 
 ## Repository state
 
-`neurolearn` is a mature CLI tool: v0.10.2, ~1030 unit tests
+`neurolearn` is a mature CLI tool: v0.10.3, ~1052 unit tests
 passing, in active use. Shipped commands: `transcribe`, `batch`,
 `analyze`, `research`, `subscribes` (YouTube / Instagram / TikTok),
 `report` (PDF generation, v0.10.2), `history`, `config`, `webui`
 (hidden).
+
+v0.10.3 highlight: `GeminiBackend.transcribe(youtube_url)` now uses
+`Part.from_uri` directly — no download, no upload. Smart composer
+routes YouTube URLs to Gemini's URL path when fallback is gemini,
+falls back to download+upload on any backend error (e.g. free-tier
+quota exhaustion).
 
 The source of truth for behavior is the code. Design documents in
 `docs/specs/` and plan documents in `docs/plans/` capture the original

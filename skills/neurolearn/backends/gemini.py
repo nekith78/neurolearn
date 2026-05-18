@@ -1,4 +1,10 @@
-"""Gemini backend — Google AI Studio (google-genai 2.x)."""
+"""Gemini backend — Google AI Studio (google-genai 2.x).
+
+Accepts either a local audio file (uploaded via the Files API) or a
+public YouTube URL passed directly as `file_uri`. The URL path skips
+the local download + upload roundtrip entirely — Gemini fetches the
+video on its side.
+"""
 from __future__ import annotations
 
 import json
@@ -12,6 +18,7 @@ from skills.neurolearn.backends.base import (
     TranscriptionResult,
 )
 from skills.neurolearn.config import get_api_key
+from skills.neurolearn.utils.downloader import is_url, is_youtube_url
 from skills.neurolearn.utils.output_writer import Segment
 
 
@@ -33,17 +40,45 @@ def _build_client(api_key: str):
 
 
 def _extract_json(text: str) -> dict:
-    """Strip optional markdown fences, parse JSON."""
+    """Strip optional markdown fences and return the first top-level JSON
+    object. Gemini occasionally streams the same outline twice (or appends
+    a brief explanation after the JSON); `json.JSONDecoder.raw_decode`
+    parses up to the end of the first valid object and ignores trailing
+    data — that's exactly what we want here."""
     cleaned = text.strip()
     cleaned = re.sub(r"^```(?:json)?\s*", "", cleaned)
-    cleaned = re.sub(r"\s*```$", "", cleaned)
-    return json.loads(cleaned)
+    cleaned = re.sub(r"\s*```\s*$", "", cleaned)
+    # Skip any leading non-JSON preamble — find the first `{`.
+    brace = cleaned.find("{")
+    if brace > 0:
+        cleaned = cleaned[brace:]
+    obj, _ = json.JSONDecoder().raw_decode(cleaned)
+    if not isinstance(obj, dict):
+        raise json.JSONDecodeError(
+            f"Expected JSON object, got {type(obj).__name__}", cleaned, 0,
+        )
+    return obj
+
+
+def _build_youtube_part(url: str):
+    """Wrap a YouTube URL in a genai Part suitable for generate_content.
+
+    Per the Gemini video-understanding docs, `Part.from_uri` with a
+    `youtube.com` / `youtu.be` URL makes the model fetch the video
+    server-side — no download or upload from our side. Free-tier
+    accounts are capped at 8 hours/day; the model 429s past that.
+    """
+    from google.genai import types
+    return types.Part.from_uri(file_uri=url, mime_type="video/*")
 
 
 @dataclass
 class GeminiBackend:
     name: str = field(default="gemini", init=False)
-    supports_url: bool = field(default=False, init=False)
+    # v0.10.3: True because YouTube URLs are accepted natively. Non-YouTube
+    # URLs still error with a clear hint — the caller (smart composer)
+    # is responsible for downloading those first.
+    supports_url: bool = field(default=True, init=False)
     supports_local_file: bool = field(default=True, init=False)
 
     model: str = "gemini-2.5-flash"
@@ -65,14 +100,47 @@ class GeminiBackend:
         language: str = "auto",
         **opts,
     ) -> TranscriptionResult:
+        src = str(audio_or_url)
+
+        # YouTube URLs go through file_uri (no download on our side).
+        if is_youtube_url(src):
+            return self._transcribe_youtube_url(src)
+
+        # Any other URL: Gemini can't fetch it. Be explicit so the smart
+        # composer (or the user) knows to download audio first.
+        if is_url(src):
+            raise BackendError(
+                "Gemini backend only accepts YouTube URLs directly. "
+                f"For other URLs (Instagram, TikTok, etc.) the caller must "
+                f"download the audio first. Got: {src}"
+            )
+
+        # Local file path — upload to Files API, then transcribe.
         audio = Path(audio_or_url)
         if not audio.exists():
             raise BackendError(f"Audio file not found: {audio}")
+        return self._transcribe_local_file(audio)
 
+    # ------------------------------------------------------------------ paths
+
+    def _transcribe_youtube_url(self, url: str) -> TranscriptionResult:
         api_key = get_api_key("gemini")
         if not api_key:
             raise BackendNotConfigured("GEMINI_API_KEY missing.")
+        client = _build_client(api_key)
+        try:
+            response = client.models.generate_content(
+                model=self.model,
+                contents=[_PROMPT, _build_youtube_part(url)],
+            )
+        except Exception as e:
+            raise BackendError(f"Gemini API error (YouTube URL): {e}") from e
+        return self._parse_response(response)
 
+    def _transcribe_local_file(self, audio: Path) -> TranscriptionResult:
+        api_key = get_api_key("gemini")
+        if not api_key:
+            raise BackendNotConfigured("GEMINI_API_KEY missing.")
         client = _build_client(api_key)
         try:
             uploaded = client.files.upload(file=str(audio))
@@ -82,7 +150,11 @@ class GeminiBackend:
             )
         except Exception as e:
             raise BackendError(f"Gemini API error: {e}") from e
+        return self._parse_response(response)
 
+    # ------------------------------------------------------------------ parse
+
+    def _parse_response(self, response) -> TranscriptionResult:
         raw_text = getattr(response, "text", "") or ""
         try:
             data = _extract_json(raw_text)

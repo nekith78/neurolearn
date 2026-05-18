@@ -223,6 +223,71 @@ def test_smart_falls_back_when_subtitles_fail(tmp_path):
     mock_dl.assert_called_once()
 
 
+def test_smart_youtube_url_with_gemini_fallback_skips_download(tmp_path):
+    """v0.10.3: when subtitles miss and fallback is Gemini AND URL is
+    YouTube, we pass the URL directly to GeminiBackend.transcribe — no
+    download_audio call. This saves 30-90s on typical videos."""
+    cfg = Config(default_backend="smart", fallback_backend="gemini", fast_path_enabled=True)
+    from skills.neurolearn.backends.base import BackendError
+    fake_subs = MagicMock()
+    fake_subs.transcribe.side_effect = BackendError("no subs")
+    fake_gemini = MagicMock()
+    fake_gemini.transcribe.return_value = MagicMock(backend_name="gemini")
+
+    with patch(
+        "skills.neurolearn.backends.factory.build_backend",
+        side_effect=lambda n, c: fake_subs if n == "subtitles" else fake_gemini,
+    ), patch(
+        "skills.neurolearn.backends.factory.download_audio",
+    ) as mock_dl:
+        url = "https://youtu.be/abc"
+        result = run_smart(url, cfg, language="en")
+
+    assert result.backend_name == "gemini"
+    fake_gemini.transcribe.assert_called_once()
+    # Gemini received the original URL, not a downloaded path.
+    arg = fake_gemini.transcribe.call_args.args[0]
+    assert arg == url
+    # And download_audio was NOT called.
+    mock_dl.assert_not_called()
+
+
+def test_smart_gemini_url_fallback_to_download_on_backend_error(tmp_path):
+    """If the URL path errors (429 / private / network), smart composer
+    falls back to download+local-file path so the user still gets a
+    transcript."""
+    cfg = Config(default_backend="smart", fallback_backend="gemini", fast_path_enabled=True)
+    from skills.neurolearn.backends.base import BackendError
+    fake_subs = MagicMock()
+    fake_subs.transcribe.side_effect = BackendError("no subs")
+
+    fake_gemini = MagicMock()
+    # First call (URL path) errors; second call (downloaded file) succeeds.
+    fake_gemini.transcribe.side_effect = [
+        BackendError("429 RESOURCE_EXHAUSTED"),
+        MagicMock(backend_name="gemini"),
+    ]
+
+    fake_audio = tmp_path / "audio.mp3"
+    fake_audio.write_bytes(b"\x00")
+
+    with patch(
+        "skills.neurolearn.backends.factory.build_backend",
+        side_effect=lambda n, c: fake_subs if n == "subtitles" else fake_gemini,
+    ), patch(
+        "skills.neurolearn.backends.factory.download_audio",
+        return_value=fake_audio,
+    ) as mock_dl:
+        run_smart("https://youtu.be/abc", cfg, language="en")
+
+    assert fake_gemini.transcribe.call_count == 2
+    mock_dl.assert_called_once()
+    # First call: URL. Second call: downloaded path.
+    first, second = fake_gemini.transcribe.call_args_list
+    assert first.args[0] == "https://youtu.be/abc"
+    assert str(second.args[0]).endswith("audio.mp3")
+
+
 def test_smart_downloads_for_non_youtube_url(tmp_path):
     """Non-YouTube URL (e.g. Instagram reel) → skip subtitles, download
     audio, then transcribe via fallback with the local file path.
@@ -260,14 +325,17 @@ def test_smart_downloads_for_non_youtube_url(tmp_path):
 
 def test_smart_emits_stage_notifications(tmp_path):
     """run_smart should drive on_stage at phase boundaries so a caller-side
-    spinner can show what's happening (download / transcribe stages)."""
-    cfg = Config(default_backend="smart", fallback_backend="gemini",
+    spinner can show what's happening (download / transcribe stages).
+
+    Uses whisper-local as fallback because Gemini's YouTube fast path
+    skips the download stage entirely as of v0.10.3."""
+    cfg = Config(default_backend="smart", fallback_backend="whisper-local",
                  fast_path_enabled=True)
     from skills.neurolearn.backends.base import BackendError
     fake_subs = MagicMock()
     fake_subs.transcribe.side_effect = BackendError("no subs")
     fake_fallback = MagicMock()
-    fake_fallback.transcribe.return_value = MagicMock(backend_name="gemini")
+    fake_fallback.transcribe.return_value = MagicMock(backend_name="whisper-local")
     fake_audio = tmp_path / "x.mp3"
     fake_audio.write_bytes(b"\x00")
     stages: list[str] = []
@@ -288,7 +356,7 @@ def test_smart_emits_stage_notifications(tmp_path):
     text = " | ".join(stages).lower()
     assert "subtitle" in text
     assert "download" in text
-    assert "gemini" in text
+    assert "whisper-local" in text
 
 
 def test_smart_skips_subtitles_for_non_youtube_url():

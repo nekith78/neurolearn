@@ -25,7 +25,7 @@ Works as:
 
 ## Status
 
-v0.10.2 — production-ready:
+v0.10.3 — production-ready:
 
 | Feature | Since | State |
 |---|---|---|
@@ -51,6 +51,7 @@ v0.10.2 — production-ready:
 | `schedule` — cross-OS scheduler snippet generator (cron/launchd/systemd/Task Scheduler) | v0.7 | Working |
 | Visual pipeline v2 — per-video-type vision prompts (9 templates, auto-detected) + cost tracking | v0.10 / v0.10.1 | Working |
 | `report` — PDF report generation (Jinja2 + WeasyPrint) with TOC, sections, embedded keyframes | v0.10.2 | Working |
+| Gemini accepts YouTube URLs directly — no download for `transcribe --backend gemini` | v0.10.3 | Working |
 | Web UI (Gradio) | v0.4 | **Experimental, hidden** — code preserved, not maintained |
 
 ---
