@@ -1,4 +1,5 @@
 {
+  "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
   "name": "neurolearn",
   "version": "0.10.2",
   "description": "Transcribe YouTube / Instagram / TikTok / local-file videos via 8 interchangeable backends (Whisper local, subtitles, Gemini, Groq, OpenAI, Deepgram, AssemblyAI, custom). Research topics, subscribe to channels with RSS, and render structured PDF reports.",
@@ -8,17 +9,7 @@
   },
   "license": "MIT",
   "homepage": "https://github.com/nekith78/neurolearn",
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/nekith78/neurolearn"
-  },
-  "skills": [
-    "skills/neurolearn"
-  ],
-  "commands": [
-    "commands/transcribe.md"
-  ],
-  "category": "productivity",
+  "repository": "https://github.com/nekith78/neurolearn",
   "keywords": [
     "transcription",
     "video",
@@ -43,12 +34,5 @@
     "keyframes",
     "ocr",
     "cli"
-  ],
-  "tags": [
-    "transcription",
-    "ai-video",
-    "self-hosted",
-    "multi-backend",
-    "report-generation"
   ]
 }

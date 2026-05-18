@@ -1,9 +1,10 @@
 {
+  "$schema": "https://json.schemastore.org/claude-code-marketplace.json",
   "name": "neurolearn",
   "description": "Neurolearn marketplace — multi-backend transcription, research, subscribes, and AI report generation for YouTube, Instagram, TikTok, and local media.",
   "owner": {
     "name": "Nikita Khan",
-    "url": "https://github.com/nekith78"
+    "email": "nekith78@gmail.com"
   },
   "version": "0.10.2",
   "plugins": [
