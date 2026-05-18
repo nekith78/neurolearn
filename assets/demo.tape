@@ -19,6 +19,19 @@ Set Padding 18
 Set TypingSpeed 35ms
 Set PlaybackSpeed 1.0
 
+# Hidden setup — put the project's venv bin on PATH so `neurolearn`
+# resolves the same way it does for a freshly-installed user. vhs
+# runs commands in a non-interactive shell that doesn't load the
+# user's rc files, so we set PATH explicitly.
+Hide
+Type "export PATH=$PWD/.venv/bin:$PATH"
+Enter
+Sleep 200ms
+Type "clear"
+Enter
+Sleep 200ms
+Show
+
 # Banner
 Type "# neurolearn — transcribe and report on any video"
 Sleep 800ms
