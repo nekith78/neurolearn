@@ -23,6 +23,56 @@ description: |
 
 # neurolearn Skill
 
+> **For deep mechanics** (full CLI reference, architecture, failure modes
+> per backend) read `docs/agent-reference.md` inside the plugin install
+> dir. This SKILL.md covers triggers and quick decisions; the reference
+> covers everything else.
+
+## Backend choice cheat-sheet
+
+Pick the backend BEFORE invoking, based on user intent + environment.
+Decision tree:
+
+| User intent / situation | Recommended invocation | Why |
+|---|---|---|
+| Fast transcript from YouTube (default) | `--backend smart` (or omit `--backend`) | Subtitles fast-path → on miss, Gemini direct URL → on quota, download+fallback. Three-tier auto-fallback, no skipped step. |
+| Offline / no API keys / privacy | `--backend whisper-local --whisper-model turbo` | Local mlx-whisper on Mac arm64 ≈ real-time. No network, no quota. |
+| User has paid Gemini tier | `--backend gemini` | URL path: no download, no upload, fastest. No quota concern. |
+| User has free Gemini tier | `--backend smart` (NOT `--backend gemini`) | Smart auto-falls-back when Gemini 429s. Pure `gemini` errors out. |
+| Instagram / TikTok URL | any backend (smart works) | Gemini direct-URL works ONLY for YouTube; smart downloads audio for other platforms automatically. |
+| Need keyframes / visual analysis | `--with-visuals` ⚠️ | See quota warning below — heavy. |
+| Diarization (who-said-what) | `--diarize` | Adds pyannote; requires HF token. Doesn't change transcription backend. |
+| Very high accuracy | `--backend whisper-local --whisper-model large` | Slowest but best Whisper variant. Or `--backend deepgram --deepgram-model nova-3` for the cloud equivalent. |
+
+If unsure: `smart` is the safe default. It cascades subtitles → Gemini-URL → download+fallback, so the user always gets a transcript.
+
+## Quota awareness — Gemini free tier
+
+The Gemini free tier caps `gemini-2.5-flash` at **20 requests/day per
+project**. Heavy use can exhaust this in one session. Burn rates:
+
+| Operation | Gemini calls |
+|---|---|
+| `transcribe <YouTube URL> --backend gemini` (URL path, v0.10.3+) | **1** |
+| `transcribe <local file> --backend gemini` (upload path) | **1** |
+| `transcribe --with-visuals` (vision pipeline) | **1 + N** where N ≈ keyframe windows (≈4–6 per minute of video) |
+| `analyze --backend gemini` | **1** per run |
+| `research --filter "..."` LLM screen | **1** per run |
+| `report` outline (short video) | **1** |
+| `report` outline (long video, hierarchical) | **N+1** (one per chunk + assembly) |
+
+**On 429 `RESOURCE_EXHAUSTED`:**
+- `--backend gemini` exits with `BackendError`. NO fallback.
+- `--backend smart` automatically falls back to subtitles / download +
+  `fallback_backend` so the user still gets a transcript.
+
+**For `--with-visuals`:** prefer paid Gemini tier or omit. On free tier
+an 8-minute YouTube video can burn 30+ calls just for vision.
+
+**To check quota status / reset window:** Gemini quotas reset daily at
+midnight Pacific Time. The error message includes `retryDelay` for
+the per-minute limit but daily caps don't surface a clean reset time.
+
 ## Trigger conditions
 
 **Use this skill when** any of these are true in the user's message:

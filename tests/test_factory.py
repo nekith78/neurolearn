@@ -193,9 +193,10 @@ def test_smart_uses_subtitles_for_youtube_when_available():
 
 
 def test_smart_falls_back_when_subtitles_fail(tmp_path):
-    """YouTube URL + subtitles raises BackendError → fallback used after
-    download. The fallback backend receives a local file path, not the URL,
-    because all non-subtitles backends require local audio."""
+    """YouTube URL + subtitles raises BackendError + no Gemini key →
+    fallback used after download. The fallback backend receives a local
+    file path, not the URL, because non-subtitles/non-gemini backends
+    require local audio."""
     cfg = Config(default_backend="smart", fallback_backend="whisper-local", fast_path_enabled=True)
     from skills.neurolearn.backends.base import BackendError
     fake_subs = MagicMock()
@@ -212,7 +213,13 @@ def test_smart_falls_back_when_subtitles_fail(tmp_path):
     ), patch(
         "skills.neurolearn.backends.factory.download_audio",
         return_value=fake_audio,
-    ) as mock_dl:
+    ) as mock_dl, patch(
+        # v0.10.5: smart now also tries Gemini URL before download
+        # when key is available. Disable that path for this test by
+        # returning no key, so we exercise pure-fallback behavior.
+        "skills.neurolearn.backends.factory.get_api_key",
+        return_value=None,
+    ):
         result = run_smart("https://youtu.be/abc", cfg, language="en")
 
     assert result.backend_name == "whisper-local"
@@ -223,10 +230,136 @@ def test_smart_falls_back_when_subtitles_fail(tmp_path):
     mock_dl.assert_called_once()
 
 
+def test_smart_tries_gemini_url_after_subtitles_when_key_available(tmp_path):
+    """v0.10.5: when subtitles fail on a YouTube URL AND user has a
+    Gemini key, smart tries the direct-URL path BEFORE downloading
+    audio. Skipped download = 30-90 s saved. Fallback config is
+    whisper-local, but smart never gets there because Gemini URL
+    succeeds."""
+    cfg = Config(default_backend="smart", fallback_backend="whisper-local",
+                 fast_path_enabled=True)
+    from skills.neurolearn.backends.base import BackendError
+    fake_subs = MagicMock()
+    fake_subs.transcribe.side_effect = BackendError("no subs")
+    fake_gemini = MagicMock()
+    fake_gemini.transcribe.return_value = MagicMock(backend_name="gemini")
+    fake_fallback = MagicMock()  # whisper-local, should not be called
+
+    def build_side_effect(name, c):
+        if name == "subtitles":
+            return fake_subs
+        if name == "gemini":
+            return fake_gemini
+        return fake_fallback
+
+    with patch(
+        "skills.neurolearn.backends.factory.build_backend",
+        side_effect=build_side_effect,
+    ), patch(
+        "skills.neurolearn.backends.factory.download_audio",
+    ) as mock_dl, patch(
+        "skills.neurolearn.backends.factory.get_api_key",
+        return_value="fake-gemini-key",
+    ):
+        url = "https://youtu.be/abc"
+        result = run_smart(url, cfg, language="en")
+
+    # Gemini URL succeeded; whisper-local fallback never invoked.
+    assert result.backend_name == "gemini"
+    fake_gemini.transcribe.assert_called_once_with(url, language="en")
+    fake_fallback.transcribe.assert_not_called()
+    # Critical: NO download happened.
+    mock_dl.assert_not_called()
+
+
+def test_smart_gemini_url_failure_falls_through_to_download(tmp_path):
+    """v0.10.5: when both subtitles AND Gemini URL fail (e.g. Gemini
+    429 quota), smart still completes by downloading audio and using
+    the configured fallback_backend. User always gets a transcript."""
+    cfg = Config(default_backend="smart", fallback_backend="whisper-local",
+                 fast_path_enabled=True)
+    from skills.neurolearn.backends.base import BackendError
+    fake_subs = MagicMock()
+    fake_subs.transcribe.side_effect = BackendError("no subs")
+    fake_gemini = MagicMock()
+    fake_gemini.transcribe.side_effect = BackendError("429 quota exhausted")
+    fake_fallback = MagicMock()
+    fake_fallback.transcribe.return_value = MagicMock(backend_name="whisper-local")
+    fake_audio = tmp_path / "audio.mp3"
+    fake_audio.write_bytes(b"\x00")
+
+    def build_side_effect(name, c):
+        if name == "subtitles":
+            return fake_subs
+        if name == "gemini":
+            return fake_gemini
+        return fake_fallback
+
+    with patch(
+        "skills.neurolearn.backends.factory.build_backend",
+        side_effect=build_side_effect,
+    ), patch(
+        "skills.neurolearn.backends.factory.download_audio",
+        return_value=fake_audio,
+    ) as mock_dl, patch(
+        "skills.neurolearn.backends.factory.get_api_key",
+        return_value="fake-gemini-key",
+    ):
+        result = run_smart("https://youtu.be/abc", cfg, language="en")
+
+    # Both subtitles AND Gemini failed → fallback ran via download path.
+    assert result.backend_name == "whisper-local"
+    fake_gemini.transcribe.assert_called_once()
+    mock_dl.assert_called_once()
+    fake_fallback.transcribe.assert_called_once()
+    arg = fake_fallback.transcribe.call_args.args[0]
+    assert str(arg).endswith("audio.mp3")
+
+
+def test_smart_skips_gemini_url_when_no_key(tmp_path):
+    """v0.10.5: without a Gemini key configured, smart goes straight
+    from subtitles fail to download+fallback. No spurious Gemini
+    invocation."""
+    cfg = Config(default_backend="smart", fallback_backend="whisper-local",
+                 fast_path_enabled=True)
+    from skills.neurolearn.backends.base import BackendError
+    fake_subs = MagicMock()
+    fake_subs.transcribe.side_effect = BackendError("no subs")
+    fake_gemini = MagicMock()
+    fake_fallback = MagicMock()
+    fake_fallback.transcribe.return_value = MagicMock(backend_name="whisper-local")
+    fake_audio = tmp_path / "audio.mp3"
+    fake_audio.write_bytes(b"\x00")
+
+    def build_side_effect(name, c):
+        if name == "subtitles":
+            return fake_subs
+        if name == "gemini":
+            return fake_gemini
+        return fake_fallback
+
+    with patch(
+        "skills.neurolearn.backends.factory.build_backend",
+        side_effect=build_side_effect,
+    ), patch(
+        "skills.neurolearn.backends.factory.download_audio",
+        return_value=fake_audio,
+    ), patch(
+        "skills.neurolearn.backends.factory.get_api_key",
+        return_value=None,
+    ):
+        result = run_smart("https://youtu.be/abc", cfg, language="en")
+
+    assert result.backend_name == "whisper-local"
+    # Gemini backend NOT touched because there's no key.
+    fake_gemini.transcribe.assert_not_called()
+
+
 def test_smart_youtube_url_with_gemini_fallback_skips_download(tmp_path):
-    """v0.10.3: when subtitles miss and fallback is Gemini AND URL is
-    YouTube, we pass the URL directly to GeminiBackend.transcribe — no
-    download_audio call. This saves 30-90s on typical videos."""
+    """v0.10.3 → unchanged in v0.10.5: when subtitles miss and Gemini key
+    is configured, we pass the URL directly via the middle-step. With
+    fallback_backend=gemini the result still flows from Gemini; no
+    download happens."""
     cfg = Config(default_backend="smart", fallback_backend="gemini", fast_path_enabled=True)
     from skills.neurolearn.backends.base import BackendError
     fake_subs = MagicMock()
@@ -239,7 +372,10 @@ def test_smart_youtube_url_with_gemini_fallback_skips_download(tmp_path):
         side_effect=lambda n, c: fake_subs if n == "subtitles" else fake_gemini,
     ), patch(
         "skills.neurolearn.backends.factory.download_audio",
-    ) as mock_dl:
+    ) as mock_dl, patch(
+        "skills.neurolearn.backends.factory.get_api_key",
+        return_value="fake-gemini-key",
+    ):
         url = "https://youtu.be/abc"
         result = run_smart(url, cfg, language="en")
 
@@ -253,16 +389,17 @@ def test_smart_youtube_url_with_gemini_fallback_skips_download(tmp_path):
 
 
 def test_smart_gemini_url_fallback_to_download_on_backend_error(tmp_path):
-    """If the URL path errors (429 / private / network), smart composer
-    falls back to download+local-file path so the user still gets a
-    transcript."""
+    """If both subtitles AND the Gemini URL middle-step fail (e.g. quota),
+    smart composer falls back to download+local-file path so the user
+    still gets a transcript via the configured fallback_backend."""
     cfg = Config(default_backend="smart", fallback_backend="gemini", fast_path_enabled=True)
     from skills.neurolearn.backends.base import BackendError
     fake_subs = MagicMock()
     fake_subs.transcribe.side_effect = BackendError("no subs")
 
     fake_gemini = MagicMock()
-    # First call (URL path) errors; second call (downloaded file) succeeds.
+    # First call (middle-step URL path) errors; second call (downloaded
+    # file via fallback_backend=gemini) succeeds.
     fake_gemini.transcribe.side_effect = [
         BackendError("429 RESOURCE_EXHAUSTED"),
         MagicMock(backend_name="gemini"),
@@ -277,12 +414,15 @@ def test_smart_gemini_url_fallback_to_download_on_backend_error(tmp_path):
     ), patch(
         "skills.neurolearn.backends.factory.download_audio",
         return_value=fake_audio,
-    ) as mock_dl:
+    ) as mock_dl, patch(
+        "skills.neurolearn.backends.factory.get_api_key",
+        return_value="fake-gemini-key",
+    ):
         run_smart("https://youtu.be/abc", cfg, language="en")
 
     assert fake_gemini.transcribe.call_count == 2
     mock_dl.assert_called_once()
-    # First call: URL. Second call: downloaded path.
+    # First call: URL via middle-step. Second call: downloaded path via fallback.
     first, second = fake_gemini.transcribe.call_args_list
     assert first.args[0] == "https://youtu.be/abc"
     assert str(second.args[0]).endswith("audio.mp3")
@@ -325,10 +465,11 @@ def test_smart_downloads_for_non_youtube_url(tmp_path):
 
 def test_smart_emits_stage_notifications(tmp_path):
     """run_smart should drive on_stage at phase boundaries so a caller-side
-    spinner can show what's happening (download / transcribe stages).
+    spinner can show what's happening (subtitles / download / transcribe).
 
-    Uses whisper-local as fallback because Gemini's YouTube fast path
-    skips the download stage entirely as of v0.10.3."""
+    Uses whisper-local as fallback AND mocks out Gemini key to None so
+    the v0.10.5 Gemini-URL middle-step is skipped and the test exercises
+    the subtitle → download → fallback path explicitly."""
     cfg = Config(default_backend="smart", fallback_backend="whisper-local",
                  fast_path_enabled=True)
     from skills.neurolearn.backends.base import BackendError
@@ -346,13 +487,16 @@ def test_smart_emits_stage_notifications(tmp_path):
     ), patch(
         "skills.neurolearn.backends.factory.download_audio",
         return_value=fake_audio,
+    ), patch(
+        "skills.neurolearn.backends.factory.get_api_key",
+        return_value=None,
     ):
         run_smart(
             "https://youtu.be/abc", cfg, language="auto",
             on_stage=stages.append,
         )
 
-    # Expect at least: subtitle attempt, download, transcribe-via-fallback.
+    # Expect: subtitle attempt, download, transcribe-via-fallback.
     text = " | ".join(stages).lower()
     assert "subtitle" in text
     assert "download" in text

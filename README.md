@@ -25,7 +25,7 @@ Works as:
 
 ## Status
 
-v0.10.4 — production-ready:
+v0.10.5 — production-ready:
 
 | Feature | Since | State |
 |---|---|---|
@@ -53,6 +53,7 @@ v0.10.4 — production-ready:
 | `report` — PDF report generation (Jinja2 + WeasyPrint) with TOC, sections, embedded keyframes | v0.10.2 | Working |
 | Gemini accepts YouTube URLs directly — no download for `transcribe --backend gemini` | v0.10.3 | Working |
 | Performance: Whisper model cache, parallel translation / outliner chunks / URL probes | v0.10.4 | Working |
+| `smart` preset auto-tries Gemini direct URL after subtitles (no download) | v0.10.5 | Working |
 | Web UI (Gradio) | v0.4 | **Experimental, hidden** — code preserved, not maintained |
 
 ---

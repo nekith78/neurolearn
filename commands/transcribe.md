@@ -24,3 +24,13 @@ If `$ARGUMENTS` is empty, prompt the user for a URL, file path, channel URL, or 
 3. If `errors.log` exists in that directory, briefly summarize which videos failed and why.
 
 If the command exits non-zero, the stdout/stderr will contain a friendly hint — relay it to the user (e.g., "API key missing", "yt-dlp blocked, try `--cookies-from-browser chrome`").
+
+### Error → recovery hints
+
+- **`429 RESOURCE_EXHAUSTED` / quota exhausted** (only happens with explicit `--backend gemini`): suggest `--backend smart` instead — it auto-falls-back through subtitles → Gemini URL → local download when the quota is gone. Or wait for the daily reset at midnight Pacific.
+- **`BackendNotConfigured: GEMINI_API_KEY missing`**: suggest `neurolearn config set-key gemini` or switch to `--backend whisper-local`.
+- **Private/unlisted YouTube + Gemini direct URL**: Gemini can only fetch public videos via `file_uri`. Suggest downloading with cookies (`--cookies-file <path>`) or using `--backend smart` for auto-fallback.
+
+### Backend default recommendation
+
+If the user didn't specify a backend and pastes a YouTube URL: prefer `--backend smart` (default). It cascades subtitles → Gemini direct URL → download+fallback, costs at most 1 Gemini API call per video, and gracefully handles quota / private / network failures.

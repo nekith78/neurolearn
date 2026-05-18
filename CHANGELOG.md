@@ -3,6 +3,82 @@
 All notable changes to neurolearn will be documented here.
 The format is loosely based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.10.5] — 2026-05-19
+
+### `smart` preset now uses Gemini's direct YouTube URL path automatically
+
+Previously the Gemini direct-URL fast path (no download, no upload —
+shipped in v0.10.3) only activated when the user explicitly set
+`fallback_backend = "gemini"` in their config. Default installs with
+`fallback_backend = "whisper-local"` meant `--backend smart` always
+downloaded audio after subtitles failed, even when a Gemini key was
+configured.
+
+v0.10.5 moves the Gemini-URL fast path into an unconditional middle
+step between subtitles and the configured `fallback_backend`. The new
+cascade is:
+
+1. **Subtitles fast-path** (1–2 s, free) — unchanged.
+2. **Gemini direct URL** (new middle step, 30–90 s, no download) —
+   fires when the URL is YouTube AND a Gemini key is configured.
+3. **Download + `fallback_backend`** — unchanged final fallback.
+
+For typical users (default config, Gemini key set), `transcribe
+<YouTube URL> --backend smart` now skips the audio download entirely
+when subtitles aren't available — saving 10–60 s of yt-dlp work and
+1–5 s/MB of upload bandwidth per video.
+
+On Gemini failure (429 quota, private video, network), step 3 still
+runs so the user always gets a transcript. No new flags; behavior is
+opt-in via "have a Gemini key configured."
+
+The now-redundant `fb_name == "gemini" and is_youtube_url(src)` branch
+in the fallback section was removed — the middle step covers it
+unconditionally.
+
+### Docs: backend cheat-sheet + quota awareness in `SKILL.md`
+
+`SKILL.md` (auto-loaded into every Claude session that has the plugin
+active) now opens with:
+
+- **Backend choice cheat-sheet** — explicit decision tree mapping user
+  intent (`fast transcript` / `offline` / `paid Gemini` / `free Gemini`
+  / `need keyframes`) to the recommended flags, with the reasoning.
+- **Quota awareness** — per-feature Gemini call counts (`--with-visuals`
+  burns 1 + N calls per video, where N is keyframe windows), what
+  happens on `429 RESOURCE_EXHAUSTED` for each backend choice, and
+  the daily reset window.
+- **Pointer to `docs/agent-reference.md`** so LLM-driven users on a
+  fresh machine know where the deep reference lives.
+
+`commands/transcribe.md` (auto-loaded when `/transcribe` is invoked) now
+includes error-recovery hints for the three most common failures:
+quota exhausted, missing API key, private-video-via-Gemini.
+
+### Tests
+
++3 new tests on the smart middle step:
+
+- `test_smart_tries_gemini_url_after_subtitles_when_key_available` —
+  proves the new path; download skipped.
+- `test_smart_gemini_url_failure_falls_through_to_download` — proves
+  graceful fallback on 429 / private / network.
+- `test_smart_skips_gemini_url_when_no_key` — proves no spurious
+  Gemini call when key is absent.
+
+Existing v0.10.3 / v0.10.4 tests updated to mock `get_api_key`
+explicitly so they exercise the intended code paths regardless of the
+test environment's actual API keys.
+
+Full suite: 1063 passed, 3 skipped (was 1060 in v0.10.4.1).
+
+### Removed
+
+- `factory.run_smart`'s `fb_name == "gemini" and is_youtube_url(src)`
+  branch in the fallback section. The new unconditional middle step
+  covers it identically; keeping both was a duplicate that triggered
+  Gemini without checking for the key.
+
 ## [0.10.4] — 2026-05-18
 
 ### Four targeted speedups (Tier 1 of the performance survey)

@@ -9,6 +9,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Callable, Union
 
+from skills.neurolearn.config import get_api_key
+
 from skills.neurolearn.backends.assemblyai import AssemblyAIBackend
 from skills.neurolearn.backends.base import (
     BackendError,
@@ -104,29 +106,36 @@ def run_smart(
             subs = build_backend("subtitles", cfg)
             return subs.transcribe(src, language=language)
         except BackendError:
-            pass  # fall through to fallback
+            pass  # fall through to next step
+
+    # v0.10.5: Gemini direct-URL middle-step. Before falling back to the
+    # configured `fallback_backend` (which always requires local audio
+    # and triggers a 10-60 s download), try Gemini's YouTube URL path —
+    # it fetches the video server-side, costs one API call, and only
+    # works for YouTube URLs when the user has a Gemini key. On any
+    # error (429 quota, private video, network), we fall through to the
+    # original download+fallback path so the user always gets a
+    # transcript.
+    if is_youtube_url(src) and get_api_key("gemini"):
+        notify("Trying gemini direct URL (no download)...")
+        try:
+            gemini = build_backend("gemini", cfg)
+            return gemini.transcribe(src, language=language)
+        except BackendError:
+            pass  # fall through to download+fallback path
 
     fb_name = cfg.fallback_backend
     fb = build_backend(fb_name, cfg)
     if is_url(src):
-        # v0.10.3 fast path: if the fallback is Gemini AND the URL is
-        # YouTube, the backend can fetch the video itself via `file_uri`.
-        # No download, no upload — saves 30-90s per video and ~100 MB of
-        # temp disk. Non-YouTube URLs (IG, TikTok, Vimeo) still need
-        # local download because Gemini can only fetch YouTube URLs.
-        if fb_name == "gemini" and is_youtube_url(src):
-            notify("Transcribing via gemini (direct YouTube URL)...")
-            try:
-                return fb.transcribe(src, language=language)
-            except BackendError as e:
-                # On 429 / private video / any other failure, fall back
-                # to download+upload so the user still gets a transcript.
-                notify(f"Direct URL failed ({e}); downloading audio...")
-
-        # Default fallback path: download audio to a temp dir, then
-        # transcribe from that local file. Temp dir auto-cleaned on
-        # context exit (transcription has already returned by then with
-        # its result in memory).
+        # Download audio to a temp dir, then transcribe from that local
+        # file. Temp dir auto-cleaned on context exit (transcription
+        # has already returned by then with its result in memory).
+        #
+        # The v0.10.3 "fb_name == gemini and is_youtube_url" fast path
+        # used to live here; v0.10.5 moved it to the unconditional
+        # middle step above so the URL path triggers regardless of
+        # the user's fallback_backend choice (as long as a Gemini
+        # key is configured).
         import tempfile
         notify("Downloading audio...")
         with tempfile.TemporaryDirectory(prefix="yt-smart-fb-") as tmp:
