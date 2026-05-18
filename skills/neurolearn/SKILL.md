@@ -40,7 +40,7 @@ Decision tree:
 | User has paid Gemini tier | `--backend gemini` | URL path: no download, no upload, fastest. No quota concern. |
 | User has free Gemini tier | `--backend smart` (NOT `--backend gemini`) | Smart auto-falls-back when Gemini 429s. Pure `gemini` errors out. |
 | Instagram / TikTok URL | any backend (smart works) | Gemini direct-URL works ONLY for YouTube; smart downloads audio for other platforms automatically. |
-| Need keyframes / visual analysis | `--with-visuals` ⚠️ | See quota warning below — heavy. |
+| Need keyframes / visual analysis | `--with-visuals` ⚠️ (or `--preset standard / premium / tutorial`) | Vision is opt-in as of v0.10.6 — quota cost 1+N per video. See quota warning below. |
 | Diarization (who-said-what) | `--diarize` | Adds pyannote; requires HF token. Doesn't change transcription backend. |
 | Very high accuracy | `--backend whisper-local --whisper-model large` | Slowest but best Whisper variant. Or `--backend deepgram --deepgram-model nova-3` for the cloud equivalent. |
 
@@ -53,13 +53,20 @@ project**. Heavy use can exhaust this in one session. Burn rates:
 
 | Operation | Gemini calls |
 |---|---|
-| `transcribe <YouTube URL> --backend gemini` (URL path, v0.10.3+) | **1** |
+| `transcribe <YouTube URL>` (default smart preset, v0.10.6+) | **1** |
 | `transcribe <local file> --backend gemini` (upload path) | **1** |
-| `transcribe --with-visuals` (vision pipeline) | **1 + N** where N ≈ keyframe windows (≈4–6 per minute of video) |
+| `transcribe --with-visuals` (vision pipeline opt-in) | **1 + N** where N ≈ keyframe windows (≈4–6 per minute of video) |
+| `transcribe --preset standard / premium / tutorial` | **1 + N** — these presets enable vision by design |
 | `analyze --backend gemini` | **1** per run |
 | `research --filter "..."` LLM screen | **1** per run |
 | `report` outline (short video) | **1** |
 | `report` outline (long video, hierarchical) | **N+1** (one per chunk + assembly) |
+
+**Important** (v0.10.6): the default `smart` preset no longer enables
+vision automatically. A plain `neurolearn transcribe <URL>` now costs
+exactly 1 Gemini call. Vision is opt-in via `--with-visuals` or via
+the richer presets above. Pre-v0.10.6 versions silently triggered
+1+N vision calls on every default invocation — that behavior is gone.
 
 **On 429 `RESOURCE_EXHAUSTED`:**
 - `--backend gemini` exits with `BackendError`. NO fallback.

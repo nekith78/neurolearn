@@ -73,6 +73,11 @@ def extract_keyframes(
         "-vf", f"fps={fps},{_vf_filter(max_width)}",
         "-frames:v", str(count),
         "-q:v", str(jpeg_quality),
+        # v0.10.6: force full-range YUV for the mjpeg encoder. Without
+        # this, ffmpeg 8.x reports "Non full-range YUV is non-standard"
+        # and refuses to encode, intermittently dropping keyframes
+        # from the vision pipeline.
+        "-pix_fmt", "yuvj420p",
         str(pattern),
     ]
     subprocess.run(cmd, check=True)
@@ -128,6 +133,8 @@ def extract_keyframes_asymmetric(
             "-frames:v", "1",
             "-q:v", str(jpeg_quality),
             "-vf", _vf_filter(max_width),
+            # v0.10.6: see extract_keyframes for rationale on -pix_fmt.
+            "-pix_fmt", "yuvj420p",
             str(out_path),
         ]
         try:

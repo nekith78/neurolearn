@@ -18,8 +18,24 @@ def test_list_presets_includes_4_tiers():
 def test_load_smart_preset_defaults():
     vals = load_preset_values("smart", user_config_path=Path("/nonexistent/path.toml"))
     assert vals["transcribe_backend"] == "subtitles"
-    assert vals["vision_backend"] == "gemini"
+    # v0.10.6: smart preset has vision OFF by default. Users opt into
+    # vision via `--with-visuals` or `--preset standard/premium/tutorial`.
+    assert vals["vision_backend"] == "off"
+    assert vals["max_windows_per_video"] == 0
     assert vals["detect_method"] == "hybrid"
+
+
+def test_standard_preset_still_has_vision_on():
+    """v0.10.6 sanity: only `smart` flipped to vision-off. The richer
+    presets (standard / premium / tutorial) are deliberate vision-on
+    opt-ins and keep their Gemini default."""
+    for preset_name in ("standard", "premium", "tutorial"):
+        vals = load_preset_values(
+            preset_name, user_config_path=Path("/nonexistent/path.toml"),
+        )
+        assert vals["vision_backend"] == "gemini", \
+            f"{preset_name} should still have vision_backend=gemini"
+        assert vals["max_windows_per_video"] > 0
 
 
 def test_load_eco_preset_no_visual():

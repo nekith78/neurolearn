@@ -44,7 +44,17 @@ Key flags (full list via `--help`):
 - `--backend {smart,subtitles,whisper-local,gemini,groq,openai,deepgram,assemblyai,custom}`
 - `--whisper-model {turbo,large,medium,small,distil}`
 - `--language <code>` (else auto-detect)
-- `--preset {eco,smart,standard,premium}` — bundle of (backend, vision, detection)
+- `--preset {eco,smart,standard,premium,tutorial}` — bundle of (backend, vision, detection)
+  - `eco`     — subtitles only, vision off, no quality checks. Cheapest.
+  - `smart`   — **default**. Subtitles fast-path + Gemini URL + local fallback.
+                **vision off** as of v0.10.6 (was on pre-0.10.6; that silently
+                burned ~1+N Gemini calls per video). Use `--with-visuals` or
+                a richer preset below to opt into vision.
+  - `standard`— whisper-local + vision on (1+N Gemini calls per video).
+  - `premium` — whisper-local + LLM-full-pass vision detection + quality+perplexity.
+  - `tutorial`— whisper-local + asymmetric keyframe offsets (-1.5/+0.3/+2.0s)
+                + Claude fallback for low-confidence frames. Auto-selected
+                when transcript looks like a UI tutorial.
 - `--cookies-file <path>` — Netscape cookies.txt. Required for IG (sign-in-only), useful for YouTube age-restricted / members-only. We deliberately do NOT support `--cookies-from-browser` — it pulls the entire browser cookie store into memory. Export the cookies you want via the "Get cookies.txt LOCALLY" extension (Chrome / Firefox / Edge / Brave / etc.) and pass the file path
 - `--with-visuals` / `--vision-backend {off,gemini}` — visual moments
 - `--correct-asr` (+ `--correct-asr-backend`) — LLM post-fix

@@ -3,6 +3,128 @@
 All notable changes to neurolearn will be documented here.
 The format is loosely based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.10.6] — 2026-05-19
+
+Bug-fix release driven by a debug-run report from a fresh-machine
+install. Three real findings addressed; the documented "1 Gemini call
+per transcribe" claim is now actually true.
+
+### Fixed
+
+**1. `smart` preset no longer silently triggers visual analysis.**
+
+Pre-v0.10.6 the built-in `smart` preset shipped with
+`vision_backend = "gemini"` and `max_windows_per_video = 20`, so every
+`transcribe <URL>` invocation that didn't pass an explicit `--preset`
+ran the vision pipeline — 1+N Gemini calls per video, where N ≈
+keyframe windows (≈4-6 per minute). On the Gemini free tier (20
+calls/day) this exhausted the daily quota after one 8-minute video,
+contradicting the documented "1 call per transcribe" claim in
+SKILL.md.
+
+v0.10.6 sets `smart.vision_backend = "off"` and
+`smart.max_windows_per_video = 0`. Default behavior is now exactly:
+subtitles fast-path → Gemini direct URL → download+fallback, with
+**zero** vision calls. Vision is opt-in via either:
+
+- `--with-visuals` flag (CLI override), or
+- explicit `--preset standard / premium / tutorial` (these presets
+  retain `vision_backend = "gemini"` by design — they exist
+  specifically for vision-enabled workflows).
+
+This is technically a behavior change for users who relied on the
+silent vision default, but the previous behavior was undocumented and
+quota-destructive on free tier. The migration is one CLI flag.
+
+**2. ffmpeg keyframe extraction sets `-pix_fmt yuvj420p`.**
+
+`vision/frames.py` invoked ffmpeg without an explicit pixel format.
+ffmpeg 8.x's mjpeg encoder rejects non-full-range YUV with
+`Non full-range YUV is non-standard, set strict_std_compliance to at
+most unofficial to use it` and silently drops the frame. Reproduced
+on the debug run: 2 of 16 vision-window keyframes failed encoding
+without affecting exit code, but the vision pipeline lost those
+moments.
+
+Both `extract_keyframes()` and `extract_keyframes_asymmetric()` now
+pass `-pix_fmt yuvj420p` (the J variant signals full-range YUV, which
+mjpeg accepts on any source).
+
+**3. Slash-command CLI invocation is zero-config.**
+
+`commands/transcribe.md` used to say "Run `neurolearn $ARGUMENTS`",
+which assumes a global `neurolearn` binary on PATH. After
+`/plugin install neurolearn@neurolearn`, that binary doesn't exist —
+Claude Code copies the plugin dir but doesn't run `install.sh`, so
+the user has to `uv tool install` manually before any `/transcribe`
+invocation works. The debug-run host hit exactly this:
+`which neurolearn` → not found.
+
+The slash-command body now uses
+`uv run --project "${CLAUDE_PLUGIN_ROOT}" neurolearn $ARGUMENTS`
+when `${CLAUDE_PLUGIN_ROOT}` is set (Claude Code exposes it as a
+documented per-plugin env var per
+<https://code.claude.com/docs/en/plugins-reference>). The plugin
+ships its own venv via `uv run --project`, so this form works
+immediately after `/plugin install` with no user setup.
+
+The plain `neurolearn $ARGUMENTS` form remains as a fallback for
+users who have a global install. An explicit recovery hint covers
+the `command not found` case (suggesting `uv tool install --from
+"${CLAUDE_PLUGIN_ROOT}" neurolearn`).
+
+### Docs
+
+- `SKILL.md` "Quota awareness" table updated. Default
+  `transcribe <URL>` is now correctly listed as **1** call instead
+  of the misleading old number that didn't account for the silent
+  vision-on default.
+- `SKILL.md` backend cheat-sheet row for "Need keyframes" now points
+  to `--with-visuals` *or* a richer preset (was previously implying
+  vision was on by default).
+- `docs/agent-reference.md` preset table expanded to spell out the
+  vision-on-vs-off status of each preset and the v0.10.6 change.
+
+### Tests
+
++5 new tests on the three fixes:
+
+- `test_load_smart_preset_defaults` updated to assert
+  `vision_backend == "off"` and `max_windows_per_video == 0`.
+- `test_standard_preset_still_has_vision_on` — sanity-check that the
+  v0.10.6 flip didn't accidentally affect the richer presets.
+- `test_smart_preset_unaffected_no_key_no_fallback` — vision-off
+  smart preset doesn't trigger the "Gemini key missing" silent
+  fallback (since vision wasn't requested in the first place).
+- `test_extract_keyframes_sets_pix_fmt_for_mjpeg` — proves the
+  `-pix_fmt yuvj420p` flag is present in the ffmpeg command.
+- `test_extract_keyframes_asymmetric_sets_pix_fmt` — same for the
+  asymmetric (tutorial) path.
+
+`test_presets_silent_fallback` rewritten to exercise the `standard`
+preset since `smart` no longer has a vision_backend to fall back
+from.
+
+Full suite: 1067 passed, 3 skipped (was 1063 in v0.10.5).
+
+### Did not change
+
+- `--backend smart` (the transcription-backend cascade flag) behaves
+  identically. The vision toggle is purely on the preset side.
+- IG / TikTok / non-YouTube URL paths unchanged.
+- `commands/transcribe.md` routing logic, recovery hints, and the
+  rest of the body are unchanged — only the CLI-invocation form at
+  the top was added.
+
+### Not addressed in this release
+
+- Legacy `youtube-transcribe triggers add` text in some users'
+  `~/.neurolearn/triggers.toml` (Finding 4 from the debug run). That
+  string lives in user-local files generated by an older CLI, not in
+  the repo. Will fix itself when the user regenerates the file via
+  `neurolearn config wizard`; an explicit `config migrate` subcommand
+  can be added if it becomes a recurring pain.
+
 ## [0.10.5] — 2026-05-19
 
 ### `smart` preset now uses Gemini's direct YouTube URL path automatically

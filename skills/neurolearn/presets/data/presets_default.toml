@@ -12,15 +12,23 @@ quality_check = false
 max_windows_per_video = 0
 
 # === SMART (default) ===
+# v0.10.6: vision is OFF by default in smart preset. The previous
+# behavior (vision_backend = "gemini") silently triggered ~1+N Gemini
+# calls per video on every `transcribe` invocation that didn't pass an
+# explicit `--preset`, exhausting Gemini free-tier daily quota (20 calls/day)
+# on the very first 8+ min video. Vision is now opt-in via either
+# `--with-visuals` (a CLI override that sets vision_backend=gemini) or
+# an explicit `--preset standard / premium / tutorial`, all of which
+# keep vision enabled by design.
 [presets.smart]
 transcribe_backend = "subtitles"
 fallback_backend = "whisper-local"
 quality_check = true
 subtitle_quality_threshold = 0.6
-vision_backend = "gemini"
+vision_backend = "off"
 detect_method = "hybrid"
 frames_per_window = 3
-max_windows_per_video = 20
+max_windows_per_video = 0
 
 # === STANDARD ===
 [presets.standard]
