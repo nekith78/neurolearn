@@ -1,13 +1,19 @@
-# neurolearn demo tape — deterministic terminal cast for the README.
+# neurolearn demo tape — README hero GIF.
 #
-# Run:
-#   brew install vhs                              # one-time
-#   vhs assets/demo.tape                          # produces assets/demo.gif
+# Regenerate with:
+#   brew install vhs      # one-time
+#   vhs assets/demo.tape  # produces assets/demo.gif (deterministic)
 #
-# Targets ~30 seconds: enough to show the command surface without
-# being unwatchable. No network calls — the demo runs against the
-# bundled qa-out/v0101-smoke batch so it's reproducible on any
-# machine that has the repo checked out.
+# No network calls. Runs against the bundled qa-out/v0101-smoke
+# batch so anyone can reproduce the demo from a fresh checkout.
+#
+# Design notes:
+#   * Pure ASCII in every typed string. Unicode (em-dash, middle dot)
+#     gets mangled by some terminals into multi-byte escape sequences
+#     that swallow surrounding characters.
+#   * Typing speed = 70ms. Faster looks impressive but vhs occasionally
+#     drops the leading characters of fast Type commands.
+#   * One command per Type, no `&&` chains. Cleaner timing, easier to read.
 
 Output assets/demo.gif
 
@@ -15,61 +21,65 @@ Set FontSize 14
 Set Width 1100
 Set Height 720
 Set Theme "Catppuccin Mocha"
-Set Padding 18
-Set TypingSpeed 35ms
+Set Padding 20
+Set TypingSpeed 70ms
 Set PlaybackSpeed 1.0
 
-# Hidden setup — put the project's venv bin on PATH so `neurolearn`
-# resolves the same way it does for a freshly-installed user. vhs
-# runs commands in a non-interactive shell that doesn't load the
-# user's rc files, so we set PATH explicitly.
+# Hidden setup. vhs runs commands in a non-interactive shell that
+# doesn't load ~/.zshrc, so the project venv binary isn't on PATH.
 Hide
 Type "export PATH=$PWD/.venv/bin:$PATH"
 Enter
-Sleep 200ms
+Sleep 300ms
 Type "clear"
 Enter
-Sleep 200ms
+Sleep 500ms
 Show
 
-# Banner
-Type "# neurolearn — transcribe and report on any video"
-Sleep 800ms
+# 1. Top-level help — see what the CLI offers.
+Type "neurolearn --help"
+Sleep 500ms
+Enter
+Sleep 4s
+
+# 2. Show the batch subcommand surface (no secrets in output).
+#    Originally `neurolearn config show` lived here, but it prints
+#    last 4 chars of the active API key (e.g. "AIza***Odnw") and we
+#    don't want a public README GIF leaking key fragments.
+Type "clear"
 Enter
 Sleep 400ms
-
-# Top-level help
-Type "neurolearn --help | head -20"
+Type "neurolearn batch --help"
+Sleep 500ms
 Enter
-Sleep 3s
+Sleep 4s
 
-# Show backends
-Type "clear && neurolearn config show 2>&1 | head -12"
+# 3. An already-transcribed batch on disk.
+Type "clear"
 Enter
-Sleep 3s
-
-# Look at an existing transcribed batch
-Type "clear && ls qa-out/v0101-smoke/"
-Enter
-Sleep 2s
-
-# Show the SRT preview
-Type "head -8 qa-out/v0101-smoke/videos/*.srt"
+Sleep 400ms
+Type "ls qa-out/v0101-smoke/"
+Sleep 500ms
 Enter
 Sleep 2500ms
 
-# Show the PDF report exists
-Type "ls -lh qa-out/v0101-smoke/smoke_v0102_report.pdf"
-Enter
-Sleep 2s
-
-# Highlight the report subcommand
-Type "neurolearn report --help | head -18"
+# 4. SRT preview — proves the transcription is real.
+Type "head -8 qa-out/v0101-smoke/videos/01*.srt"
+Sleep 500ms
 Enter
 Sleep 3s
 
-# Closing
-Type "# 8 backends · YouTube/IG/TikTok · RSS subscribes · PDF reports"
-Sleep 1500ms
+# 5. The PDF report file.
+Type "ls -lh qa-out/v0101-smoke/smoke_v0102_report.pdf"
+Sleep 500ms
 Enter
-Sleep 1500ms
+Sleep 2500ms
+
+# 6. Report subcommand help — final beat.
+Type "clear"
+Enter
+Sleep 400ms
+Type "neurolearn report --help"
+Sleep 500ms
+Enter
+Sleep 4s
