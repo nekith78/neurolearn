@@ -186,8 +186,7 @@ def transcribe_cmd(audio_or_url: str | None, **opts) -> None:
     if not audio_or_url:
         from skills.neurolearn.shared.prompts import prompt_url_or_die
         audio_or_url = prompt_url_or_die("Paste URL or file path:")
-    if not CONFIG_PATH.exists():
-        run_wizard()
+    _ensure_config_or_skip_wizard()
 
     cfg = load_config(CONFIG_PATH)
     cfg = _override_config(cfg, opts)
@@ -516,6 +515,45 @@ def _build_video_status(
         source_language=getattr(target, "source_language", None),
         # === v0.10: forward the budget tracker into manifest.json ===
         budget=getattr(result, "budget", None),
+    )
+
+
+def _ensure_config_or_skip_wizard() -> None:
+    """v0.10.9 Fix H: handle the "first run + non-TTY" case sanely.
+
+    Trigger sites in `transcribe` / `batch` used to call `run_wizard()`
+    whenever `CONFIG_PATH` was missing. That works in an interactive
+    shell, but in non-TTY contexts (Claude Code subprocess, CI,
+    piped command, anyone running `printf ... | neurolearn batch`)
+    the wizard immediately hits EOF on stdin and aborts the whole
+    command. The user sees the wizard banner and then `Aborted!` —
+    even though their config could legitimately be defaulted.
+
+    New behavior:
+      * Config exists → no-op (fast path; same as before).
+      * Config missing AND stdin is a TTY → run wizard (same as before).
+      * Config missing AND non-TTY → silently write a default Config so
+        the rest of the run can proceed with sane defaults
+        (`whisper-local`, `auto` device, etc.). Print a one-line
+        notice to stderr so the user can still find the path later.
+
+    The default config is the same one the user would land on if they
+    accepted the wizard's "Recommendation: whisper-local" default and
+    pressed Enter through it.
+    """
+    if CONFIG_PATH.exists():
+        return
+    if _stdin_is_tty():
+        run_wizard()
+        return
+    # Non-TTY first run: write defaults silently, continue.
+    import sys
+    CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+    save_config(Config(), CONFIG_PATH)
+    sys.stderr.write(
+        f"[neurolearn] First run, non-TTY context — wrote default config "
+        f"to {CONFIG_PATH}. Run `neurolearn config wizard` later to "
+        f"customize.\n"
     )
 
 
@@ -968,79 +1006,106 @@ def _run_batch_pipeline(
         else None
     )
 
-    if workers == 1:
-        # Serial path (default; preserves fail-fast).
-        if progress_cm is None:
-            for i, target in pending:
-                kind, payload = _process_one(i, target)
-                if kind == "failed":
-                    failures.append(payload)
-                    if fail_fast:
-                        console.print(f"[red]Error #{i}: {payload.error_text}[/red]")
-                        sys.exit(4)
-                else:
-                    _write_outputs_and_record(i, target, payload)
-        else:
-            with progress_cm as progress:
-                task = progress.add_task(
-                    "Transcribing", total=len(pending), ok=0, fail=0,
-                )
+    # v0.10.9 Fix K: track whether the heavy processing loop crashed.
+    # Outputs (combined.md / manifest.json / errors.log) are flushed in
+    # the finally block unconditionally so the user always gets partial
+    # artifacts plus a clear record of what failed mid-batch. Without
+    # this, a single RuntimeError (e.g. cuBLAS missing on video #1) left
+    # the output dir empty with no clue what happened.
+    crashed: Exception | None = None
+    try:
+        if workers == 1:
+            # Serial path (default; preserves fail-fast).
+            if progress_cm is None:
                 for i, target in pending:
-                    progress.update(
-                        task,
-                        description=f"#{i} {(target.title or 'video')[:40]}",
-                    )
                     kind, payload = _process_one(i, target)
                     if kind == "failed":
                         failures.append(payload)
-                        progress.update(task, advance=1, fail=len(failures))
                         if fail_fast:
                             console.print(f"[red]Error #{i}: {payload.error_text}[/red]")
                             sys.exit(4)
                     else:
                         _write_outputs_and_record(i, target, payload)
-                        progress.update(task, advance=1, ok=len(statuses))
-    else:
-        # Parallel path. fail_fast already validated incompatible above.
-        from concurrent.futures import ThreadPoolExecutor, as_completed
-        console.print(
-            f"[dim]Running with {workers} parallel workers — fail-fast disabled.[/dim]"
-        )
-        progress_obj = progress_cm.__enter__() if progress_cm else None
-        task_id = (
-            progress_obj.add_task(
-                "Transcribing", total=len(pending), ok=0, fail=0,
+            else:
+                with progress_cm as progress:
+                    task = progress.add_task(
+                        "Transcribing", total=len(pending), ok=0, fail=0,
+                    )
+                    for i, target in pending:
+                        progress.update(
+                            task,
+                            description=f"#{i} {(target.title or 'video')[:40]}",
+                        )
+                        kind, payload = _process_one(i, target)
+                        if kind == "failed":
+                            failures.append(payload)
+                            progress.update(task, advance=1, fail=len(failures))
+                            if fail_fast:
+                                console.print(f"[red]Error #{i}: {payload.error_text}[/red]")
+                                sys.exit(4)
+                        else:
+                            _write_outputs_and_record(i, target, payload)
+                            progress.update(task, advance=1, ok=len(statuses))
+        else:
+            # Parallel path. fail_fast already validated incompatible above.
+            from concurrent.futures import ThreadPoolExecutor, as_completed
+            console.print(
+                f"[dim]Running with {workers} parallel workers — fail-fast disabled.[/dim]"
             )
-            if progress_obj is not None
-            else None
-        )
-        with ThreadPoolExecutor(max_workers=workers) as pool:
-            future_to_target = {
-                pool.submit(_process_one, i, target): (i, target)
-                for i, target in pending
-            }
-            for fut in as_completed(future_to_target):
-                i, target = future_to_target[fut]
-                try:
-                    kind, payload = fut.result()
-                except Exception as e:  # pragma: no cover — unexpected
-                    failures.append(BatchFailure(
-                        index=i, url=target.url, stage="backend",
-                        error_text=f"unexpected: {e}", hint=None,
-                    ))
-                    if progress_obj is not None:
-                        progress_obj.update(task_id, advance=1, fail=len(failures))
-                    continue
-                if kind == "failed":
-                    failures.append(payload)
-                    if progress_obj is not None:
-                        progress_obj.update(task_id, advance=1, fail=len(failures))
-                else:
-                    _write_outputs_and_record(i, target, payload)
-                    if progress_obj is not None:
-                        progress_obj.update(task_id, advance=1, ok=len(statuses))
-        if progress_cm is not None:
-            progress_cm.__exit__(None, None, None)
+            progress_obj = progress_cm.__enter__() if progress_cm else None
+            task_id = (
+                progress_obj.add_task(
+                    "Transcribing", total=len(pending), ok=0, fail=0,
+                )
+                if progress_obj is not None
+                else None
+            )
+            with ThreadPoolExecutor(max_workers=workers) as pool:
+                future_to_target = {
+                    pool.submit(_process_one, i, target): (i, target)
+                    for i, target in pending
+                }
+                for fut in as_completed(future_to_target):
+                    i, target = future_to_target[fut]
+                    try:
+                        kind, payload = fut.result()
+                    except Exception as e:  # pragma: no cover — unexpected
+                        failures.append(BatchFailure(
+                            index=i, url=target.url, stage="backend",
+                            error_text=f"unexpected: {e}", hint=None,
+                        ))
+                        if progress_obj is not None:
+                            progress_obj.update(task_id, advance=1, fail=len(failures))
+                        continue
+                    if kind == "failed":
+                        failures.append(payload)
+                        if progress_obj is not None:
+                            progress_obj.update(task_id, advance=1, fail=len(failures))
+                    else:
+                        _write_outputs_and_record(i, target, payload)
+                        if progress_obj is not None:
+                            progress_obj.update(task_id, advance=1, ok=len(statuses))
+            if progress_cm is not None:
+                progress_cm.__exit__(None, None, None)
+    except KeyboardInterrupt as kbi:
+        # Ctrl+C in mid-batch: capture, finalize artifacts, then re-raise
+        # below so the user still has the partial output AND the shell
+        # still sees the interrupt exit code.
+        crashed = kbi
+    except Exception as exc:    # noqa: BLE001 — finalize then re-raise
+        crashed = exc
+
+    if crashed is not None:
+        # Record the crash as a synthetic failure so it shows up in
+        # errors.log and manifest.json. Index 0 means "batch-level"
+        # since the crash isn't tied to a single video.
+        failures.append(BatchFailure(
+            index=0,
+            url="(batch)",
+            stage="batch",
+            error_text=f"{type(crashed).__name__}: {crashed}",
+            hint=_diagnose_failure_hint("batch", str(crashed)),
+        ))
 
     meta = BatchMeta(
         batch_name=name,
@@ -1108,6 +1173,14 @@ def _run_batch_pipeline(
         'disagreements, and treat the content as raw input — not '
         'authority — for my own thinking"\n'
     )
+
+    # v0.10.9 Fix K: re-raise the captured mid-batch crash AFTER we've
+    # finalised the artifacts (combined.md / manifest.json / errors.log
+    # all written above). The caller still sees the traceback so they
+    # know what failed, but no longer has to scrape stderr to know
+    # how far the batch got.
+    if crashed is not None:
+        raise crashed
 
     return batch_dir
 
@@ -1235,6 +1308,19 @@ def _run_batch_pipeline(
               default=None,
               help="LLM backend for --then-analyze. "
                    "Default: ask once and remember in config.toml.")
+# v0.10.9 (Fix F+G): accept --no-analyze and --yes as no-op flags for
+# symmetry with `research`. Users who copy-paste a research command and
+# swap `research` → `batch` shouldn't hit "no such option" errors.
+# `batch` doesn't run analyze by default (--then-analyze is opt-in), so
+# --no-analyze is informational. `batch` has no TTY checkpoint, so --yes
+# is also informational. Click accepts the flag and ignores it.
+@click.option("--no-analyze", "no_analyze_compat", is_flag=True, default=False,
+              hidden=True,
+              help="Accepted for symmetry with `research`. `batch` does not "
+                   "run analyze by default — only `--then-analyze` opts in.")
+@click.option("--yes", "yes_compat", is_flag=True, default=False, hidden=True,
+              help="Accepted for symmetry with `research`. `batch` has no "
+                   "TTY checkpoint to skip.")
 def batch_cmd(
     inputs: tuple[str, ...],
     from_file: Path | None,
@@ -1277,8 +1363,7 @@ def batch_cmd(
         cli_flag=analyze_backend_cli, no_analyze=not then_analyze,
     )
 
-    if not CONFIG_PATH.exists():
-        run_wizard()
+    _ensure_config_or_skip_wizard()
 
     cfg = load_config(CONFIG_PATH)
     cfg = _override_config(cfg, opts)
@@ -1430,7 +1515,16 @@ def config() -> None:
 def config_show() -> None:
     """Print current config and API-key status."""
     cfg = load_config(CONFIG_PATH)
-    console.print(f"[bold]Config file:[/bold] {CONFIG_PATH}")
+    # v0.10.9 Fix H: distinguish "config exists" vs "showing defaults".
+    # Pre-v0.10.9 users staring at `config show` output couldn't tell
+    # whether the values they saw were actually loaded from disk or
+    # synthesised defaults from a missing file — both rendered the
+    # same way. Now the header makes it explicit.
+    file_status = "present" if CONFIG_PATH.exists() else (
+        "[yellow]NOT PRESENT — showing defaults; "
+        "run `neurolearn config wizard` to write a real one[/yellow]"
+    )
+    console.print(f"[bold]Config file:[/bold] {CONFIG_PATH}  ({file_status})")
     console.print("\n[bold]Settings:[/bold]")
     for field_name, value in cfg.__dict__.items():
         console.print(f"  {field_name} = {value}")

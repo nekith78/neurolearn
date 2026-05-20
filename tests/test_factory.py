@@ -60,6 +60,67 @@ def test_build_backend_whisper_local():
     assert b.name == "whisper-local"
 
 
+def test_build_backend_whisper_local_user_device_override_rederives_compute():
+    """v0.10.9 Fix J: when user passes `--device cpu` on an NVIDIA-detected
+    machine without specifying compute_type, the factory must not blindly
+    forward `info.recommended_compute_type == float16` — CPU doesn't
+    support float16 and faster-whisper would crash. The factory should
+    notice the device mismatch and pick int8 instead."""
+    cfg = Config(
+        whisper_model="turbo",
+        whisper_device="cpu",         # user override
+        whisper_compute_type="auto",  # user did NOT override
+        beam_size=5,
+        vad=True,
+    )
+    with (
+        patch("skills.neurolearn.backends.factory.WhisperLocalBackend") as MockCls,
+        patch("skills.neurolearn.backends.factory.detect_platform") as mock_detect,
+    ):
+        platform_info = MagicMock()
+        platform_info.backend_impl = "faster"
+        platform_info.device = "cuda"
+        platform_info.recommended_compute_type = "float16"
+        mock_detect.return_value = platform_info
+
+        MockCls.return_value = MagicMock(name="whisper-local")
+        build_backend("whisper-local", cfg)
+
+    # Device honored, compute corrected.
+    kwargs = MockCls.call_args.kwargs
+    assert kwargs["device"] == "cpu", f"device wasn't honored: {kwargs}"
+    assert kwargs["compute_type"] == "int8", \
+        f"compute should re-derive to int8 for CPU, got {kwargs['compute_type']}"
+
+
+def test_build_backend_whisper_local_explicit_compute_not_rederived():
+    """If user explicitly passed both device AND compute_type, the
+    factory must trust them — don't second-guess. Only `auto` triggers
+    the rederive logic."""
+    cfg = Config(
+        whisper_model="turbo",
+        whisper_device="cpu",
+        whisper_compute_type="float32",  # explicit
+        beam_size=5,
+        vad=True,
+    )
+    with (
+        patch("skills.neurolearn.backends.factory.WhisperLocalBackend") as MockCls,
+        patch("skills.neurolearn.backends.factory.detect_platform") as mock_detect,
+    ):
+        platform_info = MagicMock()
+        platform_info.backend_impl = "faster"
+        platform_info.device = "cuda"
+        platform_info.recommended_compute_type = "float16"
+        mock_detect.return_value = platform_info
+
+        MockCls.return_value = MagicMock(name="whisper-local")
+        build_backend("whisper-local", cfg)
+
+    assert MockCls.call_args.kwargs["compute_type"] == "float32", \
+        "explicit compute_type must not be overridden"
+
+
 def test_build_backend_whisper_local_auto_uses_platform_info():
     """When cfg has device/compute_type == 'auto', values come from platform_detect."""
     cfg = Config(

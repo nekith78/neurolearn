@@ -119,6 +119,62 @@ def test_faster_model_cache_separate_for_different_params(tmp_path: Path):
     _load_faster_whisper_model.cache_clear()
 
 
+def test_faster_whisper_loader_falls_back_to_cpu_on_cublas_missing(tmp_path: Path):
+    """v0.10.9 Fix I: when WhisperModel raises a CUDA-dependency error
+    (cuBLAS / cuDNN dll not found), the loader retries with CPU+int8
+    instead of propagating. nvidia-smi reports GPU available but
+    CTranslate2 needs the system CUDA Toolkit — separate install.
+    A clean fall-back keeps a multi-video batch from dying on video #1."""
+    from skills.neurolearn.backends.whisper_local import _load_faster_whisper_model
+    _load_faster_whisper_model.cache_clear()
+
+    call_log: list[tuple] = []
+
+    def whisper_model_ctor(name, *, device, compute_type):
+        call_log.append((name, device, compute_type))
+        if device == "cuda":
+            raise RuntimeError(
+                "Library cublas64_12.dll is not found or cannot be loaded"
+            )
+        # CPU+int8 retry succeeds.
+        return MagicMock(name="cpu-fallback-model")
+
+    fake_fw = ModuleType("faster_whisper")
+    fake_fw.WhisperModel = whisper_model_ctor  # type: ignore[attr-defined]
+
+    with patch.dict(sys.modules, {"faster_whisper": fake_fw}):
+        model = _load_faster_whisper_model("turbo", "cuda", "float16")
+
+    # Two calls: 1) cuda crash, 2) cpu+int8 success.
+    assert len(call_log) == 2
+    assert call_log[0] == ("turbo", "cuda", "float16")
+    assert call_log[1] == ("turbo", "cpu", "int8")
+    assert model is not None
+
+    _load_faster_whisper_model.cache_clear()
+
+
+def test_faster_whisper_loader_does_not_mask_unrelated_errors(tmp_path: Path):
+    """The retry must ONLY trigger for CUDA-dependency errors. A
+    different RuntimeError (e.g. unknown model name) should propagate
+    so the user sees the real problem."""
+    from skills.neurolearn.backends.whisper_local import _load_faster_whisper_model
+    _load_faster_whisper_model.cache_clear()
+
+    def whisper_model_ctor(name, *, device, compute_type):
+        raise RuntimeError("model 'invalid-name' not found on Hugging Face")
+
+    fake_fw = ModuleType("faster_whisper")
+    fake_fw.WhisperModel = whisper_model_ctor  # type: ignore[attr-defined]
+
+    with patch.dict(sys.modules, {"faster_whisper": fake_fw}):
+        import pytest as _pt
+        with _pt.raises(RuntimeError, match="not found on Hugging Face"):
+            _load_faster_whisper_model("invalid-name", "cuda", "float16")
+
+    _load_faster_whisper_model.cache_clear()
+
+
 def test_transcribe_calls_mlx_whisper(tmp_path: Path):
     fake_response = {
         "text": "hello world",

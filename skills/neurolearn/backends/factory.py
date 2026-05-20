@@ -46,6 +46,17 @@ def build_backend(name: str, cfg: Config) -> Transcriber:
             if cfg.whisper_compute_type == "auto"
             else cfg.whisper_compute_type
         )
+        # v0.10.9 (Fix J): if user manually overrode the device (e.g.
+        # `--device cpu` on an NVIDIA box), `info.recommended_compute_type`
+        # is still the value tuned for the AUTO-detected device — likely
+        # `float16` for NVIDIA. faster-whisper then crashes with
+        # "Requested float16 compute type, but the target device or
+        # backend do not support efficient float16 computation".
+        # When compute is `auto` (user didn't override it) and the
+        # device was overridden, re-derive a compute that matches the
+        # actual device.
+        if cfg.whisper_compute_type == "auto" and device != info.device:
+            compute = "float16" if device == "cuda" else "int8"
         return WhisperLocalBackend(
             model=cfg.whisper_model,
             device=device,

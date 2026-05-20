@@ -65,6 +65,20 @@ def test_with_visuals_triggers_download_video(tmp_path, monkeypatch):
     )
     (tmp_path / "config.toml").write_text("default_preset = \"smart\"\n", encoding="utf-8")
 
+    # v0.10.9: mock the URL resolver too, otherwise the test hits real
+    # YouTube and intermittently gets 429s on the CI runner IP. Returning
+    # a synthetic ResolvedTarget lets us exercise the with-visuals
+    # download path without leaving the test environment.
+    from skills.neurolearn.utils.resolver import ResolvedTarget
+    fake_target = ResolvedTarget(
+        url="https://youtu.be/test123", title="Test", upload_date=None,
+        duration_sec=60, channel=None, source="inline", video_id="test123",
+    )
+    monkeypatch.setattr(
+        "skills.neurolearn.transcribe.resolve",
+        lambda *a, **kw: ([fake_target], []),
+    )
+
     res = runner.invoke(
         cli,
         ["transcribe", "https://youtu.be/test123", "--with-visuals",

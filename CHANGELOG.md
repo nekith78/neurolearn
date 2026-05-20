@@ -3,6 +3,96 @@
 All notable changes to neurolearn will be documented here.
 The format is loosely based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.10.9] — 2026-05-20
+
+### Robustness fixes from Windows 11 / PowerShell 5.1 field testing
+
+A run of v0.10.7 on a fresh Windows machine surfaced six rough edges
+in non-TTY, GPU-dependency, and crash-recovery paths. v0.10.9 fixes
+all of them without breaking changes — every fix is additive (hidden
+flag, fallback path, or post-crash finalize).
+
+**Fix F + G — `batch` accepts `--no-analyze` / `--yes` as no-ops.**
+The `research` command supports both flags; the `batch` command did
+not. Routing-Claude (or a power user copying examples) would often
+add them to a `batch` invocation by symmetry and hit
+`Error: No such option`. Now both flags are accepted on `batch` as
+hidden no-ops — they don't appear in `--help` (since `batch` has no
+TTY checkpoint and no `--then-analyze` by default) but they don't
+error either.
+
+**Fix H — wizard no longer blocks non-TTY runs.** First run with no
+`~/.neurolearn/config.toml` would call `run_wizard()` unconditionally,
+which `sys.exit(1)`s under a piped / scripted stdin. Now: if stdin is
+non-TTY, the wizard is skipped, a default `Config()` is written to
+disk silently, and a one-line `[neurolearn] First run, non-TTY
+context...` notice goes to stderr. `config show` additionally marks
+`file_status` as `(NOT PRESENT — showing defaults)` if the file is
+absent — previously the path was printed regardless, leading users
+to believe a missing file existed.
+
+**Fix I — cuBLAS / cuDNN missing falls back to CPU.** On Windows with
+NVIDIA drivers installed but CUDA Toolkit absent, faster-whisper
+crashes at model-load time with `Could not load library cublas64_*`.
+`_load_faster_whisper_model` now catches `RuntimeError` / `OSError`
+with cuBLAS/cuDNN/library markers and retries on
+`device="cpu", compute_type="int8"`, with a stderr warning. Unrelated
+errors are re-raised unchanged. Users without CUDA Toolkit no longer
+need to know about CTranslate2's separate dependency on cuBLAS.
+
+**Fix J — `compute_type="auto"` respects user device override.** When
+the user sets `whisper_compute_type = "auto"` and overrides
+`whisper_device` (e.g. `cuda` on a CPU-default machine, or `cpu` on a
+GPU machine), `factory.py` previously used
+`info.recommended_compute_type` directly — which corresponds to the
+**detected** device, not the **overridden** device. Now the factory
+re-derives the compute type when the resolved device differs from
+the auto-detected one (`int8` for cpu, `float16` for cuda).
+
+**Fix K — `combined.md` / `manifest.json` / `errors_log.md` written
+even on crash.** The processing loop in `_run_batch_pipeline` would
+raise straight out without writing the post-batch artifacts. A long
+run that crashed at item 95 of 100 would lose all 94 successful
+transcripts from the combined view. Now the loop is wrapped in
+`try / except Exception / except KeyboardInterrupt`, the crash is
+captured into `failures` as a `(batch)` row, the
+`write_combined_md` / `meta.write_manifest` / `errors_log` writes
+happen unconditionally, and the original exception is re-raised
+afterward so exit codes are unchanged.
+
+### Tests
+
++17 net (1102 → 1119, plus 1 flaky test fixed):
+
+- `tests/test_batch_cli_compat_flags.py` (4) — `batch` accepts
+  `--no-analyze` and `--yes` without errors, neither appears in
+  `--help`.
+- `tests/test_wizard_non_tty.py` (5) — `_ensure_config_or_skip_wizard`
+  helper behavior in TTY + non-TTY contexts; `config show` file-status
+  marker.
+- `tests/test_whisper_local.py` (+2) — cuBLAS fallback fires for
+  CUDA-dependency markers; unrelated errors are not masked.
+- `tests/test_factory.py` (+2) — compute_type re-derive when user
+  overrides device.
+- `tests/test_batch_finalize_on_crash.py` (4) — crash mid-loop still
+  writes manifest, combined, and errors_log; `KeyboardInterrupt` path
+  preserves the same finalize behavior; original exception is
+  re-raised.
+- `tests/test_cli_visual_wiring.py` — pre-existing flaky test fixed
+  by mocking `skills.neurolearn.transcribe.resolve` so it stops
+  hitting real YouTube and getting 429s on slow runners.
+
+### Files touched
+
+- `skills/neurolearn/transcribe.py` — hidden batch flags;
+  `_ensure_config_or_skip_wizard` helper (replaces two
+  `if not CONFIG_PATH.exists(): run_wizard()` sites); `config show`
+  file_status marker; `_run_batch_pipeline` crash-finalize wrapper.
+- `skills/neurolearn/backends/whisper_local.py` — cuBLAS / cuDNN
+  fallback in `_load_faster_whisper_model`.
+- `skills/neurolearn/backends/factory.py` — re-derive compute_type
+  when device override differs from auto-detected device.
+
 ## [0.10.8] — 2026-05-20
 
 ### Epistemic framing for downstream LLM consumption

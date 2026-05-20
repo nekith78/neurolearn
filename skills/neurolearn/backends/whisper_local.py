@@ -41,9 +41,35 @@ def _load_faster_whisper_model(name: str, device: str, compute_type: str):
     fires only once, saving 2-5 seconds of model load + GPU init per
     subsequent video. maxsize=4 holds a few alternate configurations
     if a user mixes them in one process (rare).
+
+    v0.10.9 Fix I: when the constructor blows up on a missing
+    cuBLAS / cuDNN dll (Windows with NVIDIA driver but no CUDA Toolkit
+    installed), retry with CPU + int8. nvidia-smi reports the GPU as
+    available, so platform_detect routes us to `device=cuda`, but
+    faster-whisper's CTranslate2 backend needs the SYSTEM cuBLAS — a
+    separate install. A clean fall-back keeps a 14-video batch from
+    dying on video #1.
     """
+    import sys  # noqa: PLC0415
     from faster_whisper import WhisperModel  # noqa: PLC0415
-    return WhisperModel(name, device=device, compute_type=compute_type)
+
+    try:
+        return WhisperModel(name, device=device, compute_type=compute_type)
+    except (RuntimeError, OSError) as e:
+        msg = str(e).lower()
+        is_cuda_dependency_missing = (
+            device == "cuda"
+            and ("cublas" in msg or "cudnn" in msg or "library" in msg)
+        )
+        if not is_cuda_dependency_missing:
+            raise
+        sys.stderr.write(
+            f"[neurolearn] CUDA detected but cuBLAS/cuDNN not loadable "
+            f"(got: {type(e).__name__}: {str(e)[:120]}).\n"
+            f"[neurolearn] Falling back to device=cpu compute_type=int8. "
+            f"To use GPU, install the CUDA 12 Toolkit + cuDNN.\n"
+        )
+        return WhisperModel(name, device="cpu", compute_type="int8")
 
 
 def _resolve_compute_type(compute_type: str, device: str) -> str:
