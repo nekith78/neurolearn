@@ -107,11 +107,19 @@ def test_bootstrap_first_run_initializes_state(tmp_path: Path):
     state", so first-run with --days produced an empty state, and the next
     incremental call kept asking for --days. Now bootstrap is recognized
     separately and the state is seeded.
+
+    v0.10.7 note: the RSS entry timestamp was previously hardcoded to
+    2026-05-12 which broke the test as soon as wall-clock drifted >7
+    days past that. Now it's expressed relative to `datetime.now()` so
+    the test keeps passing as the calendar advances.
     """
+    from datetime import datetime, timezone, timedelta
     from skills.neurolearn.subscribes.pipeline import run_subscribes_update
     sub_path = tmp_path / "subscribes.toml"
     ch = _channel(last_id=None, last_pub=None)  # ← no state yet
-    entries = [_rss("v1", "2026-05-12T00:00:00+00:00")]
+    # Entry one day ago — well inside the 7-day bootstrap window.
+    recent = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
+    entries = [_rss("v1", recent)]
 
     with patch(
         "skills.neurolearn.subscribes.pipeline.load_subscribes",
