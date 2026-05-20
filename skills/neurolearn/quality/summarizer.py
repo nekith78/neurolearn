@@ -7,11 +7,17 @@ and the existing `neurolearn summarize` CLI.
 """
 from __future__ import annotations
 
-from skills.neurolearn.utils.output_writer import Segment
+from skills.neurolearn.utils.output_writer import (
+    EPISTEMIC_PROMPT_PREFIX, Segment,
+)
 from skills.neurolearn.analyze import runner as analyze_runner
 
 
-_SUMMARY_PROMPT = """\
+# v0.10.8: prepend the shared epistemic-framing prefix. `summarize` feeds
+# a transcript to an LLM — the LLM must know the speaker's claims aren't
+# ground truth. Same text as combined.md banner so the framing stays
+# consistent across surfaces.
+_SUMMARY_PROMPT = EPISTEMIC_PROMPT_PREFIX + """\
 You are summarizing a video transcript. Produce a structured Markdown
 summary in {language}.
 

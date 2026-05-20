@@ -11,11 +11,19 @@ from skills.neurolearn.analyze.source_resolver import VideoSource
 from skills.neurolearn.utils.transcript_loader import (
     load_transcript_segments,
 )
-from skills.neurolearn.utils.output_writer import Segment
+from skills.neurolearn.utils.output_writer import (
+    EPISTEMIC_PROMPT_PREFIX, Segment,
+)
 
 
+# v0.10.8: epistemic framing prepended to every analyze prompt. The
+# `analyze` command's whole purpose is to feed transcripts to an LLM,
+# so the LLM must know it's processing third-party material rather
+# than ground truth. `EPISTEMIC_PROMPT_PREFIX` is shared with the
+# combined.md banner so the framing stays consistent across surfaces.
 SYSTEM_PROMPT = (
-    "You are an assistant that answers user questions about the content "
+    EPISTEMIC_PROMPT_PREFIX
+    + "You are an assistant that answers user questions about the content "
     "of the provided video transcripts. Reply in the language of the "
     "user query."
 )

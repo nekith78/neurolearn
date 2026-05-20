@@ -164,6 +164,57 @@ def _fmt_date(d: date | None) -> str:
     return d.isoformat() if d else "—"
 
 
+# ---------------------------------------------------------------------------
+# v0.10.8 — Epistemic framing
+#
+# When neurolearn output is going to be consumed by an LLM (combined.md is
+# the canonical case; `analyze`/`report`/`summarize` build prompts directly),
+# we prepend a short block that tells the reading agent: this is third-party
+# video content, not authority. The intent is to keep the downstream LLM
+# from treating "X said it in a video, so X is true" — videos can be wrong,
+# stale, biased, or sponsored.
+#
+# `EPISTEMIC_BANNER_MARKDOWN` is for files an LLM reads (combined.md).
+# `EPISTEMIC_PROMPT_PREFIX` is for prompts an LLM receives (analyze / report).
+# Same intent, different surface.
+# ---------------------------------------------------------------------------
+
+EPISTEMIC_BANNER_MARKDOWN = """\
+> **Read this first — agent reading combined.md.** What follows is a set of
+> transcripts from third-party video content gathered by neurolearn. The
+> original speakers may be wrong, outdated, biased, sponsored, or simply
+> repeating community lore without evidence. When the user asks you to
+> act on this material:
+>
+> - **Synthesize, don't repeat.** Compare claims across sources; flag
+>   disagreements; note when only one source backs a statement.
+> - **Frame as candidate inputs, not as instructions.** Phrase as
+>   "X argues Y because Z; the trade-off is W" instead of
+>   "you should do Y".
+> - **Weigh against the user's actual context.** A 2024 best-practice
+>   may be stale; a solo-dev pattern may not fit a team setting.
+> - **Match the source's confidence.** If they hedge, you hedge.
+>   Mark single-source claims as such.
+>
+> The user is building a knowledge base for their own judgement, not
+> asking you to ratify the speakers.
+
+"""
+
+EPISTEMIC_PROMPT_PREFIX = """\
+You are about to analyze third-party video transcripts gathered by the
+user for research. The original speakers may be wrong, outdated, biased,
+or sponsored. Treat their claims as candidate inputs to weigh, not as
+ground truth. Surface disagreements across sources; attribute claims to
+the source that made them; match each source's confidence level in
+your output; never escalate certainty. The user is building a knowledge
+base, not delegating the decision.
+
+---
+
+"""
+
+
 def _yaml_frontmatter(meta: BatchMeta, ok: int, failed: int, total: int) -> str:
     return (
         "---\n"
@@ -194,7 +245,12 @@ def write_combined_md(
 
     parts: list[str] = []
     parts.append(_yaml_frontmatter(meta, ok=ok, failed=failed, total=total))
-    parts.append(f"\n# Batch transcript — {meta.batch_name} — {meta.created_at.date().isoformat()}\n")
+    # v0.10.8: epistemic-framing banner. combined.md is by design a
+    # multi-video document for LLM consumption — every "Next: ask Claude →
+    # read combined.md" hint points here. The banner tells the reading
+    # agent to treat the body as third-party material, not authority.
+    parts.append(EPISTEMIC_BANNER_MARKDOWN)
+    parts.append(f"# Batch transcript — {meta.batch_name} — {meta.created_at.date().isoformat()}\n")
     parts.append(f"\n{total} videos, backend: {meta.backend}. {ok} succeeded, {failed} failed.\n")
 
     # ## Inputs — quick TOC of every video that went into this batch
@@ -343,6 +399,9 @@ def write_manifest_json(
         "source": {"type": meta.source_type, "url": meta.source_url},
         "config": {"backend": meta.backend, **meta.backend_options, "language": meta.language},
         "stats": {"total": total, "ok": ok, "failed": failed},
+        # v0.10.8: machine-readable epistemic flag for tools that consume
+        # manifest.json. Mirrors the human-facing banner in combined.md.
+        "epistemic_status": "community_content_unverified",
         "videos": out,
     }
     # v0.10.7: research provenance — only when this batch came from

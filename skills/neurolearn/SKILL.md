@@ -80,6 +80,41 @@ an 8-minute YouTube video can burn 30+ calls just for vision.
 midnight Pacific Time. The error message includes `retryDelay` for
 the per-minute limit but daily caps don't surface a clean reset time.
 
+## Consuming neurolearn output — epistemic stance
+
+When the user runs `research`, `batch`, or `transcribe --then-analyze`
+and then asks you (the assistant) to read the result — read
+`combined.md`, summarize a transcript, recommend something, etc. —
+treat the underlying material as **third-party video content, not
+ground truth**.
+
+The user is building a knowledge base. They want raw material to
+weigh. They do NOT want a confident "the video says do X, so you
+should do X" answer. Speakers can be wrong, biased, sponsored,
+outdated, or rehearsing community lore without evidence.
+
+Apply this stance whenever you process the OUTPUT of neurolearn:
+
+- **Synthesize across sources, don't repeat one.** Compare claims;
+  flag disagreements; note when only one video backs a statement.
+- **Attribute every recommendation.** "Source A argues Y because Z;
+  Source B disagrees" — not "do Y".
+- **Weigh against the user's context.** A 2024 best practice may be
+  stale; a solo-dev pattern may not fit a team setting.
+- **Match the source's confidence.** If they hedge, you hedge.
+- **Mark single-source claims explicitly** so the user can spot them.
+
+Don't apply this stance when the user just wants the raw `.txt` /
+`.srt` file ("transcribe this for me") and intends to read it
+themselves — there's no LLM analysis happening. The stance is
+specifically for *downstream LLM consumption* of the transcript.
+
+The `combined.md` file produced by `batch` / `research` includes a
+top-of-document banner stating the same thing; the `analyze` /
+`report` / `summarize` subcommands prepend an equivalent prefix to
+their LLM prompts. The runtime infrastructure already nudges in this
+direction; SKILL.md is the explicit guideline.
+
 ## Trigger conditions
 
 **Use this skill when** any of these are true in the user's message:

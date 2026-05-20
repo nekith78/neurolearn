@@ -3,6 +3,103 @@
 All notable changes to neurolearn will be documented here.
 The format is loosely based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.10.8] — 2026-05-20
+
+### Epistemic framing for downstream LLM consumption
+
+When the user runs `research`, `batch`, or `transcribe --then-analyze`
+and then asks the assistant (Claude or any other LLM) to read the
+result, the downstream LLM used to treat speaker claims as ground
+truth. "The YouTube video said do X" → "you should do X". For
+research-mode usage especially, that's wrong: the user runs research
+to **build a knowledge base for their own judgement**, not to
+delegate the decision to whoever happened to upload a video.
+
+v0.10.8 wires explicit epistemic framing through every surface where
+transcript content meets an LLM:
+
+**1. `combined.md` banner.** A "Read this first — agent reading
+combined.md" block is now prepended between the YAML frontmatter and
+the body. Tells the reading agent to:
+
+- synthesize across sources rather than repeating one,
+- frame recommendations as candidate inputs, not instructions,
+- weigh against the user's actual context (a 2024 tip may be stale),
+- match the source's confidence level (if they hedge, you hedge),
+- mark single-source claims explicitly.
+
+**2. `manifest.json.epistemic_status` field.** Machine-readable
+counterpart for tools that consume the manifest. Always set to
+`"community_content_unverified"`.
+
+**3. `analyze` prompt.** `SYSTEM_PROMPT` in
+`skills/neurolearn/analyze/prompt_builder.py` now prepends a shared
+`EPISTEMIC_PROMPT_PREFIX`. Every `analyze` call carries the framing
+into the LLM context.
+
+**4. `report` outliner prompt.** `_build_full_prompt` in
+`skills/neurolearn/report/outliner.py` prepends the same prefix.
+Single-call and hierarchical paths both get it.
+
+**5. `summarize` prompt.** `_SUMMARY_PROMPT` in
+`skills/neurolearn/quality/summarizer.py` prepends the prefix.
+
+**6. `SKILL.md` guideline.** New "Consuming neurolearn output —
+epistemic stance" section. Tells any Claude session that has the
+plugin active how to handle transcript-derived content when the
+user later asks for synthesis / recommendation / summary.
+
+**7. `commands/transcribe.md` epistemic-stance section.** Slash-
+command hint reinforces the stance for the routing-Claude that
+invokes `neurolearn` on the user's behalf.
+
+**8. Post-batch CLI hint update.** The final `Next: ask Claude →`
+line now nudges toward synthesis and skepticism rather than
+"summarize what the videos said".
+
+### Scope — applied to LLM-consumed surfaces only
+
+The framing reaches:
+
+- `combined.md` (always written by `batch` / `research`).
+- `manifest.json` (machine-readable signal).
+- `analyze` / `report` / `summarize` LLM prompts.
+- `SKILL.md` + slash command (guides the consuming Claude).
+
+The framing does NOT reach:
+
+- Single-file `.txt` / `.srt` from plain `neurolearn transcribe
+  <URL>` — those are for the user's own reading; injecting a banner
+  there would clutter the file.
+- `.json` segment dumps — pure data passthrough.
+
+Per the user's explicit guidance: "if we're just transcribing for
+the user to read, framing is irrelevant; if downstream LLM analysis
+happens, framing is essential."
+
+### Tests
+
++9 new tests in `tests/test_epistemic_framing.py`:
+
+- Banner text says "third-party", "synthesize", "candidate inputs",
+  "hedge"/"confidence" (positive content check).
+- Banner sits between YAML frontmatter and body header in
+  `combined.md`.
+- `manifest.json.epistemic_status == "community_content_unverified"`.
+- `analyze` prompt contains "third-party" after building.
+- `report` outliner `_build_full_prompt` contains "third-party".
+- `summarize` `_SUMMARY_PROMPT` template contains "third-party".
+- Negative: plain `.txt` writer does NOT contain banner text — only
+  raw transcript content. Verifies the scope boundary.
+
+Full suite: 1102 passed, 3 skipped (was 1093 in v0.10.7.1).
+
+### Did not change
+
+- Transcription itself, backend selection, smart cascade — all unchanged.
+- The actual transcript bodies are untouched. We only wrap them.
+- Per-video file naming, output_dir layout — unchanged.
+
 ## [0.10.7] — 2026-05-20
 
 Bug-fix release driven by a Windows 11 / PowerShell 5.1 debug-run

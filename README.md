@@ -25,7 +25,7 @@ Works as:
 
 ## Status
 
-v0.10.7 — production-ready:
+v0.10.8 — production-ready:
 
 | Feature | Since | State |
 |---|---|---|
@@ -56,6 +56,7 @@ v0.10.7 — production-ready:
 | `smart` preset auto-tries Gemini direct URL after subtitles (no download) | v0.10.5 | Working |
 | Vision opt-in (`smart` default no longer burns Gemini quota) + zero-config slash command | v0.10.6 | Working |
 | Windows cp1251 Unicode crash fix + YouTube cookies + research provenance + smart-fallback hints | v0.10.7 | Working |
+| Epistemic framing — combined.md / analyze / report / summarize tell the LLM consumer to treat transcripts as third-party inputs, not authority | v0.10.8 | Working |
 | Web UI (Gradio) | v0.4 | **Experimental, hidden** — code preserved, not maintained |
 
 ---

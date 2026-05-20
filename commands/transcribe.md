@@ -36,15 +36,40 @@ to the user:
 
 If `$ARGUMENTS` is empty, prompt the user for a URL, file path, channel URL, or list.
 
+### Epistemic stance when summarizing / analyzing transcripts
+
+Whenever you process transcript content downstream (summarize, write a
+note, propose a workflow, recommend a tool), treat the underlying
+material as **third-party video content, not ground truth**. Speakers
+can be wrong, biased, sponsored, or outdated. Attribute claims to the
+source that made them; surface disagreements between sources;
+synthesize rather than repeat; match the source's confidence level.
+
+The user runs neurolearn to build a knowledge base for their own
+judgement — not to delegate the decision. `combined.md` includes an
+explicit banner stating this; the LLM-backed subcommands (`analyze`,
+`report`, `summarize`) prepend the same framing to their prompts.
+
+(This stance does NOT apply when the user just wants the raw `.txt` /
+`.srt` files for their own reading. Apply it only to downstream LLM
+consumption.)
+
 ### After single (`./transcripts/<name>.txt|.srt`)
 1. Read the generated `.txt`.
-2. Give a one-paragraph summary.
-3. Offer: full text, search inside, translate, generate subtitles, summarize per timestamp.
+2. Give a one-paragraph summary — attribute it as "the speaker says X"
+   rather than "X is the case", per the epistemic stance above.
+3. Offer: full text, search inside, translate, generate subtitles,
+   summarize per timestamp.
 
 ### After batch (`./transcripts/batch_<timestamp>_<slug>/`)
-1. Read `combined.md` from the printed batch directory.
-2. Offer: topic note / summary / study plan / cross-video themes.
-3. If `errors.log` exists in that directory, briefly summarize which videos failed and why.
+1. Read `combined.md` from the printed batch directory (its built-in
+   banner will reinforce the stance).
+2. Synthesize across the included videos. Flag disagreements. Mark
+   single-source claims explicitly.
+3. Offer: topic note / synthesis / study plan / cross-video themes —
+   always as candidate inputs to the user's own decision.
+4. If `errors.log` exists in that directory, briefly summarize which
+   videos failed and why.
 
 If the command exits non-zero, the stdout/stderr will contain a friendly hint — relay it to the user (e.g., "API key missing", "yt-dlp blocked, try `--cookies-file <path>`").
 

@@ -1099,9 +1099,14 @@ def _run_batch_pipeline(
     if smart_hint is not None:
         console.print(smart_hint)
 
+    # v0.10.8: nudge the consuming Claude toward synthesis + skepticism
+    # rather than "summarize what the videos said". The combined.md
+    # banner says the same thing in detail; this hint plants the seed.
     console.print(
         '\n  [dim]Next:[/dim] ask Claude → '
-        '"read combined.md and write a note on the topic"\n'
+        '"read combined.md, synthesize across sources, flag '
+        'disagreements, and treat the content as raw input — not '
+        'authority — for my own thinking"\n'
     )
 
     return batch_dir

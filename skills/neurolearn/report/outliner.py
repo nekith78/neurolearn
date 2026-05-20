@@ -332,7 +332,15 @@ def _build_full_prompt(
     the end. This way user-supplied templates (CLI --prompt-template-file
     or ~/.neurolearn/report_prompts.toml) work without any placeholder
     bookkeeping.
+
+    v0.10.8: prepends the shared epistemic-framing prefix so the
+    outline-building LLM doesn't treat speaker claims as authority.
+    Same intent as the combined.md banner — same text source.
     """
+    # Local import to avoid a hard module-load dependency on output_writer
+    # in case test fixtures patch outliner-internal symbols.
+    from skills.neurolearn.utils.output_writer import EPISTEMIC_PROMPT_PREFIX
+
     rendered = format_report_prompt(
         spec_template,
         target_language=target_language,
@@ -348,7 +356,7 @@ def _build_full_prompt(
         f"{visual_segments_excerpt}\n\n"
         "Now produce the JSON outline. No preamble. No markdown fences."
     )
-    return rendered + content_block
+    return EPISTEMIC_PROMPT_PREFIX + rendered + content_block
 
 
 def _split_into_chunks(segments: list, *, target_tokens: int) -> list[list]:
