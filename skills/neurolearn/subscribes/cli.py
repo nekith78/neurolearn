@@ -10,7 +10,7 @@ from datetime import date
 from pathlib import Path
 
 import click
-from rich.console import Console
+from skills.neurolearn.utils.console import make_console
 from rich.table import Table
 
 from skills.neurolearn.subscribes.store import (
@@ -28,7 +28,7 @@ from skills.neurolearn.subscribes.schedule import (
 
 SUBSCRIBES_PATH = Path.home() / ".neurolearn" / "subscribes.toml"
 
-_console = Console()
+_console = make_console()
 
 
 @click.group(name="subscribes")
@@ -323,37 +323,44 @@ def update_cmd(
 
 @subscribes_group.group(name="cookies")
 def cookies_group() -> None:
-    """Manage Instagram / TikTok cookies file (Netscape cookies.txt).
+    """Manage Instagram / TikTok / YouTube cookies file (Netscape cookies.txt).
 
     Step-by-step setup:
 
       1. Install the open-source "Get cookies.txt LOCALLY" extension
          (Chrome / Firefox) — it does NOT phone home.
-      2. Open instagram.com (logged in) → click the extension → Export.
-         Same for tiktok.com if you need TikTok cookies.
-      3. Run:  neurolearn subscribes cookies set instagram ~/Downloads/instagram_com_cookies.txt
-              neurolearn subscribes cookies set tiktok    ~/Downloads/tiktok_com_cookies.txt
+      2. Open the site (logged in) → click the extension → Export.
+      3. Register the file:
+           neurolearn subscribes cookies set instagram ~/Downloads/ig.txt
+           neurolearn subscribes cookies set tiktok    ~/Downloads/tt.txt
+           neurolearn subscribes cookies set youtube   ~/Downloads/yt.txt
 
-    The file is copied to `~/.neurolearn/<platform>-cookies.txt`
-    with mode 0600. To revoke, just delete that file or run
+    YouTube cookies (v0.10.7+) are used by the subtitles backend and
+    by yt-dlp when YouTube rate-limits or geoblocks your IP — typical
+    after >10 anonymous requests from the same address. Symptom:
+    "Subtitles unavailable for this video (IpBlocked)".
+
+    Files are copied to `~/.neurolearn/<platform>-cookies.txt` with
+    mode 0600. To revoke, just delete that file or run
     `neurolearn subscribes cookies clear <platform>`.
     """
 
 
 @cookies_group.command(name="set")
 @click.argument("platform",
-                type=click.Choice(["instagram", "tiktok"]),
+                type=click.Choice(["instagram", "tiktok", "youtube"]),
                 required=False)
 @click.argument("path",
                 type=click.Path(exists=True, dir_okay=False),
                 required=False)
 def cookies_set_cmd(platform: str | None, path: str | None) -> None:
-    """Register a cookies.txt for PLATFORM.
+    """Register a cookies.txt for PLATFORM (instagram / tiktok / youtube).
 
     Run without arguments to enter the interactive wizard (TTY only):
       neurolearn subscribes cookies set
     Scripted invocation works as before:
       neurolearn subscribes cookies set instagram ~/Downloads/ig.txt
+      neurolearn subscribes cookies set youtube   ~/Downloads/yt.txt
     """
     from skills.neurolearn.subscribes.cookies_onboarding import (
         set_cookies_file, wizard,
@@ -380,17 +387,18 @@ def cookies_set_cmd(platform: str | None, path: str | None) -> None:
 
 
 @cookies_group.command(name="clear")
-@click.argument("platform", type=click.Choice(["instagram", "tiktok"]))
+@click.argument("platform", type=click.Choice(["instagram", "tiktok", "youtube"]))
 def cookies_clear_cmd(platform: str) -> None:
     """Remove the registered cookies file for PLATFORM."""
     from skills.neurolearn.config import (
         CONFIG_PATH, load_config, save_config, Config,
     )
     cfg = load_config(CONFIG_PATH) if CONFIG_PATH.exists() else Config()
-    current = (
-        cfg.instagram_cookies_file if platform == "instagram"
-        else cfg.tiktok_cookies_file
-    )
+    current = {
+        "instagram": cfg.instagram_cookies_file,
+        "tiktok": cfg.tiktok_cookies_file,
+        "youtube": cfg.youtube_cookies_file,
+    }[platform]
     if not current:
         _console.print(
             f"[yellow]No cookies file configured for {platform}.[/yellow]"
@@ -404,14 +412,41 @@ def cookies_clear_cmd(platform: str) -> None:
             _console.print(f"[yellow]Could not remove {p}: {e}[/yellow]")
     if platform == "instagram":
         cfg.instagram_cookies_file = ""
-    else:
+    elif platform == "tiktok":
         cfg.tiktok_cookies_file = ""
+    else:    # youtube
+        cfg.youtube_cookies_file = ""
     save_config(cfg, CONFIG_PATH)
     _console.print(
         f"[green]✓[/green] {platform} cookies cleared. "
-        f"Next `subscribes update` will run anonymously "
-        f"(Instagram will likely fail — that's expected)."
+        f"Next run will go through anonymously."
     )
+
+
+def _cookies_rows(cfg) -> list[tuple[str, str]]:
+    """Helper used by `show` and `list` — keep them in sync."""
+    return [
+        ("instagram", cfg.instagram_cookies_file),
+        ("tiktok",    cfg.tiktok_cookies_file),
+        ("youtube",   cfg.youtube_cookies_file),
+    ]
+
+
+def _render_cookies_table(cfg) -> "Table":
+    """Build the platform/path/status table."""
+    table = Table(show_header=True, header_style="bold")
+    table.add_column("Platform")
+    table.add_column("Cookies file")
+    table.add_column("Status")
+    for plat, p in _cookies_rows(cfg):
+        if not p:
+            status = "[dim]not set[/dim]"
+        elif Path(p).expanduser().exists():
+            status = "[green]ok[/green]"
+        else:
+            status = "[red]missing[/red]"
+        table.add_row(plat, p or "—", status)
+    return table
 
 
 @cookies_group.command(name="show")
@@ -422,23 +457,13 @@ def cookies_show_cmd() -> None:
     if cfg is None:
         _console.print("[dim]config.toml does not exist.[/dim]")
         return
-    rows = [
-        ("instagram", cfg.instagram_cookies_file),
-        ("tiktok", cfg.tiktok_cookies_file),
-    ]
-    table = Table(show_header=True, header_style="bold")
-    table.add_column("Platform")
-    table.add_column("Cookies file")
-    table.add_column("Status")
-    for plat, p in rows:
-        if not p:
-            status = "[dim]not set[/dim]"
-        elif Path(p).expanduser().exists():
-            status = "[green]ok[/green]"
-        else:
-            status = "[red]missing[/red]"
-        table.add_row(plat, p or "—", status)
-    _console.print(table)
+    _console.print(_render_cookies_table(cfg))
+
+
+@cookies_group.command(name="list")
+def cookies_list_cmd() -> None:
+    """Alias for `cookies show` — lists configured cookies per platform."""
+    cookies_show_cmd.callback()
 
 
 @subscribes_group.group(name="schedule")

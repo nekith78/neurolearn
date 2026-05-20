@@ -163,6 +163,11 @@ class Config:
     # ~/.claude/projects/.../feedback_cookies_strict_file_only.md
     instagram_cookies_file: str = ""
     tiktok_cookies_file: str = ""
+    # v0.10.7: YouTube cookies for subtitles/yt-dlp paths. Used when
+    # YouTube rate-limits or geoblocks the IP — exporting browser
+    # cookies bypasses the block. Same Netscape-cookies.txt format and
+    # storage location as IG/TT (mode 0600 under ~/.neurolearn/).
+    youtube_cookies_file: str = ""
 
     # === v0.10.1: Gemini API tier ===
     # Drives max_concurrent in the vision backend. "free" caps parallel
@@ -226,6 +231,9 @@ def _to_toml_dict(cfg: Config) -> dict:
         "tiktok": {
             "cookies_file": d["tiktok_cookies_file"],
         },
+        "youtube": {
+            "cookies_file": d["youtube_cookies_file"],
+        },
     }
 
 
@@ -267,6 +275,7 @@ def _from_toml_dict(d: dict) -> Config:
         analyze_backend=raw_analyze_backend if raw_analyze_backend else None,
         instagram_cookies_file=ig.get("cookies_file", ""),
         tiktok_cookies_file=tt.get("cookies_file", ""),
+        youtube_cookies_file=d.get("youtube", {}).get("cookies_file", ""),
     )
 
 

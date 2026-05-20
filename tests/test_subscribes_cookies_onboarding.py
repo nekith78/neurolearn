@@ -78,13 +78,34 @@ def test_set_cookies_file_accepts_no_header(tmp_path: Path):
 
 
 def test_set_cookies_file_unknown_platform_raises(tmp_path: Path):
+    """v0.10.7: youtube is now a supported platform alongside instagram
+    and tiktok. Use a genuinely unknown name for the negative case."""
     from skills.neurolearn.subscribes.cookies_onboarding import (
         set_cookies_file,
     )
     cfg = tmp_path / "config.toml"
     src = _make_cookies_file(tmp_path / "x.txt")
     with pytest.raises(ValueError, match="unsupported platform"):
-        set_cookies_file("youtube", str(src), config_path=cfg)
+        set_cookies_file("facebook", str(src), config_path=cfg)
+
+
+def test_set_cookies_file_youtube_platform_stores_in_config(tmp_path: Path):
+    """v0.10.7: setting youtube cookies writes to cfg.youtube_cookies_file."""
+    from skills.neurolearn.subscribes.cookies_onboarding import (
+        resolve_cookies_file, set_cookies_file,
+    )
+    from skills.neurolearn.config import load_config
+    cfg_path = tmp_path / "config.toml"
+    src = _make_cookies_file(tmp_path / "yt.txt")
+
+    dest = set_cookies_file("youtube", str(src), config_path=cfg_path)
+    assert dest.name == "youtube-cookies.txt"
+
+    cfg = load_config(cfg_path)
+    assert cfg.youtube_cookies_file == str(dest)
+    # Cross-platform: resolve_cookies_file returns the path back.
+    resolved = resolve_cookies_file("youtube", config_path=cfg_path)
+    assert resolved == str(dest)
 
 
 def test_resolve_cookies_file_returns_path_when_set(tmp_path: Path):

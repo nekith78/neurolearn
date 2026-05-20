@@ -25,13 +25,13 @@ from http.cookiejar import MozillaCookieJar
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from rich.console import Console
+from skills.neurolearn.utils.console import make_console
 
 if TYPE_CHECKING:
     from skills.neurolearn.subscribes.pipeline import _ChannelVideo
 
 
-_console = Console()
+_console = make_console()
 _warning_shown_in_session = False
 
 

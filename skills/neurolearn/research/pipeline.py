@@ -5,7 +5,7 @@ import sys
 from datetime import date, datetime, timezone
 from pathlib import Path
 
-from rich.console import Console
+from skills.neurolearn.utils.console import make_console
 
 from skills.neurolearn.research.translator import (
     build_queries_per_language,
@@ -29,7 +29,7 @@ from skills.neurolearn.transcribe import (
 )
 from skills.neurolearn.utils.resolver import ResolvedTarget
 
-_console = Console()
+_console = make_console()
 
 
 def run_research(
@@ -140,11 +140,33 @@ def run_research(
     # 7. Convert to ResolvedTarget and run batch_pipeline
     targets = [_to_resolved_target(c) for c in candidates]
     cfg = _load_default_cfg()
+    # v0.10.7 (Fix D): record exactly what the user asked for so the
+    # manifest is reproducible even though ytsearch ranking shifts
+    # minute-to-minute. The reporter saw the same command return 12
+    # then 15 videos sixty seconds apart — without this provenance
+    # block the only way to retry was re-typing the query and praying.
+    research_meta = {
+        "query": query,
+        "queries_by_language": queries,
+        "languages": languages_used,
+        "source_lang_hint": source_lang_hint,
+        "limit_per_language": limit,
+        "days": days,
+        "since": since.isoformat() if since else None,
+        "until": until.isoformat() if until else None,
+        "match": match,
+        "filter": filter_text,
+        "in_subscribes": in_subscribes,
+        "group": group,
+        "searched_at": datetime.now(timezone.utc).isoformat(),
+        "candidates_before_checkpoint": len(candidates),
+    }
     opts = {
         "output_dir": output_dir,
         "batch_name": batch_name,
         "no_combined": batch_opts.get("no_combined", False),
         "fail_fast": batch_opts.get("fail_fast", False),
+        "research_meta": research_meta,
         **batch_opts,
     }
     batch_dir = _run_batch_pipeline(targets=targets, cfg=cfg, opts=opts)

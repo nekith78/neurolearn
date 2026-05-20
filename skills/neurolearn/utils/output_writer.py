@@ -105,6 +105,12 @@ class BatchMeta:
     backend: str
     backend_options: dict
     language: str
+    # v0.10.7: research-specific provenance, populated only when the batch
+    # was kicked off by `neurolearn research`. None otherwise. Captured at
+    # source so a later `manifest.json` reader can re-derive the exact
+    # search prompt + language set + timestamp — useful for reproducing
+    # or debugging the inherently non-deterministic `ytsearch:` ranking.
+    research: dict | None = None
 
 
 @dataclass
@@ -339,6 +345,12 @@ def write_manifest_json(
         "stats": {"total": total, "ok": ok, "failed": failed},
         "videos": out,
     }
+    # v0.10.7: research provenance — only when this batch came from
+    # `neurolearn research`. Lets the user re-run the exact same search
+    # later via `--rerun-from <batch>` (future-D) and gives debug logs
+    # the query that produced this set of URLs.
+    if meta.research is not None:
+        payload["research"] = meta.research
     path = output_dir / "manifest.json"
     path.write_text(_json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
     return path

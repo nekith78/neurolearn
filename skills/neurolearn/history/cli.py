@@ -4,7 +4,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import click
-from rich.console import Console
+from skills.neurolearn.utils.console import make_console
 from rich.table import Table
 
 from skills.neurolearn.history.store import (
@@ -13,7 +13,7 @@ from skills.neurolearn.history.store import (
 
 HISTORY_PATH = Path.home() / ".neurolearn" / "history.toml"
 
-_console = Console()
+_console = make_console()
 
 
 @click.group(name="history")

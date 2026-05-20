@@ -17,14 +17,14 @@ from pathlib import Path
 
 import click
 import tomlkit
-from rich.console import Console
+from skills.neurolearn.utils.console import make_console
 from rich.table import Table
 
 DEFAULT_PATH = Path.home() / ".neurolearn" / "triggers.toml"
 
 _SPLIT_RE = re.compile(r"[;,]")
 
-console = Console()
+console = make_console()
 
 
 def _user_path() -> Path:

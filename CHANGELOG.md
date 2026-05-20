@@ -3,6 +3,135 @@
 All notable changes to neurolearn will be documented here.
 The format is loosely based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.10.7] — 2026-05-20
+
+Bug-fix release driven by a Windows 11 / PowerShell 5.1 debug-run
+report of `neurolearn research`. Five findings; the worst was a
+cosmetic-but-catastrophic Unicode crash on the cp1251 console that
+ate the visible result AFTER all transcripts had already been
+written to disk. All five addressed.
+
+### Fixed
+
+**A. (critical) `UnicodeEncodeError` in Rich console output on
+non-UTF-8 Windows code pages.**
+
+When the active code page wasn't UTF-8 (cp1251 on ru-RU locales is
+the canonical case), Python's stdout defaulted to that codepage.
+Rich's `Console()` picked the `LegacyWindowsTerm` path and routed
+writes through `cp1251.encode()`, which crashed on every Unicode
+glyph the CLI printed — `✓`, `✗`, `·`, `→`, box-drawing characters.
+The crash happened **after** the actual work had completed and the
+transcripts were on disk, so the user saw a traceback and assumed
+the tool had failed.
+
+v0.10.7 adds `skills/neurolearn/utils/console.py::make_console()` —
+a cross-platform Console factory. On Windows it both reconfigures
+`sys.stdout` / `sys.stderr` to UTF-8 with `errors="replace"` and
+passes `legacy_windows=False` so Rich emits ANSI escapes instead of
+going through `LegacyWindowsTerm`. ANSI is supported by conhost
+since Win10 1607 and natively by Windows Terminal.
+
+All ten `Console()` instantiations across the project
+(`transcribe.py`, `wizard.py`, `research/pipeline.py`,
+`analyze/backend_resolver.py`, `history/cli.py`,
+`subscribes/cli.py`, `subscribes/instagram_loader.py`,
+`subscribes/cookies_onboarding.py`, `subscribes/pipeline.py`,
+`detection/triggers_cli.py`) were converted to `make_console()`.
+
+**B. (major) Post-batch "consider --backend smart" hint when most
+of an explicit-backend batch fails.**
+
+A user with `fallback_backend = whisper-local` in `config.toml` ran
+`neurolearn research ... --backend subtitles` against 15 YouTube
+videos. All 15 failed with `IpBlocked`. The configured fallback
+never fired — because explicit `--backend` skips the smart cascade
+and there was no per-batch retry logic. The user got an empty
+`combined.md` with no hint about what to do.
+
+`_smart_fallback_hint()` (extracted to be unit-testable) now
+inspects the batch result. When the batch had ≥2 attempts, the
+backend wasn't already `smart`, and failure rate ≥50%, the CLI
+prints a yellow warning suggesting `--backend smart`. Skipped for
+tiny batches (<2 items — no statistical signal) and for users who
+already used smart.
+
+Per-video auto-retry (the heavier "B-full" variant) was deferred —
+the minimal hint is enough UX and adds no risk.
+
+**C. (minor + actual fix) `subscribes cookies` extended for
+YouTube + new `list` alias.**
+
+`neurolearn subscribes cookies list` didn't exist (the reporter
+hit `No such command 'list'`). `set` / `clear` only accepted
+`instagram` / `tiktok` — but YouTube ALSO gets IpBlocked
+anonymously after ~10 requests, so YouTube cookies are equally
+useful.
+
+v0.10.7:
+
+- Adds `youtube` to the `Choice` set in `cookies set` / `cookies
+  clear`.
+- Adds `cookies list` as an alias for `cookies show`.
+- Adds `Config.youtube_cookies_file` (mirrors `instagram_cookies_file`
+  / `tiktok_cookies_file`), serialised under `[youtube]` in
+  `config.toml`.
+- Threads the YouTube cookies file into `SubtitlesBackend` — when
+  configured, the backend builds a `requests.Session` from the
+  Netscape `cookies.txt` and hands it to
+  `YouTubeTranscriptApi(http_client=session)`. The authenticated
+  session bypasses anonymous IP rate-limits.
+
+**D. (observation, addressed) Research provenance in
+`manifest.json`.**
+
+YouTube's `ytsearch:` ranking is non-deterministic — two
+back-to-back runs of the same command returned 12 videos then 15.
+v0.10.7 records every search parameter in
+`manifest.json.research`: query, per-language translated queries,
+`languages` list, source-lang hint, limit, days/since/until window,
+match/filter strings, in_subscribes flag, group filter, the exact
+UTC timestamp of the search, and how many candidates survived
+pre-checkpoint filtering. Lets a debugger answer "why these videos"
+even days later. Absent for non-research batches.
+
+**E. (low) `hint` field in error reports now populated for the
+common Windows + research failure modes.**
+
+`_diagnose_failure_hint()` was returning `null` for the exact
+errors the reporter hit. v0.10.7 adds branches for:
+
+- `IpBlocked` (from `SubtitlesBackend`) → suggests YouTube
+  cookies *and* `--backend smart`.
+- `subtitles unavailable` (no IpBlocked) → suggests `--backend
+  smart` for auto-fallback to local transcription.
+- `429 RESOURCE_EXHAUSTED` (Gemini free-tier quota) → suggests
+  `--backend smart` for auto-fallback or waiting for the daily
+  reset.
+
+The hint flows into `manifest.json[].hint` and `errors.log` so the
+user sees an actionable next step instead of a cryptic null.
+
+### Tests
+
++21 new tests across `test_utils_console.py`,
+`test_smart_fallback_hint.py`, `test_diagnose_failure_hint.py`,
+`test_cli_subscribes.py` (cookies list/set/clear/reject),
+`test_subscribes_cookies_onboarding.py` (youtube platform),
+`test_research_manifest_provenance.py`.
+
+Full suite: 1092 passed, 3 skipped, 1 pre-existing failure
+(`test_bootstrap_first_run_initializes_state` — fragile time-zoned
+fixture, unrelated to v0.10.7, not introduced here).
+
+### Did not change
+
+- `--backend smart` semantics (still subtitles → Gemini URL → local
+  fallback; cookies are passive infrastructure).
+- `youtube-transcript-api` library version or call shape (just the
+  optional `http_client=` Session passthrough).
+- Default vision-off behavior shipped in v0.10.6 — unchanged.
+
 ## [0.10.6] — 2026-05-19
 
 Bug-fix release driven by a debug-run report from a fresh-machine

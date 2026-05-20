@@ -1,4 +1,4 @@
-"""Cookies-file onboarding for Instagram / TikTok.
+"""Cookies-file onboarding for Instagram / TikTok / YouTube.
 
 Strict policy (see project memory file feedback_cookies_strict_file_only.md):
 the skill NEVER reads cookies directly from a browser at runtime. Users
@@ -26,14 +26,14 @@ import sys
 from pathlib import Path
 
 import click
-from rich.console import Console
+from skills.neurolearn.utils.console import make_console
 
 from skills.neurolearn.config import (
     CONFIG_PATH, Config, load_config, save_config,
 )
 
 
-_console = Console()
+_console = make_console()
 _NETSCAPE_HEADER_LINES = (
     "# Netscape HTTP Cookie File",
     "# HTTP Cookie File",
@@ -150,17 +150,18 @@ def resolve_cookies_file(
     on Instagram — that's the user's signal to run `subscribes cookies
     set instagram <path>`).
     """
-    if platform not in ("instagram", "tiktok"):
+    if platform not in ("instagram", "tiktok", "youtube"):
         return ""
 
     if not config_path.exists():
         return ""
 
     cfg = load_config(config_path)
-    path = (
-        cfg.instagram_cookies_file if platform == "instagram"
-        else cfg.tiktok_cookies_file
-    )
+    path = {
+        "instagram": cfg.instagram_cookies_file,
+        "tiktok": cfg.tiktok_cookies_file,
+        "youtube": cfg.youtube_cookies_file,
+    }[platform]
 
     if not path:
         return ""
@@ -185,9 +186,10 @@ def set_cookies_file(
 
     Returns the final stored path. Raises ValueError on validation failure.
     """
-    if platform not in ("instagram", "tiktok"):
+    if platform not in ("instagram", "tiktok", "youtube"):
         raise ValueError(
-            f"unsupported platform: {platform!r}. Expected 'instagram' or 'tiktok'."
+            f"unsupported platform: {platform!r}. "
+            f"Expected 'instagram', 'tiktok', or 'youtube'."
         )
 
     src = Path(path).expanduser().resolve()
@@ -273,7 +275,9 @@ def set_cookies_file(
     cfg = load_config(config_path) if config_path.exists() else Config()
     if platform == "instagram":
         cfg.instagram_cookies_file = str(dest)
-    else:
+    elif platform == "tiktok":
         cfg.tiktok_cookies_file = str(dest)
+    else:    # youtube
+        cfg.youtube_cookies_file = str(dest)
     save_config(cfg, config_path)
     return dest

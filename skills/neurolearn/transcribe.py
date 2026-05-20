@@ -9,7 +9,7 @@ from datetime import datetime
 from pathlib import Path
 
 import click
-from rich.console import Console
+from skills.neurolearn.utils.console import make_console
 
 from skills.neurolearn import __version__
 from skills.neurolearn.backends.base import BackendError, BackendNotConfigured
@@ -52,7 +52,7 @@ from skills.neurolearn.utils.resolver import (
 )
 from skills.neurolearn.wizard import run_wizard
 
-console = Console()
+console = make_console()
 
 
 def _stdin_is_tty() -> bool:
@@ -519,13 +519,73 @@ def _build_video_status(
     )
 
 
+def _smart_fallback_hint(
+    *,
+    backend_name: str | None,
+    ok_count: int,
+    fail_count: int,
+) -> str | None:
+    """v0.10.7 Fix B-minimal: when half-or-more of a batch failed under an
+    explicit non-smart backend, return a one-line Rich-markup hint pointing
+    the user at the `smart` cascade. Returns None when no hint is needed.
+
+    Skipped when:
+      * batch had <2 items (no statistical signal),
+      * the user already used --backend smart (smart has its own
+        cascade — telling them to "use smart" is useless),
+      * or the success ratio is above 50% (one or two failures aren't
+        backend-wide; could be private/deleted videos).
+    """
+    total = ok_count + fail_count
+    if total < 2:
+        return None
+    if (backend_name or "").lower() == "smart":
+        return None
+    if fail_count / total < 0.5:
+        return None
+    return (
+        f"\n  [yellow]⚠[/yellow] {fail_count}/{total} failed via "
+        f"[bold]{backend_name}[/bold]. "
+        f"Retry with [bold]--backend smart[/bold] for auto-fallback "
+        f"(subtitles → Gemini URL → local download)."
+    )
+
+
 def _diagnose_failure_hint(stage: str, error_text: str) -> str | None:
-    """Map common errors to actionable user hints."""
+    """Map common errors to actionable user hints.
+
+    The hint surfaces in `manifest.json[].hint` and at the end of each
+    `errors.log` entry. Aim is to tell the user what to do next, not
+    just what went wrong.
+    """
     s = error_text.lower()
+    # v0.10.7: SubtitlesBackend raises "(IpBlocked)" when YouTube rate-
+    # limits / geoblocks the request. The user-actionable fix is either
+    # cookies or fallback to a different backend; we point at both.
+    if "ipblocked" in s or "ip blocked" in s:
+        return (
+            "YouTube blocked your IP for subtitles. "
+            "Either set YouTube cookies "
+            "(`neurolearn subscribes cookies set youtube <path>`) "
+            "or retry with `--backend smart` for auto-fallback."
+        )
+    # SubtitlesBackend raises this when the video has no captions at all.
+    if "subtitles unavailable" in s:
+        return (
+            "Subtitles missing. Retry with `--backend smart` for "
+            "auto-fallback to local transcription."
+        )
     if stage == "download" and ("403" in s or "bot" in s or "sign in" in s):
         return "register a cookies.txt: neurolearn config set-cookies <path>"
     if stage == "backend" and "api_key" in s.replace(" ", ""):
         return "neurolearn config set-key <backend>"
+    # v0.10.7: Gemini free-tier quota — actionable hint instead of cryptic.
+    if "resource_exhausted" in s or "429" in s:
+        return (
+            "Gemini quota exhausted (free tier is 20 req/day). "
+            "Retry with `--backend smart` for auto-fallback, "
+            "or wait for daily reset at midnight Pacific."
+        )
     return None
 
 
@@ -1000,6 +1060,11 @@ def _run_batch_pipeline(
             }.items() if v
         },
         language=cfg.language,
+        # v0.10.7 (Fix D): when this batch came from `neurolearn research`,
+        # the research pipeline injects its query + language + window
+        # parameters under opts["research_meta"]. None for non-research
+        # batches (channel/playlist/manual URL list).
+        research=opts.get("research_meta"),
     )
 
     if not no_combined:
@@ -1022,6 +1087,18 @@ def _run_batch_pipeline(
     console.print(f"  └── videos/  ({len(statuses)} transcripts)")
     if failures:
         console.print(f"  └── errors.log  ({len(failures)} failures)")
+
+    # v0.10.7 Fix B-minimal: when the explicit backend wiped out at least
+    # half the batch, surface a one-line hint pointing the user at the
+    # `smart` cascade. Logic extracted so it can be unit-tested.
+    smart_hint = _smart_fallback_hint(
+        backend_name=backend_name,
+        ok_count=len(statuses),
+        fail_count=len(failures),
+    )
+    if smart_hint is not None:
+        console.print(smart_hint)
+
     console.print(
         '\n  [dim]Next:[/dim] ask Claude → '
         '"read combined.md and write a note on the topic"\n'

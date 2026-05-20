@@ -7,6 +7,59 @@ from click.testing import CliRunner
 from skills.neurolearn.transcribe import cli
 
 
+def test_subscribes_cookies_list_command_exists():
+    """v0.10.7: `cookies list` is an alias for `cookies show`, added so
+    `neurolearn subscribes cookies --help` advertises the natural-word
+    name users reach for first."""
+    runner = CliRunner()
+    result = runner.invoke(cli, ["subscribes", "cookies", "list"])
+    assert result.exit_code == 0, result.output
+    # Smoke: output should include the platform column for all three.
+    # Older runs that have no config.toml print "config.toml does not exist"
+    # — also a clean 0-exit path.
+    assert (
+        "instagram" in result.output.lower()
+        or "config.toml" in result.output.lower()
+    )
+
+
+def test_subscribes_cookies_set_accepts_youtube_platform(tmp_path: Path, monkeypatch):
+    """v0.10.7: `cookies set youtube <path>` is accepted by the CLI."""
+    cookies_file = tmp_path / "yt.txt"
+    cookies_file.write_text(
+        "# Netscape HTTP Cookie File\n.youtube.com\tTRUE\t/\tFALSE\t0\tA\tB\n"
+    )
+    cfg_path = tmp_path / "config.toml"
+    monkeypatch.setattr(
+        "skills.neurolearn.subscribes.cookies_onboarding.CONFIG_PATH",
+        cfg_path,
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(cli, [
+        "subscribes", "cookies", "set", "youtube", str(cookies_file),
+    ])
+    assert result.exit_code == 0, result.output
+    assert "youtube" in result.output.lower()
+
+
+def test_subscribes_cookies_clear_accepts_youtube_platform():
+    """v0.10.7: `cookies clear youtube` is accepted by the CLI Choice."""
+    runner = CliRunner()
+    result = runner.invoke(cli, ["subscribes", "cookies", "clear", "youtube"])
+    # No cookies configured → exits 0 with "No cookies file configured".
+    # The platform Choice would reject with exit 2 before v0.10.7.
+    assert result.exit_code == 0, result.output
+
+
+def test_subscribes_cookies_rejects_unknown_platform():
+    """Negative: facebook isn't supported — Click Choice should reject it."""
+    runner = CliRunner()
+    result = runner.invoke(cli, ["subscribes", "cookies", "clear", "facebook"])
+    assert result.exit_code != 0
+    assert "facebook" in result.output.lower() or "invalid" in result.output.lower()
+
+
 def _resolved(url, channel_id="UC_abc"):
     from skills.neurolearn.subscribes.channel_resolver import (
         ResolvedChannel,

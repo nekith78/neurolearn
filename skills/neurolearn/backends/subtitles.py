@@ -1,4 +1,12 @@
-"""subtitles backend — fast path via youtube-transcript-api, no API key needed."""
+"""subtitles backend — fast path via youtube-transcript-api, no API key needed.
+
+v0.10.7 cookies support: when YouTube rate-limits (`IpBlocked`) on
+anonymous requests, the user can register a `youtube` cookies.txt via
+`neurolearn subscribes cookies set youtube <path>`. This module then
+builds a `requests.Session` from that file and hands it to
+`YouTubeTranscriptApi(http_client=...)`, which routes the request
+through the authenticated session and bypasses the IP block.
+"""
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -14,15 +22,46 @@ from skills.neurolearn.utils.downloader import (
 from skills.neurolearn.utils.output_writer import Segment
 
 
+def _build_authenticated_session(cookies_path: str | None):
+    """Return a `requests.Session` populated from a Netscape cookies.txt,
+    or None when the path is empty / unreadable. Safe failure: malformed
+    cookie files just disable the cookie path; we don't raise."""
+    if not cookies_path:
+        return None
+    try:
+        from http.cookiejar import MozillaCookieJar
+        import requests
+    except ImportError:
+        return None
+    jar = MozillaCookieJar(cookies_path)
+    try:
+        # ignore_discard/expires: keep all cookies; some session-cookies
+        # have weird flags and we want everything yt-dlp would send.
+        jar.load(ignore_discard=True, ignore_expires=True)
+    except (OSError, Exception):    # malformed file
+        return None
+    session = requests.Session()
+    session.cookies = jar
+    return session
+
+
 class _ApiAdapter:
     """Adapter over youtube-transcript-api ≥0.6 instance-based API.
     Returns list of dicts with text/start/duration keys for backend convenience."""
+
+    def __init__(self, cookies_file: str | None = None):
+        self._cookies_file = cookies_file
 
     def get_transcript(self, video_id: str, languages: list[str] | None = None) -> list[dict]:
         from youtube_transcript_api import YouTubeTranscriptApi
 
         langs = languages or ["en"]
-        api = YouTubeTranscriptApi()
+        session = _build_authenticated_session(self._cookies_file)
+        api = (
+            YouTubeTranscriptApi(http_client=session)
+            if session is not None
+            else YouTubeTranscriptApi()
+        )
         fetched = api.fetch(video_id, languages=langs)
         # FetchedTranscript is iterable; each FetchedTranscriptSnippet has .text/.start/.duration
         return [
@@ -31,14 +70,14 @@ class _ApiAdapter:
         ]
 
 
-def _get_transcript_api() -> _ApiAdapter:
+def _get_transcript_api(cookies_file: str | None = None) -> _ApiAdapter:
     """Return an API adapter object. Lazy-imported so youtube-transcript-api
     is only required at call time. Patched in unit tests."""
     try:
         import youtube_transcript_api  # noqa: F401
     except ImportError as e:
         raise ImportError("youtube-transcript-api is not installed. Run `uv sync`.") from e
-    return _ApiAdapter()
+    return _ApiAdapter(cookies_file=cookies_file)
 
 
 @dataclass
@@ -63,7 +102,20 @@ class SubtitlesBackend:
         if not video_id:
             raise BackendError(f"Could not extract YouTube video ID from URL: {url}")
 
-        api = _get_transcript_api()
+        # v0.10.7: opportunistically use the user's YouTube cookies (set
+        # via `subscribes cookies set youtube <path>`) to bypass IP rate
+        # limits. Resolution is best-effort — if cookies aren't configured
+        # or the file doesn't exist, we proceed anonymously.
+        cookies_file: str | None = None
+        try:
+            from skills.neurolearn.subscribes.cookies_onboarding import (
+                resolve_cookies_file,
+            )
+            cookies_file = resolve_cookies_file("youtube") or None
+        except Exception:
+            cookies_file = None
+
+        api = _get_transcript_api(cookies_file=cookies_file)
         languages = None if language == "auto" else [language]
         try:
             raw = api.get_transcript(video_id, languages=languages or ["en"])

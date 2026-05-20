@@ -5,7 +5,7 @@ or explicitly via ``neurolearn config wizard``.
 """
 from __future__ import annotations
 
-from rich.console import Console
+from skills.neurolearn.utils.console import make_console
 from rich.panel import Panel
 from rich.prompt import Prompt
 
@@ -67,7 +67,7 @@ def run_wizard() -> None:
     Detects hardware, shows a numbered menu of backend choices, optionally
     asks for an API key (cloud backends), and saves config + .env.
     """
-    console = Console()
+    console = make_console()
 
     # --- Greeting + hardware detection ---
     info = detect_platform()

@@ -19,14 +19,14 @@ import sys
 from pathlib import Path
 
 import click
-from rich.console import Console
+from skills.neurolearn.utils.console import make_console
 
 from skills.neurolearn.config import (
     CONFIG_PATH, Config, load_config, save_config,
 )
 
 _VALID_BACKENDS = ("skip", "gemini", "claude", "openai", "ollama")
-_console = Console()
+_console = make_console()
 
 
 def resolve_analyze_backend(

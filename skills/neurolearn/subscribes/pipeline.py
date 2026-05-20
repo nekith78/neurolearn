@@ -23,7 +23,7 @@ from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
-from rich.console import Console
+from skills.neurolearn.utils.console import make_console
 
 from skills.neurolearn.subscribes.store import (
     Channel, load_subscribes,
@@ -71,7 +71,7 @@ class _ChannelVideo:
     published: datetime
 
 
-_console = Console()
+_console = make_console()
 
 
 _NOT_FOUND_SIGNATURES = (
