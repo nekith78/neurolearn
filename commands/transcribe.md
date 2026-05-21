@@ -6,7 +6,43 @@ description: |
 argument-hint: <URL_or_path> | batch <inputs...> [flags]
 ---
 
-### How to invoke the CLI (v0.10.6+)
+### Step 0 — Pre-flight check (v0.11.0+, IMPORTANT)
+
+**Before running any transcription**, check that the user has a fast cloud
+audio backend configured. Run `neurolearn doctor --json` and parse the
+output:
+
+```bash
+uv run --project "${CLAUDE_PLUGIN_ROOT}" neurolearn doctor --json
+```
+
+The JSON has `ready.has_fast_audio` (boolean). When **false**:
+
+1. **Stop. Do NOT run transcribe yet** — without a key, neurolearn falls back
+   to local whisper which is much slower (especially on Windows, where every
+   yt-dlp subprocess is also slow) and the user will think the plugin is broken.
+2. Walk the user through getting a free Groq key. Read the JSON
+   `ready.recommended_setup[0]` — it contains `command` and `get_key_at`
+   ready-to-relay. Suggested flow:
+   - Tell the user: "neurolearn isn't fully set up yet. The fastest free
+     transcription backend is Groq Whisper-large-v3-turbo (~12s for a
+     17-min video, 8 hours/day free). Want me to set it up?"
+   - If yes: ask them to open `https://console.groq.com/keys`, sign in
+     (Google works), click **Create API Key**, name it `neurolearn`, copy
+     the `gsk_...` value, and paste it in chat.
+   - When they paste, register it via:
+     ```bash
+     uv run --project "${CLAUDE_PLUGIN_ROOT}" neurolearn config set-key groq <PASTED_KEY>
+     ```
+   - Re-run `doctor --json` to confirm `ready.has_fast_audio == true`.
+3. After setup is complete, proceed to Step 1 below.
+
+If `ready.has_fast_audio` is **true** on the first check, skip straight to Step 1.
+
+For the dedicated onboarding walkthrough (not coupled to a transcribe request),
+use the `/setup` slash command instead.
+
+### Step 1 — How to invoke the CLI (v0.10.6+)
 
 Resolve which command form to run, in this order:
 
@@ -76,7 +112,7 @@ If the command exits non-zero, the stdout/stderr will contain a friendly hint �
 ### Error → recovery hints
 
 - **`429 RESOURCE_EXHAUSTED` / quota exhausted** (only happens with explicit `--backend gemini`): suggest `--backend smart` instead — it auto-falls-back through subtitles → Gemini URL → local download when the quota is gone. Or wait for the daily reset at midnight Pacific.
-- **`BackendNotConfigured: GEMINI_API_KEY missing`**: suggest `neurolearn config set-key gemini` or switch to `--backend whisper-local`.
+- **`BackendNotConfigured: GROQ_API_KEY missing`** or **`GEMINI_API_KEY missing`**: this means the pre-flight check in Step 0 was skipped. Run `neurolearn doctor --json`, find the relevant entry in `keys.<backend>.key_url`, walk the user through key setup, then re-register via `neurolearn config set-key <backend> <PASTED_KEY>` (Claude-friendly non-interactive form, v0.11.0+).
 - **Private/unlisted YouTube + Gemini direct URL**: Gemini can only fetch public videos via `file_uri`. Suggest downloading with cookies (`--cookies-file <path>`) or using `--backend smart` for auto-fallback.
 - **`command not found: neurolearn`**: see "How to invoke the CLI" above — switch to the `uv run --project "${CLAUDE_PLUGIN_ROOT}"` form, or suggest `uv tool install --from "${CLAUDE_PLUGIN_ROOT}" neurolearn` for a one-time global install.
 

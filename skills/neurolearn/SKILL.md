@@ -28,6 +28,48 @@ description: |
 > dir. This SKILL.md covers triggers and quick decisions; the reference
 > covers everything else.
 
+## Onboarding — first-time use (v0.11.0+)
+
+When the user invokes this skill for the first time after installing the
+plugin, run a pre-flight check **before** attempting any transcription:
+
+```bash
+uv run --project "${CLAUDE_PLUGIN_ROOT}" neurolearn doctor --json
+```
+
+Parse the JSON. If `ready.has_fast_audio == false`, **stop** and walk the
+user through getting a Groq API key (free tier, 8 hours/day, ~12s per video):
+
+1. Read `ready.recommended_setup[0]` — it carries `command` (the exact CLI
+   call to make) and `get_key_at` (the URL to send the user to).
+2. Tell the user: "Before I transcribe, you need a free Groq key. Open
+   [URL], click 'Create API Key', name it 'neurolearn', copy the `gsk_...`
+   value, and paste it here."
+3. When they paste, run:
+   `neurolearn config set-key groq <PASTED_KEY>` (v0.11.0+ accepts the key
+   as a positional argument — no TTY prompt needed).
+4. Re-run `doctor --json` to confirm.
+
+If the user already has a fast key configured (`has_fast_audio == true`),
+skip onboarding entirely and proceed to the user's actual request.
+
+For a standalone setup walkthrough not tied to a transcribe request, point
+the user at the `/setup` slash command.
+
+### When NOT to run the pre-flight
+
+- The user has explicitly chosen `--backend whisper-local` (no key needed).
+- The user has explicitly chosen `--backend subtitles` (no key needed).
+- The user has already been onboarded earlier in this same chat — don't
+  re-run `doctor` every turn.
+
+### Key handling — security
+
+- Never echo a pasted key back in full. `set-key` prints a masked
+  confirmation `gsk_***...XXXX` — relay that, not the raw input.
+- Never write the key to any file other than via `neurolearn config set-key`.
+  That command stores it in `~/.neurolearn/.env` with mode 0600 on Unix.
+
 ## Backend choice cheat-sheet
 
 Pick the backend BEFORE invoking, based on user intent + environment.
@@ -304,8 +346,9 @@ This writes to `~/.neurolearn/config.toml` and affects all future sessions.
 
 ### Other useful sub-commands
 
+- `neurolearn doctor` — diagnostic command; `--json` for machine-parseable output
 - `neurolearn config show` — list current settings + which API keys are configured
-- `neurolearn config set-key <backend>` — interactively set an API key
+- `neurolearn config set-key <backend> [VALUE]` — set an API key. v0.11.0+ accepts the key as a positional argument or `--from-env VAR` / `--from-stdin` for non-interactive use (Claude can call this directly with a pasted key). Bare form still prompts via TTY.
 - `neurolearn config test <backend>` — sanity-check a backend's configuration
 - `neurolearn config wizard` — re-run the first-run wizard
 
