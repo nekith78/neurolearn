@@ -25,7 +25,7 @@ Works as:
 
 ## Status
 
-v0.11.0 — production-ready:
+v0.12.0 — production-ready:
 
 | Feature | Since | State |
 |---|---|---|
@@ -59,6 +59,7 @@ v0.11.0 — production-ready:
 | Epistemic framing — combined.md / analyze / report / summarize tell the LLM consumer to treat transcripts as third-party inputs, not authority | v0.10.8 | Working |
 | Windows robustness — `batch --no-analyze/--yes` no-ops, non-TTY wizard skip, cuBLAS/cuDNN→CPU fallback, compute_type respects device override, combined.md/manifest written on crash | v0.10.9 | Working |
 | Audio default = Groq Whisper turbo (~12s for 17-min video); Claude Code plugin onboarding via `/setup` + `neurolearn doctor --json`; non-interactive `set-key` accepts pasted key as positional arg | v0.11.0 | Working |
+| Vision default = Groq Llama-4-Scout (per-model prompts, JSON-schema enforced); Anthropic API fully removed (Claude integration via chat only); explicit Gemini cache removed (free tier unavailable); `gemini_url_fastpath` opt-in with 3.5-flash whitelist | v0.12.0 | Working |
 | Web UI (Gradio) | v0.4 | **Experimental, hidden** — code preserved, not maintained |
 
 ---

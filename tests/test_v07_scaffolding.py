@@ -23,7 +23,9 @@ def test_version_matches_pyproject():
     """
     import skills.neurolearn
     # v0.11.0 raised the floor from 0.10.1 — audio default switched to Groq.
+    # v0.12.0 raised the floor — Groq vision + Anthropic API removal +
+    # explicit Gemini cache removal landed in this release.
     parts = skills.neurolearn.__version__.split(".")
     assert int(parts[0]) == 0
-    assert int(parts[1]) >= 11
+    assert int(parts[1]) >= 12
     assert int(parts[2]) >= 0

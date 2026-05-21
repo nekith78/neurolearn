@@ -3,6 +3,164 @@
 All notable changes to neurolearn will be documented here.
 The format is loosely based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.12.0] — 2026-05-21
+
+Major release. Vision backend swap (Groq Llama-4-Scout as primary,
+Gemini as fallback), full Anthropic API removal (Claude integration is
+through Claude Code chat only — not via SDK), explicit Gemini cache
+storage path removed (free tier doesn't allow it), per-model prompt
+variants in the vision TOML, and several smart-cascade fixes.
+
+### Why this is a major release
+
+- **Dropped a base dependency** (`anthropic>=0.40.0`). Existing users
+  who installed with `uv sync --extra ...` will get a smaller install.
+- **Default `gemini_model` changed** from `gemini-2.5-flash` to
+  `gemini-3.5-flash`. v0.11.0 didn't change this default — only the
+  smart cascade routing. v0.12.0 makes the default safe everywhere
+  (2.5-flash has the +63% timestamp drift bug confirmed in v0.11).
+- **Vision pipeline behavior changed**: default vision backend on
+  `--with-visuals` is now Groq Llama-4-Scout instead of Gemini. Users
+  who relied on Gemini's vision-via-Files-API path explicitly must set
+  `vision_backend = "gemini"` in their config.
+
+### Vision pipeline overhaul (C1-C4)
+
+- **New `GroqVisionBackend`** ([vision/groq_vision.py](skills/neurolearn/vision/groq_vision.py))
+  using Llama-4-Scout via `chat.completions.create` with strict
+  `response_format={"type":"json_schema","strict":true}`. 30 RPM /
+  1000 RPD free tier (50x more than Gemini 2.5-flash). Per-call price
+  ~5x cheaper than Gemini Flash even on paid tiers.
+- **Per-model prompt variants** in `prompts_default.toml`: every
+  builtin video type (`tutorial`, `lecture`, `code`, `demo`,
+  `interview`, `vlog`, `review`, `talking_head`, `generic`) now has a
+  sibling `[prompts.<type>.groq]` subsection tuned for Llama-4-Scout's
+  literal instruction-following. Removed `GOOD: ... BAD: ...` canonical
+  example strings — Scout copies them verbatim into output. Replaced
+  with positive whitelists and schema-enforced 30-word brevity caps.
+- **`load_prompt(model_family="groq")`** ([vision/prompts.py](skills/neurolearn/vision/prompts.py))
+  extension picks the variant when present, falls back to the base
+  prompt otherwise. Backward compatible — callers without `model_family`
+  get v0.11 behavior.
+- **Vision cascade** in [pipeline_v02.py](skills/neurolearn/pipeline_v02.py)
+  dispatches `groq | gemini | openai` based on `cfg.vision_backend`.
+  `claude` removed from the choices.
+
+### Anthropic API removal (C5)
+
+Per the durable rule `feedback_no_anthropic_api` in project memory:
+neurolearn does NOT call `anthropic.Anthropic`. Claude integration
+happens through Claude Code chat — the user's Pro/Max subscription —
+not via SDK calls in our pipeline.
+
+- Deleted `vision/claude_vision.py` (entire file, 167 LOC).
+- Deleted `_refine_low_confidence_with_claude` helper in
+  `pipeline_v02.py` (~75 LOC) and the `claude_fallback` preset
+  option became a no-op (kept in registry.py for TOML backwards
+  compat; ignored at runtime).
+- `quality/asr_corrector.py` replaced `_call_claude` with `_call_groq`
+  (Llama-3.3-70b-versatile, 14,400 RPD free tier).
+- `analyze/runner.py` _KNOWN backends changed from
+  `{gemini, claude, openai, ollama}` to `{groq, gemini, openai, ollama}`.
+- `presets/registry.py`: `claude` removed from `vision_backend`,
+  `correct_asr_backend`, `translate_backend` choice lists. Default
+  `correct_asr_backend` switched from `gemini` to `groq`.
+- `presets_default.toml`: tutorial preset's `vision_backend` switched
+  from `gemini` to `groq`; `claude_fallback=true` removed.
+- `pyproject.toml`: removed `anthropic>=0.40.0` from base dependencies.
+- Removed `tests/test_vision_claude.py` + `tests/test_claude_fallback.py`.
+  Replaced Claude test cases with Groq equivalents in
+  `test_asr_corrector.py`, `test_translator.py`, `test_summarizer.py`,
+  `test_analyze_runner.py`, `test_cli_correct_asr.py`,
+  `test_presets_loader.py`.
+
+### Explicit Gemini cached_content removal (C6)
+
+Free-tier Gemini accounts return
+`TotalCachedContentStorageTokensPerModelFreeTier limit=0` — the
+v0.10.1 explicit-cache path always 4xx'd for >99% of users. Confirmed
+empirically in `qa-out/v0.12.0-vision-compare/` Test 3.
+
+- Removed `_maybe_create_cache()` async helper (~30 LOC).
+- Per-window call shape simplified: every call now sends
+  `[user_prompt, uploaded_video]` instead of branching on
+  `cached_name`. Implicit caching deduplicates the repeated video
+  reference server-side (free + automatic, no API call required).
+
+For paid users that benefit from explicit caching (storage cost
+$1/M-tok/hr but 90% discount on cached input tokens), a tier-aware
+re-introduction is planned for a later release. Today's typical user
+gets the implicit-cache benefit with zero configuration.
+
+### Audio cascade fixes (C10+C11)
+
+- **Restored Gemini URL middle-step** in smart cascade with strict
+  guards: requires YouTube URL + `cfg.gemini_url_fastpath=True` (opt-in
+  default off) + `cfg.gemini_model` in the
+  `_GEMINI_AUDIO_URL_SAFE_MODELS` whitelist (currently
+  `gemini-3.5-flash`, `gemini-3-flash-lite`, `gemini-3.1-flash-lite`).
+  v0.11.0 removed this entirely after the +63% drift bug; v0.12.0
+  reinstates it only for timestamp-safe models.
+- **Default `gemini_model` changed** to `gemini-3.5-flash`. The
+  2.5-flash default in `config.py` and `backends/gemini.py` was
+  removed. When a user explicitly sets the model to `gemini-2.5-flash`
+  for audio transcription, `backends/gemini.py` now prints a stderr
+  warning about the timestamp drift bug with the fix command.
+- **Vision use of 2.5-flash unaffected** — the bug is audio-only.
+
+### Diagnostic command (C12)
+
+`neurolearn doctor --json` now exposes per-stage backend readiness for
+Claude Code plugin onboarding:
+
+- New `ready.has_fast_vision` (boolean): True when Groq or Gemini key
+  is configured.
+- New `ready.has_analyze_backend` (boolean): True when Groq or Gemini
+  key is configured.
+- New `config.gemini_url_fastpath` (boolean): reflects the v0.12
+  config field.
+
+Claude reads these to branch onboarding flow ("do you want to enable
+vision moments?" only if `has_fast_vision`).
+
+### Deferred to v0.12.1
+
+- **3-stage wizard** (audio + vision + analyze backend choice per stage,
+  with tier branching + paid-tier model override prompts).
+- **`$CLAUDE_PLUGIN_ROOT` auto-detection** → `--extract-only` mode where
+  vision pipeline writes `keyframes/manifest.json` and lets Claude
+  read the frames directly in chat (no extra API call).
+
+These are nice-to-have UX layers on top of the v0.12.0 plumbing. The
+core architecture (per-model prompts, Groq primary, Anthropic-free) is
+shipping now.
+
+### Tests
+
+1137 → 1164 (+27 net):
+
+- `+4` test_vision_prompts_loader.py (per-model variant resolution)
+- `+5` test_vision_prompts_loader.py (parametrized × types invariants)
+- `+8` test_groq_vision.py (new file)
+- `+4` test_doctor_cli.py::TestDoctorV012Fields
+- Removed `test_vision_claude.py` (8 tests) + `test_claude_fallback.py` (5 tests)
+- Updated 7 existing test files for Anthropic / cache / model defaults
+
+All 1164 tests green at release. No regressions vs v0.11.0.
+
+### Migration
+
+For users who set explicit Anthropic-based config in v0.11.x:
+
+- `vision_backend = "claude"` → set to `"groq"` (recommended) or
+  `"gemini"` (if you specifically wanted Gemini's vision-via-Files-API).
+- `correct_asr_backend = "claude"` → set to `"groq"`.
+- `claude_fallback = true` in tutorial preset → becomes no-op; remove or
+  ignore.
+
+Otherwise no action needed — `uv sync` will drop the `anthropic` package
+on next sync and your runs continue working with Groq defaults.
+
 ## [0.11.0] — 2026-05-21
 
 Major release. Audio default switched from Gemini-based smart-cascade to
