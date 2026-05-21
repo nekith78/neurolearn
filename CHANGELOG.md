@@ -3,6 +3,157 @@
 All notable changes to neurolearn will be documented here.
 The format is loosely based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.11.0] — 2026-05-21
+
+Major release. Audio default switched from Gemini-based smart-cascade to
+Groq Whisper-large-v3-turbo. New Claude Code plugin onboarding flow so
+the plugin works from a fresh `/plugin install` without leaving the chat.
+Several speed wins on hot-path operations.
+
+### Why this is a major (0.11.0) release, not a 0.10.x patch
+
+The defaults changed. Users on smart-cascade who previously got Gemini's
+YouTube-URL path (and lived with its quirks — see Bugs below) now get
+Groq instead. That's a behavioral change visible in transcripts, in
+generated `.srt` timestamps, in batch `combined.md`, and in API-call
+billing patterns. The CLI surface remains backward compatible
+(`--backend gemini` still works), but the *default* is different. Major
+bump signals the change so anyone scripting against neurolearn knows to
+look at their settings.
+
+### Bug discovered during testing
+
+Empirical comparison on a 17-minute YouTube test video on 2026-05-20:
+
+| Backend | Wall-time | Reported duration | Last `.srt` timestamp | Real video duration | Drift |
+|---|---|---|---|---|---|
+| `gemini-2.5-flash` (pre-v0.11 default) | 50-100 s | **1045.2 s** ❌ | **17:25** ❌ | 10:40 (640 s) | **+63% stretch** |
+| `gemini-3.5-flash` | 80 s | 639 s ✅ | 10:39 ✅ | 10:40 | <1 s |
+| **Groq `whisper-large-v3-turbo`** | **12 s** ✅ | 640 s ✅ | **10:39** ✅ | 10:40 | <1 s |
+
+The default backend was producing transcripts with timestamps that
+*exceeded the real length of the video by 6+ minutes*. Anyone opening
+the `.srt` in VLC and clicking on 17:00 landed in a black screen past
+EOF. Anyone aligning keyframes by transcript timestamp got misaligned
+keyframes. v0.11.0 removes Gemini from the smart cascade entirely; it
+remains available via explicit `--backend gemini` for users who want
+the Gemini URL path despite the bug.
+
+### Claude Code plugin UX overhaul
+
+Pre-v0.11 flow when a user installed the plugin in Claude Code:
+
+1. `/plugin install neurolearn` — success.
+2. User: "transcribe this URL."
+3. Claude runs `neurolearn ...` — fails with `BackendNotConfigured`.
+4. Claude tells user "open your terminal and run `neurolearn config set-key gemini`".
+5. User: "but I'm in Claude Code, why do I have to leave?"
+6. Even if user opens terminal, `set-key` was interactive (`click.prompt(hide_input=True)`).
+7. **User abandons the plugin.**
+
+v0.11.0 fixes all of this:
+
+- **`neurolearn config set-key <backend> <VALUE>`** now accepts the key
+  as a positional argument (also `--from-env VAR_NAME` and
+  `--from-stdin`). Claude can call this directly when the user pastes a
+  key in chat — no TTY required.
+- **`neurolearn doctor`** is a new diagnostic command. `doctor --json`
+  emits a structured payload with config state, key configuration per
+  backend, platform info, and a `ready.recommended_setup[]` array
+  carrying ready-to-relay `command` + `get_key_at` URL strings. Claude
+  parses this to drive onboarding.
+- **`/setup` slash command** is a new dedicated onboarding walkthrough.
+  Five-step Groq key acquisition flow (open URL → sign in → create key
+  → copy → paste in chat), Claude registers via `set-key`, verifies via
+  `doctor --json`.
+- **`commands/transcribe.md`** now has a Step 0 pre-flight check. Before
+  any transcribe call, Claude runs `doctor --json`; if
+  `ready.has_fast_audio == false`, it walks the user through Groq key
+  setup before attempting transcription.
+- **`SKILL.md`** has a top-of-document "Onboarding — first-time use"
+  section that codifies the same flow for any Claude session with the
+  plugin active.
+- **First-run wizard** reordered to put `smart` first (with Groq pointer
+  in the greeting panel) and `groq` second. `whisper-local` moved to 3rd.
+  Smart-mode fallback prompt also reordered: 1=groq, 2=whisper-local,
+  3=gemini (was: 1=whisper-local, 2=gemini, 3=groq).
+
+### Audio cascade rewrite
+
+- **Default `default_backend`**: `whisper-local` → `smart`
+- **Default `fallback_backend`**: `whisper-local` → `groq`
+- **Removed**: the v0.10.5 Gemini direct-URL middle step. Smart cascade
+  is now strictly `subtitles → fallback_backend → whisper-local`. The
+  middle step was the source of the timestamp-drift bug; users who want
+  the URL path opt in via `--backend gemini`.
+- **Added**: when the configured fallback backend isn't actually
+  configured (e.g. fresh install with no Groq key), the smart cascade
+  silently auto-drops to whisper-local instead of hard-erroring. A
+  fresh install with no keys still produces a transcript.
+
+### Speed wins on the hot path
+
+- **`m4a` audio passthrough** ([utils/downloader.py:55-77](skills/neurolearn/utils/downloader.py#L55)):
+  yt-dlp's `--audio-format` default changed from `mp3` to `m4a`. YouTube
+  serves AAC in m4a natively; mp3 forced a 2-5s ffmpeg re-encode per
+  video that no backend needed.
+- **Gemini vision concurrency** ([vision/gemini.py:77-89](skills/neurolearn/vision/gemini.py#L77)):
+  `_TIER_CONCURRENCY["free"]` and `GeminiVisionBackend.max_concurrent`
+  default bumped from 3 to 6. Google raised gemini-2.5-flash free-tier
+  RPM from 5 to 10 in 2026-Q1; we were under-utilizing. Saves ~8-12s on
+  a 20-window video. (Vision is opt-in; remains off in the default
+  smart preset.)
+
+### Migration guide
+
+For users who explicitly want pre-v0.11 behavior:
+
+- `neurolearn config set fallback gemini` (forces gemini as the audio
+  fallback in smart cascade). **Note**: gemini-2.5-flash still has the
+  timestamp drift bug. Consider `--gemini-model gemini-3.5-flash` for
+  timestamp-accurate Gemini transcription, at the cost of ~3-7× slower
+  vs Groq.
+- `--backend gemini` per-call still works without changing config.
+
+For new users: no migration needed. Smart cascade with auto-fallback
+will produce a transcript even before they configure Groq. After
+configuring Groq, audio transcription is ~5-10× faster than v0.10.x.
+
+### Deferred to v0.12.0
+
+The following items from the original v0.11.0 plan were scoped out to
+keep this release focused and shippable:
+
+- **GroqVisionBackend** (Llama-4-Scout primary vision, ~1.2s/img free
+  tier — the natural complement to Groq audio).
+- **yt-dlp Python API migration** (currently 3 subprocess invocations
+  per video — Python startup tax especially heavy on Windows).
+- **Parallel audio + mp4 download** via asyncio when `--with-visuals` is
+  on (would save 15-25 s on premium preset).
+- **PySceneDetect + frame-diff shared decode** (currently two ffmpeg
+  full-passes over the same video).
+- **Semaphore-based parallelism** for `ClaudeVisionBackend` and
+  `OpenAIVisionBackend` (only GeminiVisionBackend has it today).
+
+v0.12.0 will cover these.
+
+### Tests
+
+1138 → 1137 (net -1 after removing 4 obsolete tests for the v0.10.5
+Gemini middle step and adding 3 new tests for v0.11.0 cascade behavior
+plus 19 new tests for the onboarding surfaces):
+
+- `tests/test_config_cli.py` (+6) — non-interactive `set-key`
+- `tests/test_doctor_cli.py` (+13, new file) — `doctor` command + JSON
+- `tests/test_factory.py` (-4, +3) — removed Gemini middle-step tests,
+  added auto-fallback + cascade reordering tests
+- `tests/test_config.py` (modified) — new default expectations
+- `tests/test_wizard.py` (modified) — menu reorder
+- `tests/test_wizard_non_tty.py` (modified) — new default
+- `tests/test_downloader.py` (modified) — m4a assertion
+- `tests/test_gemini_caching_concurrency.py` (modified) — free=6
+- `tests/test_v0101_e2e.py` (modified) — max_concurrent=6
+
 ## [0.10.9] — 2026-05-20
 
 ### Robustness fixes from Windows 11 / PowerShell 5.1 field testing

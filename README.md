@@ -25,7 +25,7 @@ Works as:
 
 ## Status
 
-v0.10.9 — production-ready:
+v0.11.0 — production-ready:
 
 | Feature | Since | State |
 |---|---|---|
@@ -58,6 +58,7 @@ v0.10.9 — production-ready:
 | Windows cp1251 Unicode crash fix + YouTube cookies + research provenance + smart-fallback hints | v0.10.7 | Working |
 | Epistemic framing — combined.md / analyze / report / summarize tell the LLM consumer to treat transcripts as third-party inputs, not authority | v0.10.8 | Working |
 | Windows robustness — `batch --no-analyze/--yes` no-ops, non-TTY wizard skip, cuBLAS/cuDNN→CPU fallback, compute_type respects device override, combined.md/manifest written on crash | v0.10.9 | Working |
+| Audio default = Groq Whisper turbo (~12s for 17-min video); Claude Code plugin onboarding via `/setup` + `neurolearn doctor --json`; non-interactive `set-key` accepts pasted key as positional arg | v0.11.0 | Working |
 | Web UI (Gradio) | v0.4 | **Experimental, hidden** — code preserved, not maintained |
 
 ---
