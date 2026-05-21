@@ -26,15 +26,24 @@ def test_load_smart_preset_defaults():
 
 
 def test_standard_preset_still_has_vision_on():
-    """v0.10.6 sanity: only `smart` flipped to vision-off. The richer
-    presets (standard / premium / tutorial) are deliberate vision-on
-    opt-ins and keep their Gemini default."""
-    for preset_name in ("standard", "premium", "tutorial"):
+    """v0.10.6 sanity (updated for v0.12.0): richer presets (standard /
+    premium / tutorial) remain deliberate vision-on opt-ins. The
+    tutorial preset now defaults to vision_backend='groq' (Llama-4-Scout
+    is faster + has 1000 free RPD vs Gemini's 250); standard/premium
+    keep gemini for backwards compat."""
+    expected = {
+        "standard": "gemini",
+        "premium": "gemini",
+        "tutorial": "groq",  # v0.12.0: tutorial moved to Groq
+    }
+    for preset_name, want in expected.items():
         vals = load_preset_values(
             preset_name, user_config_path=Path("/nonexistent/path.toml"),
         )
-        assert vals["vision_backend"] == "gemini", \
-            f"{preset_name} should still have vision_backend=gemini"
+        assert vals["vision_backend"] == want, (
+            f"{preset_name}: expected vision_backend={want}, "
+            f"got {vals['vision_backend']}"
+        )
         assert vals["max_windows_per_video"] > 0
 
 

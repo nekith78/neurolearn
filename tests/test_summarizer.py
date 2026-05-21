@@ -44,19 +44,19 @@ def test_summarize_via_gemini():
     assert "test summary" in out
 
 
-def test_summarize_via_claude():
+def test_summarize_via_groq():
+    """v0.12.0: claude removed, groq llama-3.3-70b is primary cheap text LLM."""
     segs = [_s(0, 5, "x")]
-    text_block = MagicMock()
-    text_block.type = "text"
-    text_block.text = "## TL;DR\nclaude summary"
+    choice = MagicMock()
+    choice.message.content = "## TL;DR\ngroq summary"
     fake_resp = MagicMock()
-    fake_resp.content = [text_block]
+    fake_resp.choices = [choice]
     fake_client = MagicMock()
-    fake_client.messages.create.return_value = fake_resp
+    fake_client.chat.completions.create.return_value = fake_resp
 
-    with patch("anthropic.Anthropic", return_value=fake_client):
-        out = summarize_transcript(segs, "en", api_key="k", backend="claude")
-    assert "claude summary" in out
+    with patch("groq.Groq", return_value=fake_client):
+        out = summarize_transcript(segs, "en", api_key="k", backend="groq")
+    assert "groq summary" in out
 
 
 def test_summarize_via_openai():

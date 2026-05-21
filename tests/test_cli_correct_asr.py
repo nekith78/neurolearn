@@ -72,14 +72,15 @@ def test_transcribe_correct_asr_flag_sets_overrides(tmp_path, monkeypatch):
         cli,
         ["transcribe", "https://youtu.be/x",
          "--correct-asr",
-         "--correct-asr-backend", "claude",
+         "--correct-asr-backend", "groq",
          "--output-dir", str(tmp_path / "out")],
         catch_exceptions=False,
     )
 
     overrides = captured.get("cli_overrides") or {}
     assert overrides.get("correct_asr") is True
-    assert overrides.get("correct_asr_backend") == "claude"
+    # v0.12.0: claude removed; groq is the cheap-LLM corrector now
+    assert overrides.get("correct_asr_backend") == "groq"
     # quality_check must be auto-enabled (correct_asr depends on it)
     assert overrides.get("quality_check") is True
 

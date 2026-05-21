@@ -16,12 +16,13 @@ def test_gemini_called_with_prompt():
     assert out == "ANSWER"
 
 
-def test_claude_called_with_prompt():
+def test_groq_called_with_prompt():
+    """v0.12.0: claude backend removed; groq llama-3.3-70b replaces it."""
     with patch(
-        "skills.neurolearn.analyze.runner._call_claude",
+        "skills.neurolearn.analyze.runner._call_groq",
         return_value="A",
     ) as mock:
-        out = run_analysis("P", backend="claude", api_key="key")
+        out = run_analysis("P", backend="groq", api_key="key")
     mock.assert_called_once_with("P", "key")
     assert out == "A"
 

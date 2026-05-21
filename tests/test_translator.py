@@ -60,16 +60,15 @@ def test_translate_via_each_backend():
         out = translate_transcript(orig, "en", "ru", api_key="k", backend="gemini")
     assert out[0].text == "привет"
 
-    # Claude
-    text_block = MagicMock()
-    text_block.type = "text"
-    text_block.text = json.dumps([{"start": 0, "end": 5, "text": "привет"}])
-    c_resp = MagicMock()
-    c_resp.content = [text_block]
-    c_client = MagicMock()
-    c_client.messages.create.return_value = c_resp
-    with patch("anthropic.Anthropic", return_value=c_client):
-        out = translate_transcript(orig, "en", "ru", api_key="k", backend="claude")
+    # Groq (v0.12.0 — replaces Claude as the cheap text-LLM translator)
+    g_choice = MagicMock()
+    g_choice.message.content = json.dumps([{"start": 0, "end": 5, "text": "привет"}])
+    g_resp = MagicMock()
+    g_resp.choices = [g_choice]
+    g_client = MagicMock()
+    g_client.chat.completions.create.return_value = g_resp
+    with patch("groq.Groq", return_value=g_client):
+        out = translate_transcript(orig, "en", "ru", api_key="k", backend="groq")
     assert out[0].text == "привет"
 
     # OpenAI

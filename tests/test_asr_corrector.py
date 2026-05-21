@@ -80,20 +80,21 @@ def test_correct_via_gemini_mocked():
     assert out[0].text == "elephants"
 
 
-def test_correct_via_claude_mocked():
+def test_correct_via_groq_mocked():
+    """v0.12.0: replaces test_correct_via_claude_mocked. Claude backend
+    was dropped — Groq Llama-3.3-70b is the cheap-LLM corrector now."""
     orig = [_s(0.0, 5.0, "elephats")]
-    text_block = MagicMock()
-    text_block.type = "text"
-    text_block.text = json.dumps([
+    choice = MagicMock()
+    choice.message.content = json.dumps([
         {"start": 0.0, "end": 5.0, "text": "elephants"},
     ])
     fake_resp = MagicMock()
-    fake_resp.content = [text_block]
+    fake_resp.choices = [choice]
     fake_client = MagicMock()
-    fake_client.messages.create.return_value = fake_resp
+    fake_client.chat.completions.create.return_value = fake_resp
 
-    with patch("anthropic.Anthropic", return_value=fake_client):
-        out = correct_transcript_via_llm(orig, "en", api_key="k", backend="claude")
+    with patch("groq.Groq", return_value=fake_client):
+        out = correct_transcript_via_llm(orig, "en", api_key="k", backend="groq")
     assert out[0].text == "elephants"
 
 
