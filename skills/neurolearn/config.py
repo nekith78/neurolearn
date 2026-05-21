@@ -193,6 +193,31 @@ class Config:
     # Values: "free" | "paid" | "paid-tier2" | "paid-tier3"
     gemini_tier: str = "free"
 
+    # === v0.12.1: per-stage backend selection ===
+    # The wizard collects choices for audio (default_backend / fallback_backend
+    # above), vision, and analyze separately. Empty string means "use whatever
+    # the preset / CLI flag passed". Set by wizard or via `config set`.
+    # Allowed values: "off" | "groq" | "gemini" (vision_backend), or "groq" |
+    # "gemini" | "ollama" | "skip" (analyze_backend — already declared above).
+    vision_backend: str = "off"
+
+    # === v0.12.1: per-provider tier signals ===
+    # Mirrors gemini_tier but for Groq. Wizard surfaces these so paid users
+    # can unlock model-override prompts (paid Gemini → 3.5-pro / 3-pro-preview,
+    # paid Groq → llama-4-maverick, deepseek-r1-distill-llama-70b).
+    groq_tier: str = "free"
+
+    # === v0.12.1: paid-tier model overrides (empty = use defaults) ===
+    # When a paid-tier user explicitly sets one of these, runtime code
+    # routes that stage to the named model. Empty = code falls back to
+    # the safe free-tier default (gemini-3.5-flash for audio fallback,
+    # llama-4-scout for vision, llama-3.3-70b for analyze).
+    # Wizard surfaces these only when corresponding *_tier != "free".
+    gemini_vision_model: str = ""
+    gemini_analyze_model: str = ""
+    groq_vision_model: str = ""
+    groq_analyze_model: str = ""
+
 
 DEFAULT_CONFIG = Config()
 
@@ -221,8 +246,19 @@ def _to_toml_dict(cfg: Config) -> dict:
             "beam_size": d["beam_size"],
             "vad": d["vad"],
         },
-        "gemini": {"model": d["gemini_model"], "tier": d["gemini_tier"]},
-        "groq": {"model": d["groq_model"]},
+        "gemini": {
+            "model": d["gemini_model"],
+            "tier": d["gemini_tier"],
+            "url_fastpath": d["gemini_url_fastpath"],
+            "vision_model": d["gemini_vision_model"],
+            "analyze_model": d["gemini_analyze_model"],
+        },
+        "groq": {
+            "model": d["groq_model"],
+            "tier": d["groq_tier"],
+            "vision_model": d["groq_vision_model"],
+            "analyze_model": d["groq_analyze_model"],
+        },
         "openai": {"model": d["openai_model"]},
         "deepgram": {"model": d["deepgram_model"]},
         "assemblyai": {"model": d["assemblyai_model"]},
@@ -241,6 +277,9 @@ def _to_toml_dict(cfg: Config) -> dict:
         },
         "analyze": {
             "backend": d["analyze_backend"] or "",
+        },
+        "vision": {
+            "backend": d["vision_backend"],
         },
         "instagram": {
             "cookies_file": d["instagram_cookies_file"],
@@ -272,7 +311,16 @@ def _from_toml_dict(d: dict) -> Config:
         vad=wl.get("vad", DEFAULT_CONFIG.vad),
         gemini_model=d.get("gemini", {}).get("model", DEFAULT_CONFIG.gemini_model),
         gemini_tier=d.get("gemini", {}).get("tier", DEFAULT_CONFIG.gemini_tier),
+        gemini_url_fastpath=d.get("gemini", {}).get(
+            "url_fastpath", DEFAULT_CONFIG.gemini_url_fastpath,
+        ),
+        gemini_vision_model=d.get("gemini", {}).get("vision_model", ""),
+        gemini_analyze_model=d.get("gemini", {}).get("analyze_model", ""),
         groq_model=d.get("groq", {}).get("model", DEFAULT_CONFIG.groq_model),
+        groq_tier=d.get("groq", {}).get("tier", DEFAULT_CONFIG.groq_tier),
+        groq_vision_model=d.get("groq", {}).get("vision_model", ""),
+        groq_analyze_model=d.get("groq", {}).get("analyze_model", ""),
+        vision_backend=d.get("vision", {}).get("backend", DEFAULT_CONFIG.vision_backend),
         openai_model=d.get("openai", {}).get("model", DEFAULT_CONFIG.openai_model),
         deepgram_model=d.get("deepgram", {}).get("model", DEFAULT_CONFIG.deepgram_model),
         assemblyai_model=d.get("assemblyai", {}).get("model", DEFAULT_CONFIG.assemblyai_model),
@@ -332,7 +380,15 @@ def migrate_v01_to_v02(path: Path = CONFIG_PATH) -> None:
 
 def load_config(path: Path = CONFIG_PATH) -> Config:
     if not path.exists():
-        return DEFAULT_CONFIG
+        # v0.12.1 fix: return a FRESH copy of DEFAULT_CONFIG. The previous
+        # implementation returned the singleton by reference, which the
+        # wizard then mutated (cfg.default_backend = ...) — corrupting
+        # DEFAULT_CONFIG for the rest of the process. Surfaced when the
+        # 3-stage wizard added more mutation points than the old v0.11
+        # single-prompt wizard, but the bug was latent since Config
+        # became a mutable @dataclass.
+        from dataclasses import replace
+        return replace(DEFAULT_CONFIG)
     try:
         migrate_v01_to_v02(path)   # ← auto-upgrade on load
         raw = tomllib.loads(path.read_text(encoding="utf-8"))

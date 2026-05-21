@@ -1,4 +1,16 @@
-"""Tests for first-run interactive wizard.
+"""Tests for first-run interactive wizard (v0.12.1 3-stage flow).
+
+The wizard now prompts in this order:
+  1. Audio backend     (always)
+  2. Smart fallback    (only if audio = "smart")
+  3. Vision backend    (always)
+  4. Analyze backend   (always)
+  5. Gemini tier       (if Gemini in any stage)
+  6. Gemini overrides  (if Gemini tier = paid)
+  7. Gemini URL fast-path Y/N (if Gemini tier = paid)
+  8. Groq tier         (if Groq in any stage)
+  9. Groq overrides    (if Groq tier = paid)
+ 10. API key prompts   (for each cloud backend chosen + not already set)
 
 All tests are driven via monkeypatching ``rich.prompt.Prompt.ask`` so no
 real TTY interaction is needed.  Nothing is written to ``~/.neurolearn/``;
@@ -15,10 +27,6 @@ from skills.neurolearn.config import Config, load_config
 from skills.neurolearn.utils.platform_detect import PlatformInfo
 
 
-# ---------------------------------------------------------------------------
-# Shared fixture — fake platform info (cpu-only, no GPU)
-# ---------------------------------------------------------------------------
-
 _FAKE_PLATFORM = PlatformInfo(
     label="cpu-only",
     backend_impl="faster",
@@ -28,147 +36,185 @@ _FAKE_PLATFORM = PlatformInfo(
 )
 
 
-def _run_wizard_isolated(tmp_path: Path, monkeypatch, prompt_side_effects: list[str]):
-    """Helper: patch paths + detect_platform + Prompt.ask, then run the wizard."""
+def _run_wizard(tmp_path: Path, monkeypatch, prompts: list[str]):
+    """Helper: patch paths + detect_platform + Prompt.ask, run the wizard."""
     monkeypatch.setattr("skills.neurolearn.wizard.CONFIG_PATH", tmp_path / "config.toml")
     monkeypatch.setattr("skills.neurolearn.wizard.ENV_PATH", tmp_path / ".env")
     with (
         patch("skills.neurolearn.wizard.detect_platform", return_value=_FAKE_PLATFORM),
-        patch("rich.prompt.Prompt.ask", side_effect=prompt_side_effects),
+        patch("rich.prompt.Prompt.ask", side_effect=prompts),
     ):
         from skills.neurolearn.wizard import run_wizard
         run_wizard()
     return load_config(tmp_path / "config.toml")
 
 
+# Audio menu: 1=smart, 2=groq, 3=whisper-local, 4=subtitles, 5=gemini,
+#             6=openai, 7=deepgram, 8=assemblyai, 9=custom.
+# Vision menu: 1=groq, 2=gemini, 3=off.
+# Analyze menu: 1=groq, 2=gemini, 3=ollama, 4=skip.
+# Tier menus: 1=free, 2=paid (groq) / 2=paid 3=paid-tier2 4=paid-tier3 (gemini).
+
+
 # ---------------------------------------------------------------------------
-# Test 1 — whisper-local (default choice "1")
+# Pure-local path: no cloud backend → no tier / key prompts
 # ---------------------------------------------------------------------------
 
-def test_wizard_whisper_local_choice_writes_config(tmp_path: Path, monkeypatch):
-    """v0.11.0 menu order: 1=smart, 2=groq, 3=whisper-local, 4=subtitles,
-    5=gemini, 6=openai, 7=deepgram, 8=assemblyai, 9=custom.
-    Choosing option 3 (whisper-local) saves config; no API key prompt."""
-    cfg = _run_wizard_isolated(tmp_path, monkeypatch, prompt_side_effects=["3"])
+def test_wizard_pure_local_path(tmp_path: Path, monkeypatch):
+    """audio=whisper-local + vision=off + analyze=skip → no API keys asked,
+    no tier prompts, no .env written."""
+    cfg = _run_wizard(
+        tmp_path, monkeypatch,
+        prompts=["3", "3", "4"],  # whisper-local / vision off / analyze skip
+    )
     assert cfg.default_backend == "whisper-local"
-    assert not (tmp_path / ".env").exists(), ".env must NOT be created for offline backend"
-
-
-# ---------------------------------------------------------------------------
-# Test 2 — subtitles (option 3)
-# ---------------------------------------------------------------------------
-
-def test_wizard_subtitles_choice_no_key(tmp_path: Path, monkeypatch):
-    """Choosing subtitles (option 4 in v0.11.0 menu) saves config without touching .env."""
-    cfg = _run_wizard_isolated(tmp_path, monkeypatch, prompt_side_effects=["4"])
-    assert cfg.default_backend == "subtitles"
+    assert cfg.vision_backend == "off"
+    assert cfg.analyze_backend is None  # "skip" → None
     assert not (tmp_path / ".env").exists()
 
 
 # ---------------------------------------------------------------------------
-# Test 3 — gemini (option 4) → prompts for API key
+# Smart path with Groq fallback + Groq vision + Groq analyze
 # ---------------------------------------------------------------------------
 
-def test_wizard_gemini_choice_prompts_for_key(tmp_path: Path, monkeypatch):
-    """Choosing gemini (option 5 in v0.11.0 menu) should save config and write GEMINI_API_KEY to .env."""
-    monkeypatch.setattr("skills.neurolearn.wizard.CONFIG_PATH", tmp_path / "config.toml")
-    monkeypatch.setattr("skills.neurolearn.wizard.ENV_PATH", tmp_path / ".env")
-    # First call = backend choice "5" (gemini), second = API key value
-    with (
-        patch("skills.neurolearn.wizard.detect_platform", return_value=_FAKE_PLATFORM),
-        patch("rich.prompt.Prompt.ask", side_effect=["5", "test-key-123"]),
-    ):
-        from skills.neurolearn.wizard import run_wizard
-        run_wizard()
-
-    cfg = load_config(tmp_path / "config.toml")
-    assert cfg.default_backend == "gemini"
-    env_text = (tmp_path / ".env").read_text()
-    assert "GEMINI_API_KEY=test-key-123" in env_text
-
-
-# ---------------------------------------------------------------------------
-# Test 4 — smart (option 2) → asks for fallback, no API key
-# ---------------------------------------------------------------------------
-
-def test_wizard_smart_choice_asks_fallback(tmp_path: Path, monkeypatch):
-    """Choosing smart (option 1 in v0.11.0) should prompt for fallback and save both.
-
-    v0.11.0 fallback options: 1=groq, 2=whisper-local, 3=gemini.
-    """
-    monkeypatch.setattr("skills.neurolearn.wizard.CONFIG_PATH", tmp_path / "config.toml")
-    monkeypatch.setattr("skills.neurolearn.wizard.ENV_PATH", tmp_path / ".env")
-    # First call = "1" (smart), second call = "3" (gemini as fallback in new order)
-    with (
-        patch("skills.neurolearn.wizard.detect_platform", return_value=_FAKE_PLATFORM),
-        patch("rich.prompt.Prompt.ask", side_effect=["1", "3"]),
-    ):
-        from skills.neurolearn.wizard import run_wizard
-        run_wizard()
-
-    cfg = load_config(tmp_path / "config.toml")
+def test_wizard_smart_path_with_groq_everywhere(tmp_path: Path, monkeypatch):
+    """audio=smart, fallback=groq (1), vision=groq, analyze=groq, groq tier=free.
+    Skip the API-key prompt by entering empty string."""
+    cfg = _run_wizard(
+        tmp_path, monkeypatch,
+        prompts=[
+            "1",   # audio: smart
+            "1",   # smart fallback: groq
+            "1",   # vision: groq
+            "1",   # analyze: groq
+            "1",   # groq tier: free
+            "",    # groq API key (skip)
+        ],
+    )
     assert cfg.default_backend == "smart"
-    assert cfg.fallback_backend == "gemini"
-    assert not (tmp_path / ".env").exists()
+    assert cfg.fallback_backend == "groq"
+    assert cfg.vision_backend == "groq"
+    assert cfg.analyze_backend == "groq"
+    assert cfg.groq_tier == "free"
 
 
 # ---------------------------------------------------------------------------
-# Test 5 — groq (option 5) → key saved; empty key skips .env write
+# Gemini in any stage triggers gemini tier prompt
 # ---------------------------------------------------------------------------
 
-def test_wizard_groq_empty_key_skips_env(tmp_path: Path, monkeypatch):
-    """When user presses Enter without typing a key the .env must not be written.
-
-    v0.11.0: groq is option 2 (was 5 in pre-v0.11 menu order).
-    """
-    monkeypatch.setattr("skills.neurolearn.wizard.CONFIG_PATH", tmp_path / "config.toml")
-    monkeypatch.setattr("skills.neurolearn.wizard.ENV_PATH", tmp_path / ".env")
-    # "2" = groq (v0.11.0), "" = skip key
-    with (
-        patch("skills.neurolearn.wizard.detect_platform", return_value=_FAKE_PLATFORM),
-        patch("rich.prompt.Prompt.ask", side_effect=["2", ""]),
-    ):
-        from skills.neurolearn.wizard import run_wizard
-        run_wizard()
-
-    cfg = load_config(tmp_path / "config.toml")
-    assert cfg.default_backend == "groq"
-    assert not (tmp_path / ".env").exists()
+def test_wizard_gemini_audio_triggers_tier_prompt(tmp_path: Path, monkeypatch):
+    """audio=gemini, vision=off, analyze=skip, gemini tier=free."""
+    cfg = _run_wizard(
+        tmp_path, monkeypatch,
+        prompts=[
+            "5",         # audio: gemini
+            "3",         # vision: off
+            "4",         # analyze: skip
+            "1",         # gemini tier: free
+            "test-key",  # gemini API key
+        ],
+    )
+    assert cfg.default_backend == "gemini"
+    assert cfg.gemini_tier == "free"
+    env_text = (tmp_path / ".env").read_text()
+    assert "GEMINI_API_KEY=test-key" in env_text
 
 
 # ---------------------------------------------------------------------------
-# Test 6 — detect_platform is called once
+# Paid Gemini tier unlocks model-override prompts
+# ---------------------------------------------------------------------------
+
+def test_wizard_paid_gemini_unlocks_model_overrides(tmp_path: Path, monkeypatch):
+    """audio=gemini, gemini tier=paid → wizard prompts for model overrides
+    + URL fast-path Y/N. We accept defaults via empty strings."""
+    cfg = _run_wizard(
+        tmp_path, monkeypatch,
+        prompts=[
+            "5",                  # audio: gemini
+            "3",                  # vision: off
+            "4",                  # analyze: skip
+            "2",                  # gemini tier: paid (Tier 1)
+            "gemini-3.5-pro",     # audio model override
+            "y",                  # enable URL fast-path
+            "test-paid-key",      # gemini key
+        ],
+    )
+    assert cfg.gemini_tier == "paid"
+    # Override accepted — paid users can pick 3.5-pro.
+    assert cfg.gemini_model == "gemini-3.5-pro"
+    assert cfg.gemini_url_fastpath is True
+
+
+# ---------------------------------------------------------------------------
+# Free-tier Gemini does NOT show override prompts
+# ---------------------------------------------------------------------------
+
+def test_wizard_free_gemini_skips_model_overrides(tmp_path: Path, monkeypatch):
+    """When tier=free, no model override or URL fast-path Y/N is asked.
+    The wizard would StopIteration if it tried to read more prompts than
+    we provided."""
+    cfg = _run_wizard(
+        tmp_path, monkeypatch,
+        prompts=[
+            "5",        # audio: gemini
+            "3",        # vision: off
+            "4",        # analyze: skip
+            "1",        # gemini tier: free
+            "free-key", # gemini key
+        ],
+    )
+    # Confirm wizard didn't somehow set paid-tier signals.
+    assert cfg.gemini_tier == "free"
+    assert cfg.gemini_url_fastpath is False
+    # Defaults preserved — no override was applied
+    assert cfg.gemini_model == "gemini-3.5-flash"
+
+
+# ---------------------------------------------------------------------------
+# Default config has v0.12.1 fields
+# ---------------------------------------------------------------------------
+
+def test_default_config_has_v012_1_fields():
+    from skills.neurolearn.config import DEFAULT_CONFIG
+    # v0.12.1 added these new fields — verify they exist with sensible defaults.
+    assert DEFAULT_CONFIG.vision_backend == "off"
+    assert DEFAULT_CONFIG.groq_tier == "free"
+    assert DEFAULT_CONFIG.gemini_vision_model == ""
+    assert DEFAULT_CONFIG.gemini_analyze_model == ""
+    assert DEFAULT_CONFIG.groq_vision_model == ""
+    assert DEFAULT_CONFIG.groq_analyze_model == ""
+
+
+# ---------------------------------------------------------------------------
+# detect_platform called once
 # ---------------------------------------------------------------------------
 
 def test_wizard_calls_detect_platform_once(tmp_path: Path, monkeypatch):
-    """v0.11.0: pick "3" (whisper-local) to avoid the second fallback prompt
-    that "1" (smart) now triggers."""
+    """Pick whisper-local + vision=off + analyze=skip → 3 prompts total."""
     monkeypatch.setattr("skills.neurolearn.wizard.CONFIG_PATH", tmp_path / "config.toml")
     monkeypatch.setattr("skills.neurolearn.wizard.ENV_PATH", tmp_path / ".env")
     with (
         patch("skills.neurolearn.wizard.detect_platform", return_value=_FAKE_PLATFORM) as mock_dp,
-        patch("rich.prompt.Prompt.ask", side_effect=["3"]),
+        patch("rich.prompt.Prompt.ask", side_effect=["3", "3", "4"]),
     ):
         from skills.neurolearn.wizard import run_wizard
         run_wizard()
-
     mock_dp.assert_called_once()
 
 
 # ---------------------------------------------------------------------------
-# Test 7 — config is actually persisted on disk
+# Config persisted on disk
 # ---------------------------------------------------------------------------
 
 def test_wizard_config_persisted_to_disk(tmp_path: Path, monkeypatch):
-    """v0.11.0: pick "3" (whisper-local) to avoid the smart fallback prompt."""
+    """Pure-local path persists config.toml."""
     cfg_path = tmp_path / "config.toml"
     monkeypatch.setattr("skills.neurolearn.wizard.CONFIG_PATH", cfg_path)
     monkeypatch.setattr("skills.neurolearn.wizard.ENV_PATH", tmp_path / ".env")
     with (
         patch("skills.neurolearn.wizard.detect_platform", return_value=_FAKE_PLATFORM),
-        patch("rich.prompt.Prompt.ask", side_effect=["3"]),
+        patch("rich.prompt.Prompt.ask", side_effect=["3", "3", "4"]),
     ):
         from skills.neurolearn.wizard import run_wizard
         run_wizard()
-
-    assert cfg_path.exists(), "config.toml must be written to disk"
+    assert cfg_path.exists()
