@@ -306,8 +306,10 @@ def test_transcribe_local_file_still_uses_upload_path(tmp_path: Path):
 
 
 def test_backend_default_model():
+    # v0.12.0: switched from gemini-2.5-flash to gemini-3.5-flash —
+    # 2.5-flash has a +63% timestamp drift bug confirmed in audio.
     b = GeminiBackend()
-    assert b.model == "gemini-2.5-flash"
+    assert b.model == "gemini-3.5-flash"
 
 
 def test_backend_custom_model():

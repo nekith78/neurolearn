@@ -119,7 +119,19 @@ class Config:
     beam_size: int = 5
     vad: bool = True
 
-    gemini_model: str = "gemini-2.5-flash"
+    # v0.12.0: default Gemini model switched to 3.5-flash. 2.5-flash has
+    # a confirmed +63% timestamp drift bug on audio output (see
+    # qa-out/v0.10.10-* and CHANGELOG v0.11.0). 3.5-flash is timestamp-
+    # accurate but its free-tier RPD is only 20 — fine as a fallback
+    # rarely-used backend, dangerous if set as primary on free tier.
+    gemini_model: str = "gemini-3.5-flash"
+    # v0.12.0: enable the Gemini URL fast-path in smart cascade.
+    # Off by default — when True AND gemini_model is in the
+    # timestamp-safe whitelist (factory._GEMINI_AUDIO_URL_SAFE_MODELS),
+    # smart cascade tries Gemini's `Part.from_uri(youtube_url)` path
+    # BEFORE downloading audio. Saves 10-30s download time on YouTube
+    # videos at the cost of one Gemini API call.
+    gemini_url_fastpath: bool = False
     groq_model: str = "whisper-large-v3-turbo"
     openai_model: str = "whisper-1"
     deepgram_model: str = "nova-3"

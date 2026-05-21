@@ -87,6 +87,18 @@ def build_backend(name: str, cfg: Config) -> Transcriber:
     raise ValueError(f"Unknown backend: {name!r}")
 
 
+# Gemini audio models whose timestamp output is empirically accurate.
+# Excludes gemini-2.5-flash (known +63% drift bug, qa-out/v0.10.10-*).
+# Add new ones here only after verifying real .srt timestamps against
+# ffmpeg-measured video duration on a 10+ minute video.
+_GEMINI_AUDIO_URL_SAFE_MODELS = {
+    "gemini-3.5-flash",
+    "gemini-3-flash-lite",
+    "gemini-3.1-flash-lite",
+    # 3.x-pro variants: not tested as of 2026-05-21, kept out until verified
+}
+
+
 def _safe_is_configured(backend) -> tuple[bool, str | None]:
     """Safely unpack `backend.is_configured()` into `(ok, reason)`.
 
@@ -137,14 +149,31 @@ def run_smart(
         except BackendError:
             pass  # fall through to next step
 
-    # v0.11.0: the v0.10.5 Gemini direct-URL middle-step was REMOVED.
-    # Empirical testing (2026-05-20) showed gemini-2.5-flash hallucinates
-    # timestamps by +63% on a 17-min video (claims duration=1045s for a
-    # 640s real video), breaking .srt navigation and keyframe alignment.
-    # Users who want Gemini's URL path must opt in explicitly with
-    # `--backend gemini`. Smart cascade now goes straight from subtitles
-    # to the configured `fallback_backend` (default groq) which is both
-    # faster and timestamp-accurate.
+    # v0.12.0: Gemini URL middle-step RESTORED but restricted to
+    # gemini-3.5-flash (and 3-pro variants) only. The v0.11.0 removal
+    # was overzealous: gemini-2.5-flash has the +63% timestamp drift,
+    # but 3.5-flash gave timestamp-accurate output in our empirical
+    # test (qa-out/v0.12.0-vision-compare/REPORT_V2.md).
+    #
+    # Activation requires ALL of:
+    #   1. YouTube URL (Part.from_uri only accepts YouTube)
+    #   2. cfg.gemini_url_fastpath = True (defaults False; opt-in)
+    #   3. cfg.gemini_model whitelisted to a timestamp-safe model
+    #   4. GEMINI_API_KEY configured
+    # This way the default smart cascade behavior (v0.11.0) is preserved
+    # — no surprise behavior change for existing users.
+    if (
+        is_youtube_url(src)
+        and getattr(cfg, "gemini_url_fastpath", False)
+        and getattr(cfg, "gemini_model", "") in _GEMINI_AUDIO_URL_SAFE_MODELS
+        and get_api_key("gemini")
+    ):
+        notify(f"Trying gemini URL fast-path ({cfg.gemini_model})...")
+        try:
+            gemini = build_backend("gemini", cfg)
+            return gemini.transcribe(src, language=language)
+        except BackendError:
+            pass  # fall through to standard fallback
 
     # Resolve fallback backend with auto-fall-to-whisper-local when its
     # key isn't configured. This is what makes a fresh install with no

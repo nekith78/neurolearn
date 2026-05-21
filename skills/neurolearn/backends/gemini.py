@@ -81,7 +81,10 @@ class GeminiBackend:
     supports_url: bool = field(default=True, init=False)
     supports_local_file: bool = field(default=True, init=False)
 
-    model: str = "gemini-2.5-flash"
+    # v0.12.0: default model changed from gemini-2.5-flash → gemini-3.5-flash.
+    # 2.5-flash has a confirmed +63% timestamp drift bug on audio output
+    # (see CHANGELOG v0.11.0). Use 3.5-flash for accurate timestamps.
+    model: str = "gemini-3.5-flash"
     language_hint: str = "auto"
 
     def is_configured(self) -> tuple[bool, str | None]:
@@ -100,6 +103,21 @@ class GeminiBackend:
         language: str = "auto",
         **opts,
     ) -> TranscriptionResult:
+        # v0.12.0: warn loudly if user is using gemini-2.5-flash for AUDIO
+        # transcription. The +63% timestamp drift bug breaks .srt navigation
+        # and any downstream tool that aligns by timestamp. Paid users
+        # may still want it (override-friendly), so we warn rather than
+        # block. Vision use of 2.5-flash is unaffected — bug is audio-only.
+        if self.model == "gemini-2.5-flash":
+            import sys as _sys
+            _sys.stderr.write(
+                "[neurolearn] WARNING: gemini-2.5-flash has a known +63% "
+                "timestamp drift bug in AUDIO output (a 10:40 video gets "
+                ".srt timestamps stretched to 17:25). Switch via "
+                "`neurolearn config set gemini-model gemini-3.5-flash`. "
+                "See CHANGELOG v0.11.0 for empirical data.\n"
+            )
+
         src = str(audio_or_url)
 
         # YouTube URLs go through file_uri (no download on our side).
