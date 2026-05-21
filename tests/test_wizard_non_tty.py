@@ -79,7 +79,9 @@ def test_helper_writes_default_config_when_non_tty(tmp_path: Path):
     # load_config() without crashing.
     mock_save.assert_called_once()
     saved_cfg = mock_save.call_args.args[0]
-    assert saved_cfg.default_backend == "whisper-local"
+    # v0.11.0: default_backend switched from "whisper-local" to "smart"
+    # (smart cascade auto-falls-back to whisper-local if no fast key set).
+    assert saved_cfg.default_backend == "smart"
 
 
 def test_config_show_marks_file_as_not_present_when_missing(tmp_path: Path):

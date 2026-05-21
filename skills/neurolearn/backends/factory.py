@@ -87,6 +87,24 @@ def build_backend(name: str, cfg: Config) -> Transcriber:
     raise ValueError(f"Unknown backend: {name!r}")
 
 
+def _safe_is_configured(backend) -> tuple[bool, str | None]:
+    """Safely unpack `backend.is_configured()` into `(ok, reason)`.
+
+    Real Transcriber implementations return a 2-tuple. Tests that mock
+    backends with bare MagicMock often forget to set
+    `is_configured.return_value`, which returns a MagicMock — not
+    unpackable. Treat any malformed response as "assume configured" so
+    the actual transcribe call can surface the real error.
+    """
+    try:
+        result = backend.is_configured()
+        if isinstance(result, tuple) and len(result) == 2:
+            return bool(result[0]), (None if result[1] is None else str(result[1]))
+    except Exception:
+        pass
+    return True, None
+
+
 def run_smart(
     audio_or_url: Union[str, Path],
     cfg: Config,
@@ -119,24 +137,29 @@ def run_smart(
         except BackendError:
             pass  # fall through to next step
 
-    # v0.10.5: Gemini direct-URL middle-step. Before falling back to the
-    # configured `fallback_backend` (which always requires local audio
-    # and triggers a 10-60 s download), try Gemini's YouTube URL path —
-    # it fetches the video server-side, costs one API call, and only
-    # works for YouTube URLs when the user has a Gemini key. On any
-    # error (429 quota, private video, network), we fall through to the
-    # original download+fallback path so the user always gets a
-    # transcript.
-    if is_youtube_url(src) and get_api_key("gemini"):
-        notify("Trying gemini direct URL (no download)...")
-        try:
-            gemini = build_backend("gemini", cfg)
-            return gemini.transcribe(src, language=language)
-        except BackendError:
-            pass  # fall through to download+fallback path
+    # v0.11.0: the v0.10.5 Gemini direct-URL middle-step was REMOVED.
+    # Empirical testing (2026-05-20) showed gemini-2.5-flash hallucinates
+    # timestamps by +63% on a 17-min video (claims duration=1045s for a
+    # 640s real video), breaking .srt navigation and keyframe alignment.
+    # Users who want Gemini's URL path must opt in explicitly with
+    # `--backend gemini`. Smart cascade now goes straight from subtitles
+    # to the configured `fallback_backend` (default groq) which is both
+    # faster and timestamp-accurate.
 
+    # Resolve fallback backend with auto-fall-to-whisper-local when its
+    # key isn't configured. This is what makes a fresh install with no
+    # Groq key still produce a transcript: smart-cascade silently drops
+    # from `groq` -> `whisper-local` instead of hard-erroring.
     fb_name = cfg.fallback_backend
     fb = build_backend(fb_name, cfg)
+    ok, reason = _safe_is_configured(fb)
+    if not ok and fb_name != "whisper-local":
+        notify(
+            f"{fb_name} backend not configured ({reason or 'no key'}); "
+            f"falling back to whisper-local."
+        )
+        fb_name = "whisper-local"
+        fb = build_backend(fb_name, cfg)
     if is_url(src):
         # Download audio to a temp dir, then transcribe from that local
         # file. Temp dir auto-cleaned on context exit (transcription

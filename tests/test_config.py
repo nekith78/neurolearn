@@ -16,9 +16,18 @@ from skills.neurolearn.config import (
 )
 
 
-def test_default_config_has_whisper_local_default():
-    assert DEFAULT_CONFIG.default_backend == "whisper-local"
-    assert DEFAULT_CONFIG.fallback_backend == "whisper-local"
+def test_default_config_v011_defaults_smart_and_groq():
+    """v0.11.0: default_backend=smart, fallback_backend=groq.
+
+    Rationale (v0.11.0): empirical testing (2026-05-20) showed
+    Gemini 2.5-flash hallucinates timestamps by +63% on a 17-min
+    video (claimed duration=1045s on a 640s real video). Groq
+    Whisper-large-v3-turbo is 4-8x faster and gives accurate
+    timestamps. Smart cascade is: subtitles -> groq -> whisper-local
+    (auto-fallback if groq key missing).
+    """
+    assert DEFAULT_CONFIG.default_backend == "smart"
+    assert DEFAULT_CONFIG.fallback_backend == "groq"
 
 
 def test_save_and_load_roundtrip(tmp_path: Path):

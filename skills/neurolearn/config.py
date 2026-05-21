@@ -105,8 +105,13 @@ WhisperModel = Literal["turbo", "large", "medium", "small", "distil"]
 
 @dataclass
 class Config:
-    default_backend: BackendName = "whisper-local"
-    fallback_backend: BackendName = "whisper-local"
+    # v0.11.0: smart-cascade by default with Groq as the fast primary fallback.
+    # Pre-v0.11 default was "whisper-local" — too slow for the typical user.
+    # If GROQ_API_KEY is missing the smart cascade auto-falls-through to
+    # whisper-local at runtime (factory.run_smart), so a fresh install with
+    # no keys still produces a transcript.
+    default_backend: BackendName = "smart"
+    fallback_backend: BackendName = "groq"
 
     whisper_model: WhisperModel = "turbo"
     whisper_device: str = "auto"
