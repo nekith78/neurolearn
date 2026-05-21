@@ -46,8 +46,10 @@ def _run_wizard_isolated(tmp_path: Path, monkeypatch, prompt_side_effects: list[
 # ---------------------------------------------------------------------------
 
 def test_wizard_whisper_local_choice_writes_config(tmp_path: Path, monkeypatch):
-    """Choosing option 1 (whisper-local) saves config; no API key prompt."""
-    cfg = _run_wizard_isolated(tmp_path, monkeypatch, prompt_side_effects=["1"])
+    """v0.11.0 menu order: 1=smart, 2=groq, 3=whisper-local, 4=subtitles,
+    5=gemini, 6=openai, 7=deepgram, 8=assemblyai, 9=custom.
+    Choosing option 3 (whisper-local) saves config; no API key prompt."""
+    cfg = _run_wizard_isolated(tmp_path, monkeypatch, prompt_side_effects=["3"])
     assert cfg.default_backend == "whisper-local"
     assert not (tmp_path / ".env").exists(), ".env must NOT be created for offline backend"
 
@@ -57,8 +59,8 @@ def test_wizard_whisper_local_choice_writes_config(tmp_path: Path, monkeypatch):
 # ---------------------------------------------------------------------------
 
 def test_wizard_subtitles_choice_no_key(tmp_path: Path, monkeypatch):
-    """Choosing subtitles saves config without touching .env."""
-    cfg = _run_wizard_isolated(tmp_path, monkeypatch, prompt_side_effects=["3"])
+    """Choosing subtitles (option 4 in v0.11.0 menu) saves config without touching .env."""
+    cfg = _run_wizard_isolated(tmp_path, monkeypatch, prompt_side_effects=["4"])
     assert cfg.default_backend == "subtitles"
     assert not (tmp_path / ".env").exists()
 
@@ -68,13 +70,13 @@ def test_wizard_subtitles_choice_no_key(tmp_path: Path, monkeypatch):
 # ---------------------------------------------------------------------------
 
 def test_wizard_gemini_choice_prompts_for_key(tmp_path: Path, monkeypatch):
-    """Choosing gemini (option 4) should save config and write GEMINI_API_KEY to .env."""
+    """Choosing gemini (option 5 in v0.11.0 menu) should save config and write GEMINI_API_KEY to .env."""
     monkeypatch.setattr("skills.neurolearn.wizard.CONFIG_PATH", tmp_path / "config.toml")
     monkeypatch.setattr("skills.neurolearn.wizard.ENV_PATH", tmp_path / ".env")
-    # First call = backend choice "4", second = API key value
+    # First call = backend choice "5" (gemini), second = API key value
     with (
         patch("skills.neurolearn.wizard.detect_platform", return_value=_FAKE_PLATFORM),
-        patch("rich.prompt.Prompt.ask", side_effect=["4", "test-key-123"]),
+        patch("rich.prompt.Prompt.ask", side_effect=["5", "test-key-123"]),
     ):
         from skills.neurolearn.wizard import run_wizard
         run_wizard()
@@ -90,13 +92,16 @@ def test_wizard_gemini_choice_prompts_for_key(tmp_path: Path, monkeypatch):
 # ---------------------------------------------------------------------------
 
 def test_wizard_smart_choice_asks_fallback(tmp_path: Path, monkeypatch):
-    """Choosing smart (option 2) should prompt for fallback backend and save both."""
+    """Choosing smart (option 1 in v0.11.0) should prompt for fallback and save both.
+
+    v0.11.0 fallback options: 1=groq, 2=whisper-local, 3=gemini.
+    """
     monkeypatch.setattr("skills.neurolearn.wizard.CONFIG_PATH", tmp_path / "config.toml")
     monkeypatch.setattr("skills.neurolearn.wizard.ENV_PATH", tmp_path / ".env")
-    # First call = "2" (smart), second call = "2" (gemini as fallback)
+    # First call = "1" (smart), second call = "3" (gemini as fallback in new order)
     with (
         patch("skills.neurolearn.wizard.detect_platform", return_value=_FAKE_PLATFORM),
-        patch("rich.prompt.Prompt.ask", side_effect=["2", "2"]),
+        patch("rich.prompt.Prompt.ask", side_effect=["1", "3"]),
     ):
         from skills.neurolearn.wizard import run_wizard
         run_wizard()
@@ -112,13 +117,16 @@ def test_wizard_smart_choice_asks_fallback(tmp_path: Path, monkeypatch):
 # ---------------------------------------------------------------------------
 
 def test_wizard_groq_empty_key_skips_env(tmp_path: Path, monkeypatch):
-    """When user presses Enter without typing a key the .env must not be written."""
+    """When user presses Enter without typing a key the .env must not be written.
+
+    v0.11.0: groq is option 2 (was 5 in pre-v0.11 menu order).
+    """
     monkeypatch.setattr("skills.neurolearn.wizard.CONFIG_PATH", tmp_path / "config.toml")
     monkeypatch.setattr("skills.neurolearn.wizard.ENV_PATH", tmp_path / ".env")
-    # "5" = groq, "" = skip key
+    # "2" = groq (v0.11.0), "" = skip key
     with (
         patch("skills.neurolearn.wizard.detect_platform", return_value=_FAKE_PLATFORM),
-        patch("rich.prompt.Prompt.ask", side_effect=["5", ""]),
+        patch("rich.prompt.Prompt.ask", side_effect=["2", ""]),
     ):
         from skills.neurolearn.wizard import run_wizard
         run_wizard()
@@ -133,11 +141,13 @@ def test_wizard_groq_empty_key_skips_env(tmp_path: Path, monkeypatch):
 # ---------------------------------------------------------------------------
 
 def test_wizard_calls_detect_platform_once(tmp_path: Path, monkeypatch):
+    """v0.11.0: pick "3" (whisper-local) to avoid the second fallback prompt
+    that "1" (smart) now triggers."""
     monkeypatch.setattr("skills.neurolearn.wizard.CONFIG_PATH", tmp_path / "config.toml")
     monkeypatch.setattr("skills.neurolearn.wizard.ENV_PATH", tmp_path / ".env")
     with (
         patch("skills.neurolearn.wizard.detect_platform", return_value=_FAKE_PLATFORM) as mock_dp,
-        patch("rich.prompt.Prompt.ask", side_effect=["1"]),
+        patch("rich.prompt.Prompt.ask", side_effect=["3"]),
     ):
         from skills.neurolearn.wizard import run_wizard
         run_wizard()
@@ -150,12 +160,13 @@ def test_wizard_calls_detect_platform_once(tmp_path: Path, monkeypatch):
 # ---------------------------------------------------------------------------
 
 def test_wizard_config_persisted_to_disk(tmp_path: Path, monkeypatch):
+    """v0.11.0: pick "3" (whisper-local) to avoid the smart fallback prompt."""
     cfg_path = tmp_path / "config.toml"
     monkeypatch.setattr("skills.neurolearn.wizard.CONFIG_PATH", cfg_path)
     monkeypatch.setattr("skills.neurolearn.wizard.ENV_PATH", tmp_path / ".env")
     with (
         patch("skills.neurolearn.wizard.detect_platform", return_value=_FAKE_PLATFORM),
-        patch("rich.prompt.Prompt.ask", side_effect=["1"]),
+        patch("rich.prompt.Prompt.ask", side_effect=["3"]),
     ):
         from skills.neurolearn.wizard import run_wizard
         run_wizard()

@@ -425,7 +425,7 @@ def test_e2e_multiple_windows_create_cache(tmp_path):
 
 
 def test_e2e_free_tier_limits_concurrency(tmp_path):
-    """`gemini_tier='free'` → backend instantiated with max_concurrent=3."""
+    """`gemini_tier='free'` → backend instantiated with max_concurrent=6 (v0.11.0)."""
     from skills.neurolearn.pipeline_v02 import apply_v02_stages
     from skills.neurolearn.vision import gemini as gemini_mod
 
@@ -479,7 +479,9 @@ def test_e2e_free_tier_limits_concurrency(tmp_path):
             video_id="v", out_dir=tmp_path / "out", source="whisper",
         )
 
-    assert captured.get("max_concurrent") == 3
+    # v0.11.0: free-tier concurrency bumped from 3 to 6 after Google
+    # raised gemini-2.5-flash RPM 5 -> 10.
+    assert captured.get("max_concurrent") == 6
 
 
 def test_e2e_paid_tier_raises_concurrency(tmp_path):

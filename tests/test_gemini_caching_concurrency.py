@@ -43,7 +43,10 @@ def _windows(n):
 
 
 def test_concurrency_for_free_tier():
-    assert concurrency_for_tier("free") == 3
+    # v0.11.0: bumped from 3 to 6 after Google raised gemini-2.5-flash
+    # free-tier RPM from 5 to 10. Six concurrent calls × ~2 s each
+    # averages ~7 RPM, well under the cap with room for retries.
+    assert concurrency_for_tier("free") == 6
 
 
 def test_concurrency_for_paid_tier():
@@ -57,8 +60,8 @@ def test_concurrency_for_paid_tier2():
 def test_concurrency_unknown_tier_falls_back_to_free():
     """Unknown tier strings (typos, future tiers we don't know about)
     should not crash — fall back to the safe free-tier floor."""
-    assert concurrency_for_tier("enterprise-x9000") == 3
-    assert concurrency_for_tier("") == 3
+    assert concurrency_for_tier("enterprise-x9000") == 6
+    assert concurrency_for_tier("") == 6
 
 
 # ---------------------------------------------------------------------------

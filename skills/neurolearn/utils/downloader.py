@@ -57,8 +57,16 @@ def build_ytdlp_command(
     url: str,
     output_template: str,
     cookies_file: str = "",
-    audio_format: str = "mp3",
+    audio_format: str = "m4a",
 ) -> list[str]:
+    """Build yt-dlp invocation for an audio-only extraction.
+
+    v0.11.0 changed the default audio_format from 'mp3' to 'm4a'. YouTube
+    serves audio in m4a (AAC) natively, so mp3 forced yt-dlp to re-encode
+    (lossy + 2-5 s extra ffmpeg work per video). m4a passes through
+    untouched. All our cloud audio backends (Groq, Gemini, OpenAI,
+    Deepgram, AssemblyAI) and ffmpeg-fed whisper-local accept m4a.
+    """
     cmd = [
         "yt-dlp",
         "-x",

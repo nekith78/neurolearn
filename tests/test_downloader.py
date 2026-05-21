@@ -52,7 +52,10 @@ def test_build_ytdlp_command_basic(tmp_path: Path):
     assert "yt-dlp" in cmd[0]
     assert "-x" in cmd
     assert "--audio-format" in cmd
-    assert "mp3" in cmd
+    # v0.11.0: default audio_format switched from "mp3" to "m4a" so YouTube's
+    # native AAC stream passes through without re-encode.
+    assert "m4a" in cmd
+    assert "mp3" not in cmd
     assert "https://youtu.be/abc" in cmd
     assert "--cookies-from-browser" not in cmd  # only added when set
 

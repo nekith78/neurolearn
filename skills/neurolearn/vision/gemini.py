@@ -74,8 +74,12 @@ _SEGMENT_SCHEMA = {
 
 # Concurrency caps per Gemini tier. The actual API limits are higher,
 # but a conservative cap leaves room for retries inside the same minute.
+# v0.11.0: free tier raised from 3 to 6. Gemini 2.5-flash free tier is
+# 10 RPM (Google raised it from 5 in 2026-Q1). 6 concurrent calls @ ~2 s
+# each averages ~7 RPM, leaving room for retries. Saves ~8-12 s on a
+# 20-window video without risking 429s.
 _TIER_CONCURRENCY: dict[str, int] = {
-    "free": 3,
+    "free": 6,
     "paid": 10,
     "paid-tier2": 20,
     "paid-tier3": 50,
@@ -107,11 +111,13 @@ class GeminiVisionBackend:
     model: str = "gemini-2.5-flash"
     frames_per_window: int = 3
     max_retries: int = 3
-    # Concurrency floor — tuned per Gemini tier. Free tier 2.5-flash has
-    # an RPM limit of 5; we keep 3 to leave headroom for retries hitting
-    # the same minute. Paid Tier 1 gets 1000 RPM → 10 is safe and fast.
+    # Concurrency floor — tuned per Gemini tier. v0.11.0: free-tier
+    # 2.5-flash RPM was raised by Google from 5 to 10. We keep this
+    # default in sync with _TIER_CONCURRENCY["free"] above (6, which
+    # averages ~7 RPM with retries and stays under the cap).
+    # Paid Tier 1 gets 1000 RPM → 10 is safe and fast.
     # Callers override via gemini_tier (config) or this kwarg directly.
-    max_concurrent: int = 3
+    max_concurrent: int = 6
     # When True (driven by tutorial preset / asymmetric frame mode), the
     # caller passes `event_ts` so we can take frames at offsets
     # `-1.5s / +0.3s / +2.0s` instead of evenly spaced through the window.

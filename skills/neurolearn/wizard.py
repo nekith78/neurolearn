@@ -23,17 +23,17 @@ from skills.neurolearn.utils.platform_detect import detect_platform
 # ---------------------------------------------------------------------------
 
 _BACKEND_CHOICES = [
-    ("whisper-local", "Local Whisper — offline, private, best quality.  [free]"),
-    ("smart",         "YouTube subtitles → fallback. Fast and reliable."),
+    ("smart",         "Subtitles fast-path → Groq (fast) → whisper-local fallback. RECOMMENDED."),
+    ("groq",          "Groq Whisper-large-v3-turbo — fastest cloud backend (~12 s per 17-min video).  [free tier 8 h/day]  Key required."),
+    ("whisper-local", "Local Whisper — offline, private, no API key.  [free]  Slower than groq."),
     ("subtitles",     "YouTube subtitles only. Instant, YouTube-only.  [free, no API]"),
-    ("gemini",        "Google AI Studio.  [free tier ~hours/day]  Key required."),
-    ("groq",          "Groq Whisper API — the fastest cloud backend.  [free tier ~8 h/day]  Key required."),
+    ("gemini",        "Google AI Studio — also handles vision/analyze tasks.  [free tier ~1500/day]  Key required.  Audio backend has known +63% timestamp drift; prefer groq for transcription."),
     ("openai",        "OpenAI Whisper API.  [paid ~$0.006/min]  Key required."),
     ("deepgram",      "Deepgram Nova-3.  [starter credit $200 ≈ 750 h]  Key required."),
     ("assemblyai",    "AssemblyAI — good for long interviews.  [free tier ~5 h/month]  Key required."),
     ("custom",        "OpenAI-compatible API. For advanced setups.  [depends on provider]"),
 ]
-# NOTE: free-tier quotas above reflect the state in Jan 2026.
+# NOTE: free-tier quotas above reflect the state in May 2026.
 # Providers change them; check the key-issuance page for current limits.
 
 # Map backend name → URL where the user can get an API key
@@ -49,11 +49,13 @@ _KEY_GUIDE: dict[str, str] = {
 # Backends that require an API key
 _CLOUD_BACKENDS = set(_KEY_GUIDE.keys())
 
-# Choices offered for smart-mode fallback
+# Choices offered for smart-mode fallback. v0.11.0: groq is the default
+# recommendation (1) since it's empirically 4-8x faster than whisper-local
+# on a 17-min video and has accurate timestamps (unlike gemini).
 _FALLBACK_OPTIONS: dict[str, str] = {
-    "1": "whisper-local",
-    "2": "gemini",
-    "3": "groq",
+    "1": "groq",
+    "2": "whisper-local",
+    "3": "gemini",
 }
 
 
@@ -76,8 +78,10 @@ def run_wizard() -> None:
         f"[bold]neurolearn — first-run setup[/bold]\n\n"
         f"Detected: [cyan]{info.label}[/cyan]  "
         f"(device={info.device}, VRAM={vram_str})\n"
-        f"Recommendation: [green]whisper-local[/green] — offline, private, best quality\n\n"
-        f"[dim]Cloud backends (gemini, groq, openai, deepgram, assemblyai, custom)\n"
+        f"Recommendation: [green]smart[/green] — subtitles fast-path → Groq → whisper-local.\n"
+        f"Groq Whisper-large-v3-turbo gives ~12 s per 17-min video with accurate\n"
+        f"timestamps. Free tier 8 hours/day; key from https://console.groq.com/keys.\n\n"
+        f"[dim]Cloud backends (groq, gemini, openai, deepgram, assemblyai, custom)\n"
         f"send audio to the provider's servers. Make sure that's acceptable.[/dim]",
         title="neurolearn",
     ))
@@ -102,7 +106,7 @@ def run_wizard() -> None:
     if backend == "smart":
         console.print(
             "\n[dim]Which backend to use as fallback in smart mode?\n"
-            "  1) whisper-local  2) gemini  3) groq[/dim]"
+            "  1) groq (recommended — fastest, free 8 h/day)  2) whisper-local  3) gemini[/dim]"
         )
         fb_choice = Prompt.ask(
             "Fallback",
