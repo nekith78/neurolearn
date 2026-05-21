@@ -128,14 +128,16 @@ def test_single_window_skips_cache_creation(tmp_path):
     fake_client.caches.create.assert_not_called()
 
 
-def test_two_windows_create_cache_with_video(tmp_path):
-    """2+ windows → cache is created. The cache config must include the
-    uploaded video in `contents` (not just the system_instruction) —
-    this is what makes caching actually save tokens."""
+def test_two_windows_skip_explicit_cache_v012(tmp_path):
+    """v0.12.0: explicit `client.caches.create()` was REMOVED.
+
+    Empirical finding: free-tier Gemini sets
+    TotalCachedContentStorageTokensPerModelFreeTier=0 so the call
+    always 4xx'd. Implicit caching handles prefix reuse server-side.
+    """
     fake_client = MagicMock()
     fake_uploaded = MagicMock(name="files/1")
     fake_client.files.upload.return_value = fake_uploaded
-    fake_client.caches.create.return_value.name = "cached/v"
     fake_client.models.generate_content.return_value = _fake_response({
         "description": "x", "key_objects": [],
         "importance": "medium", "confidence": 0.9, "needs_refinement": False,
@@ -158,26 +160,27 @@ def test_two_windows_create_cache_with_video(tmp_path):
             video_id="v", out_dir=out_dir,
         )
 
-    fake_client.caches.create.assert_called_once()
-    # The CreateCachedContentConfig must carry the system instruction.
-    # We don't assert on `contents == [fake_uploaded]` because pydantic
-    # coerces MagicMock into an empty Part shape — the strict equality
-    # check fails on the mock, not on the real production payload.
-    # Real integration is verified via the e2e smoke run in v0.10.
-    config = fake_client.caches.create.call_args.kwargs["config"]
+    # No more explicit cache creation regardless of window count.
+    fake_client.caches.create.assert_not_called()
+    # The system_instruction is now passed per-call directly via
+    # GenerateContentConfig (no longer pre-cached). System prompt
+    # is still our MY_PROMPT_TEMPLATE.
+    first_call = fake_client.models.generate_content.call_args_list[0]
+    config = first_call.kwargs["config"]
     assert "MY_PROMPT_TEMPLATE" in str(config.system_instruction)
-    assert config.contents is not None   # contents arg was passed
-    assert len(config.contents) >= 1
 
 
-def test_cached_call_omits_video_from_per_request_contents(tmp_path):
-    """When caching is active, per-window calls send only the dynamic
-    user prompt — NOT the uploaded video again. Otherwise we pay for
-    the video twice (cache + per-call)."""
+def test_per_window_contents_include_video_v012(tmp_path):
+    """v0.12.0: without explicit cache, each per-window call MUST carry
+    the uploaded video reference alongside the user prompt — otherwise
+    Gemini has no visual to ground the description.
+
+    Implicit caching on Google's side dedupes the repeated video upload
+    transparently; we don't have to change our request shape.
+    """
     fake_client = MagicMock()
     fake_uploaded = MagicMock(name="files/1")
     fake_client.files.upload.return_value = fake_uploaded
-    fake_client.caches.create.return_value.name = "cached/v"
     fake_client.models.generate_content.return_value = _fake_response({
         "description": "x", "key_objects": [],
         "importance": "medium", "confidence": 0.9, "needs_refinement": False,
@@ -200,13 +203,13 @@ def test_cached_call_omits_video_from_per_request_contents(tmp_path):
             video_id="v", out_dir=out_dir,
         )
 
-    # Per-window call should pass exactly one item (the user prompt
-    # string) — no fake_uploaded reference.
+    # Per-window call carries [user_prompt, uploaded_video] now (cache
+    # removed → must inline the video reference each time).
     for call in fake_client.models.generate_content.call_args_list:
         contents = call.kwargs["contents"]
-        assert len(contents) == 1
-        # MagicMock comparison: video reference is the fake_uploaded MagicMock.
-        assert contents[0] is not fake_uploaded
+        assert len(contents) == 2
+        # Second element references the uploaded video MagicMock.
+        assert contents[1] is fake_uploaded
 
 
 def test_cache_failure_falls_back_to_per_call_content(tmp_path):

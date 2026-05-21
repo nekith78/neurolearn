@@ -170,11 +170,17 @@ def test_gemini_processes_windows_concurrently(tmp_path):
 # === #4 — Prompt caching ===
 
 
-def test_caches_create_invoked_once_per_run(tmp_path):
-    """One cache for the whole video; reused across all per-window calls."""
+def test_explicit_caches_create_not_called_v012(tmp_path):
+    """v0.12.0: explicit `client.caches.create()` was REMOVED.
+
+    Empirical finding: free-tier Gemini's
+    TotalCachedContentStorageTokensPerModelFreeTier=0 so the call
+    always 4xx'd. Implicit caching kicks in automatically when the
+    stable system prompt + uploaded video stay identical across
+    calls — no API call required.
+    """
     fake_client = MagicMock()
     fake_client.files.upload.return_value = MagicMock(name="files/1")
-    fake_client.caches.create.return_value.name = "cached/test-id"
     fake_client.models.generate_content.return_value = _mock_gemini_response({
         "description": "x", "key_objects": [],
         "importance": "medium", "confidence": 0.9, "needs_refinement": False,
@@ -200,13 +206,16 @@ def test_caches_create_invoked_once_per_run(tmp_path):
             out_dir=out_dir,
         )
 
-    # One cache for the whole run, four per-window calls reusing it.
-    assert fake_client.caches.create.call_count == 1
+    # Explicit cache is no longer created. Each per-window call carries
+    # its own system_instruction; Google's implicit cache handles prefix
+    # reuse server-side.
+    assert fake_client.caches.create.call_count == 0
     assert fake_client.models.generate_content.call_count == 4
-    # Each call references the cached content (not the raw system prompt).
+    # Each call now includes the system prompt inline (no cached_content).
     for call_obj in fake_client.models.generate_content.call_args_list:
         config = call_obj.kwargs["config"]
-        assert config.cached_content == "cached/test-id"
+        # cached_content should be None / unset after removal
+        assert getattr(config, "cached_content", None) is None
 
 
 # === #5 — Frame quality + scale ===

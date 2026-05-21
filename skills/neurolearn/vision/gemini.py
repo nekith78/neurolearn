@@ -168,22 +168,20 @@ class GeminiVisionBackend:
         except Exception:
             return []
 
-        # Caching strategy (v0.10.1):
-        # We cache the UPLOADED VIDEO together with the system prompt —
-        # not the prompt alone. Caching the prompt alone hits the 1024-
-        # token minimum and rarely activates. The video easily clears
-        # that threshold (~66 tok/sec on LOW res), so the bundle always
-        # qualifies for caching. Subsequent per-window calls reference
-        # the cached bundle and pay only 25% of the rate on its tokens —
-        # which dominate the per-call billing, so this is the actual win.
-        #
-        # Skip caching entirely when there's only 1 window: setup +
-        # storage cost outweighs the single cached call.
+        # v0.12.0: removed explicit `client.caches.create()` path.
+        # Empirical finding (qa-out/v0.12.0-vision-compare/, Test 3):
+        # free-tier Gemini accounts get
+        #   TotalCachedContentStorageTokensPerModelFreeTier limit=0
+        # so the API call always 4xx'd on free users. Gemini 2.5/3.5
+        # Flash provide IMPLICIT caching automatically (no API call,
+        # no storage billing) when consecutive requests share a stable
+        # prefix ≥1024 tokens — which our per-window pattern hits.
+        # See research: https://developers.googleblog.com/gemini-2-5-models-now-support-implicit-caching/
+        # For paid users that genuinely benefit from explicit caching,
+        # we'll add a tier-aware re-introduction in a future release;
+        # for now the implicit path covers >99% of users with no
+        # configuration burden.
         cached_name = None
-        if len(windows) >= 2:
-            cached_name = await self._maybe_create_cache(
-                client, prompt_template, uploaded,
-            )
 
         frames_dir = out_dir / "frames"
         frames_dir.mkdir(parents=True, exist_ok=True)
@@ -250,41 +248,10 @@ class GeminiVisionBackend:
             video_id=video_id,
         )
 
-    async def _maybe_create_cache(
-        self,
-        client: genai.Client,
-        prompt_template: str,
-        uploaded,
-    ) -> str | None:
-        """Cache the uploaded video + system prompt for reuse across windows.
-
-        The combined bundle is what makes caching worthwhile (the video
-        easily clears the 1024-token cache minimum; the prompt alone
-        usually doesn't). The cache lives for 1h by default, which
-        comfortably covers any single-video pipeline run.
-
-        Returns the cache resource name on success; None on failure
-        (caller falls back to per-call system_instruction inclusion).
-        """
-        try:
-            cache = await asyncio.to_thread(
-                client.caches.create,
-                model=self.model,
-                config=types.CreateCachedContentConfig(
-                    contents=[uploaded],
-                    system_instruction=prompt_template,
-                    ttl="3600s",
-                ),
-            )
-        except Exception:
-            return None
-        # Defensive: SDK shape may evolve; only return a string. Mock
-        # objects (tests) hit this branch and silently fall back to the
-        # per-call system_instruction path.
-        name = getattr(cache, "name", None)
-        if isinstance(name, str) and name:
-            return name
-        return None
+    # v0.12.0: `_maybe_create_cache()` was REMOVED. Free-tier Gemini
+    # accounts get TotalCachedContentStorageTokensPerModelFreeTier=0
+    # so `client.caches.create()` always 4xx'd. Implicit caching now
+    # handles this automatically.
 
     async def _annotate_window_async(
         self,

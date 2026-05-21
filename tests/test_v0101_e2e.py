@@ -364,8 +364,8 @@ def test_e2e_single_window_skips_cache_in_full_pipeline(tmp_path):
     assert client.caches.create.call_count == 0
 
 
-def test_e2e_multiple_windows_create_cache(tmp_path):
-    """3 windows → cache IS created (with video bundled)."""
+def test_e2e_multiple_windows_no_explicit_cache_v012(tmp_path):
+    """v0.12.0: explicit caches.create() was removed (free-tier 4xx)."""
     from skills.neurolearn.pipeline_v02 import apply_v02_stages
 
     # Three trigger-matching segments → three windows.
@@ -415,8 +415,9 @@ def test_e2e_multiple_windows_create_cache(tmp_path):
             video_id="v", out_dir=tmp_path / "out", source="whisper",
         )
 
-    # Multiple windows → cache IS created.
-    assert client.caches.create.call_count == 1
+    # v0.12.0: explicit cache removed. Implicit caching handles this
+    # server-side without an API call.
+    assert client.caches.create.call_count == 0
 
 
 # ---------------------------------------------------------------------------
