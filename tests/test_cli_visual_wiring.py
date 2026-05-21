@@ -41,9 +41,11 @@ def test_with_visuals_triggers_download_video(tmp_path, monkeypatch):
         "skills.neurolearn.utils.downloader.download_video",
         fake_download_video,
     )
+    # v0.12.0: --with-visuals defaults to groq backend now, not gemini.
+    # Provide a fake Groq key so the visual pipeline kicks in.
     monkeypatch.setattr(
         "skills.neurolearn.config.get_api_key",
-        lambda backend, env_path=None: "fake_key" if backend == "gemini" else None,
+        lambda backend, env_path=None: "fake_key" if backend in ("groq", "gemini") else None,
     )
     # apply_v02_stages should be called with non-None video_path.
     # It's imported locally inside transcribe_cmd, so patch at the source module.

@@ -49,7 +49,7 @@ def test_batch_with_visuals_applies_v02_stages_per_video(tmp_path, monkeypatch):
     )
     monkeypatch.setattr(
         "skills.neurolearn.config.get_api_key",
-        lambda backend, env_path=None: "fake_key" if backend == "gemini" else None,
+        lambda backend, env_path=None: "fake_key" if backend in ("groq", "gemini") else None,
     )
     monkeypatch.setattr(
         "skills.neurolearn.pipeline_v02.apply_v02_stages",

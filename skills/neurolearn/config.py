@@ -218,6 +218,16 @@ class Config:
     groq_vision_model: str = ""
     groq_analyze_model: str = ""
 
+    # === v0.12.1: Claude Code plugin extract-only mode ===
+    # When True AND vision_backend is set, pipeline_v02 extracts keyframes
+    # via ffmpeg and writes keyframes/manifest.json (timestamps + frame paths
+    # + transcript snippets) but SKIPS the vision-LLM API call. Claude Code
+    # reads the manifest in chat directly (Claude has vision natively, the
+    # user already pays for their subscription — no extra API quota burn).
+    # Auto-set to True in transcribe.py when $CLAUDE_PLUGIN_ROOT is detected;
+    # users can opt out via --no-claude-extract.
+    vision_extract_only: bool = False
+
 
 DEFAULT_CONFIG = Config()
 

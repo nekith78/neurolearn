@@ -301,6 +301,31 @@ def apply_v02_stages(
             # it; otherwise auto-detect from the transcript.
             video_type = cfg.get("video_type") or _autodetect_video_type(result)
             prompt_template = _resolve_vision_prompt(cfg, video_type)
+
+            # v0.12.1: Claude Code extract-only mode. When the user is
+            # running neurolearn from inside Claude Code (CLAUDE_PLUGIN_ROOT
+            # detected by transcribe.py) and opted into vision, we extract
+            # the keyframes via ffmpeg and write a manifest.json that
+            # describes which frames map to which windows. Claude in chat
+            # then reads those frames itself (it has native vision) — no
+            # external API call, no extra quota burn for the user.
+            if cfg.get("vision_extract_only", False):
+                manifest = _write_keyframes_manifest(
+                    windows=windows,
+                    video_path=video_path,
+                    out_dir=out_dir,
+                    video_id=video_id,
+                    fpw=fpw,
+                    use_asymmetric=asym,
+                )
+                # Stash manifest in result so the writer can mention it
+                # in the manifest.json / combined.md output.
+                try:
+                    object.__setattr__(result, "vision_extract_manifest", manifest)
+                except Exception:
+                    pass
+                return result
+
             if vision_backend_name == "groq":
                 # v0.12.0 primary: GroqVisionBackend (Llama-4-Scout, batch≤3).
                 # Loaded lazily so users without GROQ_API_KEY don't pay
@@ -392,3 +417,92 @@ def apply_v02_stages(
 # Claude Code chat; Claude reads the extracted keyframes from
 # keyframes/manifest.json and refines descriptions in the chat
 # itself — no extra API call needed.
+
+
+def _write_keyframes_manifest(
+    *,
+    windows: list,
+    video_path,
+    out_dir,
+    video_id: str,
+    fpw: int,
+    use_asymmetric: bool,
+) -> dict:
+    """v0.12.1: Claude Code extract-only mode helper.
+
+    Extracts keyframes for each detection window via ffmpeg (no API call)
+    and writes `keyframes/manifest.json` describing the mapping. Claude
+    in chat reads this manifest, then opens each frame image with its
+    native vision capability and synthesises descriptions itself.
+
+    Manifest schema:
+        {
+          "video_id": "<id>",
+          "mode": "claude_code_extract_only",
+          "extracted_at": "<iso8601>",
+          "windows": [
+            {
+              "start": <float>, "end": <float>,
+              "transcript_window": "<text from SRT snippet>",
+              "trigger_reason": "<window.reason>",
+              "keyframes": ["frames/<id>_<sec>.jpg", ...]
+            },
+            ...
+          ]
+        }
+    """
+    import json
+    from datetime import datetime
+    from pathlib import Path
+    from skills.neurolearn.vision.frames import (
+        extract_keyframes,
+        extract_keyframes_asymmetric,
+    )
+
+    out_dir = Path(out_dir)
+    frames_dir = out_dir / "frames"
+    frames_dir.mkdir(parents=True, exist_ok=True)
+
+    entries: list[dict] = []
+    for w in windows:
+        try:
+            if use_asymmetric and getattr(w, "event_ts", None):
+                frames = extract_keyframes_asymmetric(
+                    video_path=video_path,
+                    event_ts=w.event_ts,
+                    out_dir=frames_dir,
+                    video_id=video_id,
+                )
+            else:
+                frames = extract_keyframes(
+                    video_path=video_path,
+                    start=w.start, end=w.end,
+                    count=fpw,
+                    out_dir=frames_dir,
+                    video_id=video_id,
+                )
+        except Exception:
+            frames = []
+        if not frames:
+            continue
+        # Store paths relative to out_dir so manifest is portable.
+        rel_frames = [str(p.relative_to(out_dir)) for p in frames]
+        entries.append({
+            "start": float(w.start),
+            "end": float(w.end),
+            "transcript_window": getattr(w, "phrase", "") or "",
+            "trigger_reason": getattr(w, "reason", "") or "",
+            "keyframes": rel_frames,
+        })
+
+    manifest = {
+        "video_id": video_id,
+        "mode": "claude_code_extract_only",
+        "extracted_at": datetime.now(tz=__import__("datetime").timezone.utc)
+            .isoformat().replace("+00:00", "Z"),
+        "windows": entries,
+    }
+    manifest_path = out_dir / "keyframes" / "manifest.json"
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    manifest_path.write_text(json.dumps(manifest, indent=2, ensure_ascii=False))
+    return manifest

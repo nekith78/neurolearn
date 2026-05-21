@@ -128,9 +128,13 @@ def cli() -> None:
 @click.option("--beam-size", type=int, default=None)
 @click.option("--vad/--no-vad", default=None)
 @click.option("--verbose", is_flag=True)
-@click.option("--with-visuals", is_flag=True, help="Shortcut for --vision-backend=gemini.")
-@click.option("--vision-backend", "vision_backend_opt", type=click.Choice(["off", "gemini"]), default=None,
-              help="Visual mode backend. off = audio only.")
+@click.option("--with-visuals", is_flag=True, help="Shortcut for --vision-backend=groq (v0.12+).")
+@click.option("--vision-backend", "vision_backend_opt", type=click.Choice(["off", "groq", "gemini"]), default=None,
+              help="Visual mode backend. off = audio only. groq = Llama-4-Scout (recommended).")
+@click.option("--claude-extract/--no-claude-extract", "claude_extract_opt", default=None,
+              help="When running through Claude Code, extract keyframes + write manifest "
+                   "and let Claude read them in chat (no vision API call). Auto-on when "
+                   "$CLAUDE_PLUGIN_ROOT is set.")
 @click.option("--detect-method", "detect_method_opt",
               type=click.Choice(["keywords_only", "semantic", "hybrid", "llm_full_pass"]),
               default=None, help="How to find visual moments.")
@@ -240,7 +244,20 @@ def transcribe_cmd(audio_or_url: str | None, **opts) -> None:
     if opts.get("vision_backend_opt") is not None:
         cli_overrides["vision_backend"] = opts["vision_backend_opt"]
     if opts.get("with_visuals"):
-        cli_overrides["vision_backend"] = "gemini"
+        # v0.12.0: --with-visuals shortcut now defaults to groq (was gemini).
+        cli_overrides["vision_backend"] = "groq"
+
+    # v0.12.1: Claude Code extract-only mode. CLAUDE_PLUGIN_ROOT is set
+    # in env when neurolearn runs as a plugin inside Claude Code. We
+    # default to extract-only mode so we don't burn external vision API
+    # quota — Claude has native vision and reads keyframes from
+    # manifest.json in chat directly. Override with --no-claude-extract.
+    if opts.get("claude_extract_opt") is True:
+        cli_overrides["vision_extract_only"] = True
+    elif opts.get("claude_extract_opt") is False:
+        cli_overrides["vision_extract_only"] = False
+    elif os.environ.get("CLAUDE_PLUGIN_ROOT") and cli_overrides.get("vision_backend") not in (None, "off"):
+        cli_overrides["vision_extract_only"] = True
     if opts.get("detect_method_opt") is not None:
         cli_overrides["detect_method"] = opts["detect_method_opt"]
     if opts.get("frames_per_window_opt") is not None:
@@ -317,8 +334,11 @@ def transcribe_cmd(audio_or_url: str | None, **opts) -> None:
     triggers_path_opt = opts.get("triggers_path")
 
     # === Download mp4 if visual mode is active ===
+    # v0.12.0: visual pipeline now also runs on groq vision (Llama-4-Scout)
+    # in addition to gemini. Both backends need keyframes extracted from
+    # mp4, so we download whenever a non-off vision backend is configured.
     needs_video = (
-        cfg_v02.get("vision_backend") == "gemini"
+        cfg_v02.get("vision_backend") in ("gemini", "groq")
         and is_url(target.url)
     )
 
@@ -356,7 +376,7 @@ def transcribe_cmd(audio_or_url: str | None, **opts) -> None:
             # Local file path — use directly (already on disk).
             local_video_path = (
                 Path(target.url).expanduser().resolve()
-                if not is_url(target.url) and cfg_v02.get("vision_backend") == "gemini"
+                if not is_url(target.url) and cfg_v02.get("vision_backend") in ("gemini", "groq")
                 else None
             )
             post_stage.update("Running quality / detection passes...")
@@ -907,7 +927,7 @@ def _run_batch_pipeline(
         no_default_triggers_opt = bool(opts.get("no_default_triggers"))
 
         needs_video = (
-            cfg_v02.get("vision_backend") == "gemini"
+            cfg_v02.get("vision_backend") in ("gemini", "groq")
             and is_url(target.url)
         )
         if needs_video:
@@ -938,7 +958,7 @@ def _run_batch_pipeline(
         else:
             local_video_path = (
                 Path(target.url).expanduser().resolve()
-                if not is_url(target.url) and cfg_v02.get("vision_backend") == "gemini"
+                if not is_url(target.url) and cfg_v02.get("vision_backend") in ("gemini", "groq")
                 else None
             )
             result = apply_v02_stages(
@@ -1225,10 +1245,12 @@ def _run_batch_pipeline(
 @click.option("--beam-size", type=int, default=None)
 @click.option("--vad/--no-vad", default=None)
 @click.option("--verbose", is_flag=True)
-@click.option("--with-visuals", is_flag=True, help="Shortcut for --vision-backend=gemini.")
+@click.option("--with-visuals", is_flag=True, help="Shortcut for --vision-backend=groq (v0.12+).")
 @click.option("--vision-backend", "vision_backend_opt",
-              type=click.Choice(["off", "gemini"]), default=None,
-              help="Visual mode backend. off = audio only.")
+              type=click.Choice(["off", "groq", "gemini"]), default=None,
+              help="Visual mode backend. off = audio only. groq = Llama-4-Scout.")
+@click.option("--claude-extract/--no-claude-extract", "claude_extract_opt", default=None,
+              help="Claude Code extract-only mode (auto-on with $CLAUDE_PLUGIN_ROOT).")
 @click.option("--detect-method", "detect_method_opt",
               type=click.Choice(["keywords_only", "semantic", "hybrid", "llm_full_pass"]),
               default=None, help="How to find visual moments.")
@@ -1382,7 +1404,20 @@ def batch_cmd(
     if opts.get("vision_backend_opt") is not None:
         cli_overrides["vision_backend"] = opts["vision_backend_opt"]
     if opts.get("with_visuals"):
-        cli_overrides["vision_backend"] = "gemini"
+        # v0.12.0: --with-visuals shortcut now defaults to groq (was gemini).
+        cli_overrides["vision_backend"] = "groq"
+
+    # v0.12.1: Claude Code extract-only mode. CLAUDE_PLUGIN_ROOT is set
+    # in env when neurolearn runs as a plugin inside Claude Code. We
+    # default to extract-only mode so we don't burn external vision API
+    # quota — Claude has native vision and reads keyframes from
+    # manifest.json in chat directly. Override with --no-claude-extract.
+    if opts.get("claude_extract_opt") is True:
+        cli_overrides["vision_extract_only"] = True
+    elif opts.get("claude_extract_opt") is False:
+        cli_overrides["vision_extract_only"] = False
+    elif os.environ.get("CLAUDE_PLUGIN_ROOT") and cli_overrides.get("vision_backend") not in (None, "off"):
+        cli_overrides["vision_extract_only"] = True
     if opts.get("detect_method_opt") is not None:
         cli_overrides["detect_method"] = opts["detect_method_opt"]
     if opts.get("frames_per_window_opt") is not None:
