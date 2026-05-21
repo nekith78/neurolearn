@@ -37,9 +37,15 @@ _FAKE_PLATFORM = PlatformInfo(
 
 
 def _run_wizard(tmp_path: Path, monkeypatch, prompts: list[str]):
-    """Helper: patch paths + detect_platform + Prompt.ask, run the wizard."""
+    """Helper: patch paths + detect_platform + Prompt.ask, run the wizard.
+
+    v0.12.2: the wizard now exits with code 2 if stdin is not a TTY (to
+    prevent silent hangs when Claude Code invokes it as a subprocess).
+    Tests need to spoof sys.stdin.isatty() = True to bypass this guard.
+    """
     monkeypatch.setattr("skills.neurolearn.wizard.CONFIG_PATH", tmp_path / "config.toml")
     monkeypatch.setattr("skills.neurolearn.wizard.ENV_PATH", tmp_path / ".env")
+    monkeypatch.setattr("sys.stdin.isatty", lambda: True)
     with (
         patch("skills.neurolearn.wizard.detect_platform", return_value=_FAKE_PLATFORM),
         patch("rich.prompt.Prompt.ask", side_effect=prompts),
@@ -193,6 +199,7 @@ def test_wizard_calls_detect_platform_once(tmp_path: Path, monkeypatch):
     """Pick whisper-local + vision=off + analyze=skip → 3 prompts total."""
     monkeypatch.setattr("skills.neurolearn.wizard.CONFIG_PATH", tmp_path / "config.toml")
     monkeypatch.setattr("skills.neurolearn.wizard.ENV_PATH", tmp_path / ".env")
+    monkeypatch.setattr("sys.stdin.isatty", lambda: True)  # v0.12.2 guard
     with (
         patch("skills.neurolearn.wizard.detect_platform", return_value=_FAKE_PLATFORM) as mock_dp,
         patch("rich.prompt.Prompt.ask", side_effect=["3", "3", "4"]),
@@ -200,6 +207,28 @@ def test_wizard_calls_detect_platform_once(tmp_path: Path, monkeypatch):
         from skills.neurolearn.wizard import run_wizard
         run_wizard()
     mock_dp.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# v0.12.2 non-TTY guard
+# ---------------------------------------------------------------------------
+
+def test_wizard_exits_when_not_tty(tmp_path: Path, monkeypatch, capsys):
+    """When stdin is not a TTY (e.g. Claude Code subprocess), wizard must
+    exit cleanly with code 2 instead of hanging or crashing with EOFError."""
+    monkeypatch.setattr("skills.neurolearn.wizard.CONFIG_PATH", tmp_path / "config.toml")
+    monkeypatch.setattr("skills.neurolearn.wizard.ENV_PATH", tmp_path / ".env")
+    monkeypatch.setattr("sys.stdin.isatty", lambda: False)
+    from skills.neurolearn.wizard import run_wizard
+    with pytest.raises(SystemExit) as excinfo:
+        run_wizard()
+    assert excinfo.value.code == 2
+    err = capsys.readouterr().err
+    assert "interactive" in err.lower()
+    assert "TTY" in err or "tty" in err
+    # Must point at the non-interactive escape hatches:
+    assert "config set-key" in err
+    assert "config set" in err
 
 
 # ---------------------------------------------------------------------------
@@ -211,6 +240,7 @@ def test_wizard_config_persisted_to_disk(tmp_path: Path, monkeypatch):
     cfg_path = tmp_path / "config.toml"
     monkeypatch.setattr("skills.neurolearn.wizard.CONFIG_PATH", cfg_path)
     monkeypatch.setattr("skills.neurolearn.wizard.ENV_PATH", tmp_path / ".env")
+    monkeypatch.setattr("sys.stdin.isatty", lambda: True)  # v0.12.2 guard
     with (
         patch("skills.neurolearn.wizard.detect_platform", return_value=_FAKE_PLATFORM),
         patch("rich.prompt.Prompt.ask", side_effect=["3", "3", "4"]),

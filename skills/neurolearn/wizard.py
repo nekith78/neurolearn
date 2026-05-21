@@ -104,6 +104,24 @@ def run_wizard() -> None:
       5. Paid-tier model overrides (only if tier != "free")
       6. API keys for all chosen backends
     """
+    # v0.12.2: hard-fail on non-TTY stdin. The wizard uses rich.Prompt.ask
+    # which hangs/EOFs on a closed stdin (e.g. when Claude Code invokes
+    # this as a subprocess). Instead of dying mid-prompt, refuse early
+    # with a clear message pointing at the non-interactive config tools.
+    import sys
+    if not sys.stdin.isatty():
+        sys.stderr.write(
+            "[neurolearn] `config wizard` is interactive and requires a TTY.\n"
+            "  When running from Claude Code or another non-interactive\n"
+            "  context, configure via:\n"
+            "    neurolearn config set-key groq <KEY>      # paste pasted key as positional\n"
+            "    neurolearn config set backend smart       # audio default\n"
+            "    neurolearn config set fallback groq       # smart cascade fallback\n"
+            "    neurolearn config set-key gemini <KEY>    # optional fallback\n"
+            "  See SKILL.md or commands/setup.md for the Claude-driven onboarding flow.\n"
+        )
+        sys.exit(2)
+
     console = make_console()
     info = detect_platform()
     vram_str = f"{info.vram_mb} MiB" if info.vram_mb is not None else "n/a"

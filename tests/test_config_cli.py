@@ -255,3 +255,40 @@ class TestConfigWizard:
             r = _runner().invoke(cli, ["config", "wizard"])
         assert r.exit_code == 0, r.output
         mock_wizard.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# v0.12.2: `config get` — single-field inspector for Claude / scripts
+# ---------------------------------------------------------------------------
+
+
+class TestConfigGet:
+    def test_get_known_field(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("skills.neurolearn.transcribe.CONFIG_PATH", tmp_path / "config.toml")
+        r = _runner().invoke(cli, ["config", "get", "backend"])
+        assert r.exit_code == 0, r.output
+        # Default smart cascade
+        assert "smart" in r.output
+
+    def test_get_json_emits_machine_readable(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("skills.neurolearn.transcribe.CONFIG_PATH", tmp_path / "config.toml")
+        r = _runner().invoke(cli, ["config", "get", "fallback", "--json"])
+        assert r.exit_code == 0, r.output
+        import json as _json
+        payload = _json.loads(r.output.strip())
+        assert payload == {"fallback": "groq"}  # v0.11 default
+
+    def test_get_unknown_field_exits_nonzero(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("skills.neurolearn.transcribe.CONFIG_PATH", tmp_path / "config.toml")
+        r = _runner().invoke(cli, ["config", "get", "nonexistent-key"])
+        assert r.exit_code != 0
+        # Help message should list known keys
+        assert "nonexistent-key" in r.output
+
+    def test_get_v012_1_added_fields(self, tmp_path, monkeypatch):
+        """Verify v0.12.1 fields are reachable via config get."""
+        monkeypatch.setattr("skills.neurolearn.transcribe.CONFIG_PATH", tmp_path / "config.toml")
+        for key in ("vision-backend", "gemini-tier", "groq-tier",
+                    "gemini-url-fastpath", "vision-extract-only"):
+            r = _runner().invoke(cli, ["config", "get", key])
+            assert r.exit_code == 0, f"{key} not gettable: {r.output}"

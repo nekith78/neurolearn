@@ -166,7 +166,7 @@ def cli() -> None:
 @click.option("--translate-to", "translate_to_opt", default=None,
               help="Translate transcript to language (ISO code or name).")
 @click.option("--translate-backend", "translate_backend_opt",
-              type=click.Choice(["gemini", "claude", "openai", "ollama"]), default=None,
+              type=click.Choice(["groq", "gemini", "openai", "ollama"]), default=None,
               help="LLM provider for translation (default: gemini).")
 @click.option("--output-format", "output_format_opt",
               type=click.Choice(["all", "txt", "srt", "json"]),
@@ -779,11 +779,15 @@ def _select_analyze_backends(primary: str) -> list[str]:
     exits with code 4 — user asked for that backend explicitly, don't
     silently substitute. Otherwise append every other backend that has a
     key or doesn't need one (ollama is local), in the standard preference
-    order gemini → claude → openai → ollama.
+    order groq → gemini → openai → ollama.
+
+    v0.12.2: 'claude' removed from the order (Anthropic API not used —
+    see feedback_no_anthropic_api memory). 'groq' is now the default
+    primary text-LLM with the largest free-tier RPD.
     """
     if _api_key_for_backend(primary) is None and primary != "ollama":
         return []
-    default_order = ["gemini", "claude", "openai", "ollama"]
+    default_order = ["groq", "gemini", "openai", "ollama"]
     chain: list[str] = [primary]
     seen: set[str] = {primary}
     for b in default_order:
@@ -800,8 +804,9 @@ def _api_key_for_backend(backend: str) -> str | None:
     """None for missing keys, "" for ollama (no key needed)."""
     if backend == "ollama":
         return ""
+    # v0.12.2: removed 'claude': 'anthropic' mapping; Anthropic SDK not used.
     key_name = {
-        "gemini": "gemini", "claude": "anthropic", "openai": "openai",
+        "groq": "groq", "gemini": "gemini", "openai": "openai",
     }.get(backend)
     if not key_name:
         return None
@@ -1302,7 +1307,7 @@ def _run_batch_pipeline(
 @click.option("--translate-to", "translate_to_opt", default=None,
               help="Translate transcript to language (ISO code or name).")
 @click.option("--translate-backend", "translate_backend_opt",
-              type=click.Choice(["gemini", "claude", "openai", "ollama"]), default=None,
+              type=click.Choice(["groq", "gemini", "openai", "ollama"]), default=None,
               help="LLM provider for translation (default: gemini).")
 @click.option("--output-format", "output_format_opt",
               type=click.Choice(["all", "txt", "srt", "json"]),
@@ -1328,7 +1333,7 @@ def _run_batch_pipeline(
               type=click.Path(exists=True, path_type=Path), default=None,
               help="Read --then-analyze prompt from file.")
 @click.option("--analyze-backend", "analyze_backend",
-              type=click.Choice(["gemini", "claude", "openai", "ollama"]),
+              type=click.Choice(["groq", "gemini", "openai", "ollama"]),
               default=None,
               help="LLM backend for --then-analyze. "
                    "Default: ask once and remember in config.toml.")
@@ -1611,6 +1616,33 @@ def _build_doctor_payload() -> dict:
             "command": "neurolearn config set-key groq <YOUR_KEY>",
             "get_key_at": _KEY_GUIDE_URLS["groq"],
         })
+
+    # v0.12.2: nudge users with stale gemini-2.5-flash (known +63%
+    # timestamp drift bug, see CHANGELOG v0.11.0). The default was
+    # bumped to gemini-3.5-flash in v0.12.0 but existing config.toml
+    # files still carry 2.5-flash. Surface as recommended_setup so
+    # Claude can offer the one-line fix.
+    if cfg_exists and cfg.gemini_model == "gemini-2.5-flash":
+        recommended_setup.append({
+            "step": "upgrade-stale-gemini-audio-model",
+            "why": "Your config has gemini-2.5-flash, which has a confirmed "
+                   "+63% timestamp drift on audio output (a 10-min video gets "
+                   ".srt timestamps stretched to 17 min). Switch to "
+                   "gemini-3.5-flash for timestamp-accurate output.",
+            "command": "neurolearn config set gemini-model gemini-3.5-flash",
+        })
+
+    # v0.12.2: when vision/analyze keys are missing but audio is set,
+    # offer to enable the additional stages with the same Groq key.
+    if has_fast_audio and not has_fast_vision:
+        recommended_setup.append({
+            "step": "enable-vision",
+            "why": "Audio is configured but no vision-capable key found. "
+                   "If you set up Groq, the same key already gives you vision "
+                   "(Llama-4-Scout). Otherwise add Gemini for vision fallback.",
+            "command": "neurolearn config set vision-backend groq",
+        })
+
     if not cfg_exists:
         recommended_setup.append({
             "step": "init-config",
@@ -1769,6 +1801,17 @@ _SET_KEY_TO_FIELD: dict[str, str] = {
     "cookies-file": "cookies_file",
     "custom.base_url": "custom_base_url",
     "custom.model": "custom_model",
+    # v0.12.1 + v0.12.2 additions for per-stage selection / tiers / overrides
+    "vision-backend": "vision_backend",
+    "analyze-backend": "analyze_backend",
+    "gemini-tier": "gemini_tier",
+    "groq-tier": "groq_tier",
+    "gemini-url-fastpath": "gemini_url_fastpath",
+    "gemini-vision-model": "gemini_vision_model",
+    "gemini-analyze-model": "gemini_analyze_model",
+    "groq-vision-model": "groq_vision_model",
+    "groq-analyze-model": "groq_analyze_model",
+    "vision-extract-only": "vision_extract_only",
 }
 
 # Keys whose values must be validated against BACKEND_CHOICES.
@@ -1794,6 +1837,36 @@ def config_set(key: str, value: str) -> None:
     setattr(cfg, field, value)
     save_config(cfg, CONFIG_PATH)
     console.print(f"[green]✓[/green] {key} = {value}")
+
+
+@config.command("get")
+@click.argument("key")
+@click.option("--json", "as_json", is_flag=True,
+              help="Emit raw JSON value (for Claude / scripts).")
+def config_get(key: str, as_json: bool) -> None:
+    """Print the current value of a config field.
+
+    Mirrors `config set` — KEY is kebab-case (e.g. backend, gemini-model,
+    vision-backend, gemini-url-fastpath). Use `--json` for machine-
+    parseable output suitable for piping into other CLI calls.
+
+    Examples:
+      neurolearn config get backend
+      neurolearn config get gemini-url-fastpath --json
+      neurolearn config get fallback
+    """
+    field = _SET_KEY_TO_FIELD.get(key)
+    if not field:
+        console.print(f"[red]Unknown key:[/red] {key!r}")
+        console.print(f"Known keys: {', '.join(sorted(_SET_KEY_TO_FIELD))}")
+        sys.exit(2)
+    cfg = load_config(CONFIG_PATH)
+    value = getattr(cfg, field, None)
+    if as_json:
+        import json as _json
+        click.echo(_json.dumps({key: value}, ensure_ascii=False))
+    else:
+        console.print(f"{key} = {value!r}")
 
 
 @config.command("set-key")
@@ -2026,7 +2099,7 @@ def _ensure_gradio_installed() -> None:
 @cli.command(name="summarize")
 @click.argument("transcript_path", type=click.Path(exists=True, path_type=Path))
 @click.option("--backend", "backend_opt",
-              type=click.Choice(["gemini", "claude", "openai", "ollama"]),
+              type=click.Choice(["groq", "gemini", "openai", "ollama"]),
               default="gemini", show_default=True,
               help="LLM provider for summarization.")
 @click.option("--language", "language_opt", default=None,
@@ -2072,7 +2145,7 @@ def summarize_cmd(
     else:
         key_lookup = {
             "gemini": "gemini",
-            "claude": "anthropic",
+            
             "openai": "openai",
         }[backend_opt]
         api_key = get_api_key(key_lookup)
@@ -2122,7 +2195,7 @@ def summarize_cmd(
               type=click.Path(exists=True, path_type=Path),
               help="Read prompt text from this file (.md/.txt).")
 @click.option("--backend", "backend_opt",
-              type=click.Choice(["gemini", "claude", "openai", "ollama"]),
+              type=click.Choice(["groq", "gemini", "openai", "ollama"]),
               default="gemini", show_default=True,
               help="LLM provider.")
 @click.option("--latest", is_flag=True, default=False,
@@ -2197,7 +2270,7 @@ def analyze_cmd(
         api_key: str | None = None
     else:
         key_lookup = {
-            "gemini": "gemini", "claude": "anthropic", "openai": "openai",
+            "groq": "groq", "gemini": "gemini", "openai": "openai",
         }[backend_opt]
         api_key = get_api_key(key_lookup)
         if not api_key:
@@ -2346,7 +2419,7 @@ def analyze_cmd(
                    "translator which language in --languages your query is "
                    "written in (e.g. --query-lang sr for Serbian-latin).")
 @click.option("--translate-backend", "translate_backend_opt",
-              type=click.Choice(["gemini", "claude", "openai", "ollama"]),
+              type=click.Choice(["groq", "gemini", "openai", "ollama"]),
               default=None,
               help="LLM for query translation. Defaults to --analyze-backend.")
 @click.option("--days", "days_opt", type=int, default=None,
@@ -2362,7 +2435,7 @@ def analyze_cmd(
 @click.option("--filter", "filter_opt", default=None,
               help="LLM pre-screening prompt.")
 @click.option("--filter-backend", "filter_backend_opt",
-              type=click.Choice(["gemini", "claude", "openai", "ollama"]),
+              type=click.Choice(["groq", "gemini", "openai", "ollama"]),
               default="gemini", show_default=True)
 @click.option("--in-subscribes", is_flag=True, default=False,
               help="Source = subscribes channels (RSS) instead of YouTube search.")
@@ -2372,7 +2445,7 @@ def analyze_cmd(
 @click.option("--no-analyze", is_flag=True, default=False,
               help="Skip final analyze step (force-skip the LLM pass).")
 @click.option("--analyze-backend", "analyze_backend_opt",
-              type=click.Choice(["gemini", "claude", "openai", "ollama"]),
+              type=click.Choice(["groq", "gemini", "openai", "ollama"]),
               default=None,
               help="LLM backend for analyze. Default: ask once and remember "
                    "in config.toml (non-TTY → skip silently).")
@@ -2447,9 +2520,10 @@ def research_cmd(
         translate_backend_opt or analyze_backend_opt or "gemini"
     )
 
+    # v0.12.2: removed "anthropic" key; Anthropic SDK no longer used.
     api_keys = {
+        "groq": get_api_key("groq"),
         "gemini": get_api_key("gemini"),
-        "anthropic": get_api_key("anthropic"),
         "openai": get_api_key("openai"),
         "ollama": None,
     }
@@ -2529,7 +2603,7 @@ cli.add_command(subscribes_group)
               help="Output language (en/ru/...). Default: video's detected "
                    "language; interactive prompt if TTY and no flag.")
 @click.option("--backend", "backend_opt",
-              type=click.Choice(["gemini", "claude", "openai", "ollama"]),
+              type=click.Choice(["groq", "gemini", "openai", "ollama"]),
               default="gemini", show_default=True,
               help="LLM provider for outline construction.")
 @click.option("--output", "output_opt", default=None,
@@ -2652,7 +2726,7 @@ def report_cmd(
         api_key: str | None = None
     else:
         key_lookup = {
-            "gemini": "gemini", "claude": "anthropic", "openai": "openai",
+            "groq": "groq", "gemini": "gemini", "openai": "openai",
         }[backend_opt]
         api_key = get_api_key(key_lookup)
         if not api_key:

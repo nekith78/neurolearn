@@ -127,17 +127,22 @@ def test_then_analyze_cli_requires_prompt(tmp_path: Path):
 
 
 def test_select_analyze_backends_primary_first():
-    """User's choice comes first; rest follow gemini→claude→openai→ollama."""
+    """User's choice comes first; rest follow groq→gemini→openai→ollama.
+
+    v0.12.2: order changed from (gemini, claude, openai, ollama) to
+    (groq, gemini, openai, ollama). Claude removed (Anthropic SDK not
+    used as a backend — see feedback_no_anthropic_api memory).
+    """
     from skills.neurolearn.transcribe import _select_analyze_backends
     with patch(
         "skills.neurolearn.transcribe.get_api_key",
         return_value="fake-key",
     ):
-        chain = _select_analyze_backends("claude")
-    assert chain[0] == "claude"
-    # gemini/claude/openai/ollama in default order, deduped — claude already
-    # consumed → next is gemini, then openai, then ollama.
-    assert chain == ["claude", "gemini", "openai", "ollama"]
+        chain = _select_analyze_backends("gemini")
+    assert chain[0] == "gemini"
+    # groq/gemini/openai/ollama in default order, deduped — gemini already
+    # consumed → next is groq, then openai, then ollama.
+    assert chain == ["gemini", "groq", "openai", "ollama"]
 
 
 def test_select_analyze_backends_skips_missing_keys():
