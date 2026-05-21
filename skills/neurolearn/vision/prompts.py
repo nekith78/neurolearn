@@ -68,6 +68,7 @@ def load_prompt(
     user_path: Path | None = None,
     custom_template: str | None = None,
     use_global_prefix: bool = True,
+    model_family: str | None = None,
 ) -> PromptSpec:
     """Resolve a prompt template for the given video type.
 
@@ -77,6 +78,14 @@ def load_prompt(
       • Otherwise, look up `prompts.<video_type>` in the user TOML
         (~/.neurolearn/prompts.toml or `user_path`); fall back to
         built-in TOML; finally fall back to the generic type.
+
+    v0.12.0: when `model_family` is provided (e.g. "groq", "gemini",
+    "claude"), the loader looks for a `[prompts.<video_type>.<family>]`
+    subsection first and uses it if present. This lets us ship
+    Llama-4-Scout-tuned variants (positive whitelist, schema-enforced
+    brevity, no canonical example strings) alongside the default
+    Gemini-style prompts, without breaking pre-v0.12 callers that
+    don't pass `model_family`.
 
     Returns a PromptSpec with the .format()-ready template string.
     """
@@ -101,7 +110,7 @@ def load_prompt(
         )
 
     # Look up by type, falling through user → builtin → generic.
-    entry, source = _resolve_type_entry(builtin, user, video_type)
+    entry, source = _resolve_type_entry(builtin, user, video_type, model_family)
 
     type_prompt = entry["prompt"]
     type_appends_global = bool(entry.get("append_global", True))
@@ -208,18 +217,46 @@ def _resolve_global_prefix(builtin: dict, user: dict) -> str:
 
 def _resolve_type_entry(
     builtin: dict, user: dict, video_type: str,
+    model_family: str | None = None,
 ) -> tuple[dict, str]:
     """Find the [prompts.<video_type>] section. User TOML wins.
-    Falls back to generic when the requested type is unknown."""
-    user_entry = (user.get("prompts") or {}).get(video_type)
+
+    When `model_family` is provided, the resolver first looks for a
+    `[prompts.<video_type>.<family>]` sub-table under either the user
+    or built-in TOML and uses it if it contains a `prompt` field.
+    Falls back to the base `[prompts.<video_type>]` if the variant is
+    absent, then to `[prompts.generic]` if the type itself is unknown.
+
+    Returns (entry_dict, source_marker). The source_marker includes
+    the model_family suffix (e.g. `"builtin/groq"`) when a variant is
+    actually used, so callers can log which path fired.
+    """
+    user_types = user.get("prompts") or {}
+    builtin_types = builtin.get("prompts") or {}
+
+    # 1. User TOML variant (e.g. [prompts.tutorial.groq] in user file)
+    if model_family:
+        user_variant = (user_types.get(video_type) or {}).get(model_family)
+        if isinstance(user_variant, dict) and "prompt" in user_variant:
+            return user_variant, f"user_override/{model_family}"
+
+    # 2. User TOML base type
+    user_entry = user_types.get(video_type)
     if isinstance(user_entry, dict) and "prompt" in user_entry:
         return user_entry, "user_override"
 
-    builtin_entry = (builtin.get("prompts") or {}).get(video_type)
+    # 3. Built-in TOML variant
+    if model_family:
+        builtin_variant = (builtin_types.get(video_type) or {}).get(model_family)
+        if isinstance(builtin_variant, dict) and "prompt" in builtin_variant:
+            return builtin_variant, f"builtin/{model_family}"
+
+    # 4. Built-in TOML base type
+    builtin_entry = builtin_types.get(video_type)
     if isinstance(builtin_entry, dict) and "prompt" in builtin_entry:
         return builtin_entry, "builtin"
 
-    # Unknown type → fall back to generic. Should never happen via CLI
+    # 5. Unknown type → fall back to generic. Should never happen via CLI
     # because we validate against list_known_types(), but defensive.
-    generic = (builtin.get("prompts") or {}).get(DEFAULT_VIDEO_TYPE, {})
+    generic = builtin_types.get(DEFAULT_VIDEO_TYPE, {})
     return generic, "builtin"
