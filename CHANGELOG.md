@@ -3,6 +3,102 @@
 All notable changes to neurolearn will be documented here.
 The format is loosely based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.12.1] — 2026-05-21
+
+UX layer on top of v0.12.0 core. Two features that complete the Claude
+Code plugin onboarding story: a tier-aware 3-stage setup wizard, and
+auto-detection of plugin-mode runs to route vision through Claude's
+chat-native vision instead of an external API.
+
+### 3-stage setup wizard (C8)
+
+The first-run wizard was a single audio-backend chooser. Now it walks
+three stages with conditional branching:
+
+```
+Step 1: Audio backend (9 choices, recommends 'smart')
+  Step 1b: Smart cascade fallback (only if audio=smart)
+Step 2: Vision backend (groq / gemini / off — recommends groq)
+Step 3: Analyze backend (groq / gemini / ollama / skip — recommends groq)
+Step 4-5: Gemini tier + paid-model overrides (only if Gemini in any stage)
+Step 6-7: Groq tier + paid-model overrides (only if Groq in any stage)
+Step 8: API keys for chosen cloud backends not already configured
+```
+
+Tier-aware branching: free tier gets the constrained recommended flow,
+no model-override prompts. Paid tier unlocks per-stage model overrides
+(`gemini-3.5-pro` instead of `3.5-flash` for analyze, `llama-4-maverick`
+for groq vision, etc.) plus the URL fast-path Y/N for paid Gemini.
+
+New Config fields (all backward-compatible):
+- `vision_backend: "off"` — picked by Step 2, persisted to config.toml
+- `groq_tier: "free"` — wizard surfaces this to gate paid prompts
+- `gemini_vision_model / gemini_analyze_model: ""` — paid overrides
+- `groq_vision_model / groq_analyze_model: ""` — paid overrides
+
+Bug fix in `load_config()`: returned `DEFAULT_CONFIG` by reference when
+the config file was missing — the new wizard mutated it via
+`cfg.default_backend = ...` and corrupted the singleton for the rest of
+the process. Latent since Config became a mutable @dataclass. Fix:
+`load_config()` now returns `dataclasses.replace(DEFAULT_CONFIG)`.
+
+### Claude Code extract-only mode (C9)
+
+When `$CLAUDE_PLUGIN_ROOT` is set in env (Claude Code plugin context)
+AND vision is requested (`--with-visuals` or `--vision-backend X`),
+neurolearn now defaults to extract-only mode:
+
+1. Extracts keyframes via ffmpeg per detection window.
+2. Writes `<batch>/keyframes/manifest.json` mapping windows → frames
+   with the transcript snippet around each window.
+3. Skips the vision-LLM API call entirely.
+
+Claude in chat reads the manifest, opens each frame with its native
+vision capability, and synthesises descriptions itself. No extra API
+quota burn — the user already pays for their Claude subscription.
+
+New CLI flag: `--claude-extract / --no-claude-extract` (Click
+triple-state). Default is None ⇒ auto-detect from `$CLAUDE_PLUGIN_ROOT`.
+Users can force on/off explicitly.
+
+Manifest schema (`<batch>/keyframes/manifest.json`):
+
+```json
+{
+  "video_id": "...",
+  "mode": "claude_code_extract_only",
+  "extracted_at": "2026-05-21T...Z",
+  "windows": [
+    {
+      "start": 30.0, "end": 34.0,
+      "transcript_window": "the host says ...",
+      "trigger_reason": "trigger",
+      "keyframes": ["frames/<id>_30.jpg", ...]
+    },
+    ...
+  ]
+}
+```
+
+### Minor
+
+- `--with-visuals` shortcut now sets `vision_backend="groq"` (was
+  `gemini`). Aligns with v0.12.0 default of Groq vision primary.
+- `--vision-backend` choices: `off`, `groq`, `gemini`. The `claude`
+  value (removed in v0.12.0) stays out — Claude integration is via
+  chat extract-only mode, not via a backend choice.
+- `needs_video` gate in transcribe/batch expanded to download mp4
+  when `vision_backend in ('gemini', 'groq')`. Was gemini-only.
+
+### Tests
+
+1165 → 1170 (+5):
+- `tests/test_wizard.py` fully rewritten (8 tests) for the 3-stage flow
+- `tests/test_claude_extract_mode.py` (new, 5 tests): manifest schema,
+  relative paths, ffmpeg-failure handling, env var visibility, CLI
+  flags exist
+- 2 existing tests updated to mock the new groq vision path
+
 ## [0.12.0] — 2026-05-21
 
 Major release. Vision backend swap (Groq Llama-4-Scout as primary,

@@ -25,7 +25,7 @@ Works as:
 
 ## Status
 
-v0.12.0 — production-ready:
+v0.12.1 — production-ready:
 
 | Feature | Since | State |
 |---|---|---|
@@ -60,6 +60,7 @@ v0.12.0 — production-ready:
 | Windows robustness — `batch --no-analyze/--yes` no-ops, non-TTY wizard skip, cuBLAS/cuDNN→CPU fallback, compute_type respects device override, combined.md/manifest written on crash | v0.10.9 | Working |
 | Audio default = Groq Whisper turbo (~12s for 17-min video); Claude Code plugin onboarding via `/setup` + `neurolearn doctor --json`; non-interactive `set-key` accepts pasted key as positional arg | v0.11.0 | Working |
 | Vision default = Groq Llama-4-Scout (per-model prompts, JSON-schema enforced); Anthropic API fully removed (Claude integration via chat only); explicit Gemini cache removed (free tier unavailable); `gemini_url_fastpath` opt-in with 3.5-flash whitelist | v0.12.0 | Working |
+| 3-stage wizard (audio/vision/analyze with tier branching + paid model overrides); `$CLAUDE_PLUGIN_ROOT` auto-detection → extract-only mode (writes `keyframes/manifest.json`, Claude reads frames in chat — no extra API call) | v0.12.1 | Working |
 | Web UI (Gradio) | v0.4 | **Experimental, hidden** — code preserved, not maintained |
 
 ---
