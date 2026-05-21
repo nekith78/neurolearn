@@ -3,6 +3,113 @@
 All notable changes to neurolearn will be documented here.
 The format is loosely based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.12.2] — 2026-05-22
+
+Plugin UX audit follow-up. After v0.12.0 (Anthropic removal + Groq vision)
+and v0.12.1 (3-stage wizard + Claude Code extract-only mode), a fresh audit
+found 15 documentation/UX gaps. v0.12.2 ships fixes for all of them so the
+plugin "just works" end-to-end on a fresh `/plugin install` inside Claude
+Desktop.
+
+### Code (4 fixes)
+
+- **Click `--analyze-backend` / `--translate-backend` / `--correct-asr-backend`
+  choices**: swept from `[gemini, claude, openai, ollama]` to
+  `[groq, gemini, openai, ollama]` everywhere (~12 sites). The CLI was
+  accepting `claude` but `analyze/runner._KNOWN` rejected it at runtime —
+  users would get `unknown backend claude` AFTER the batch downloaded.
+  `_select_analyze_backends` default chain order updated. Internal
+  `api_key_lookup` maps purged of `claude: anthropic` entries.
+- **Wizard non-TTY guard**: `run_wizard()` now exits 2 with a friendly
+  stderr message when invoked from a non-TTY context (Claude Code
+  subprocess). Previously hung on `rich.Prompt.ask` EOF. Error message
+  points at the non-interactive escape hatches (`config set-key`,
+  `config set`).
+- **`neurolearn config get <key> [--json]`** — new subcommand for
+  inspecting a single config field. Claude needs this to verify state
+  (e.g. "is `gemini_url_fastpath` actually on?") without parsing the
+  prose `config show` output. Kebab-case keys mirror `config set`.
+- **`doctor` recommends fixes for stale config**: when existing config
+  pins `gemini_model = "gemini-2.5-flash"` (the +63% timestamp drift
+  model), doctor now emits a `recommended_setup` entry with the
+  one-line fix. Also nudges users with audio configured but no
+  vision-capable key to enable `vision-backend = groq`.
+
+### Documentation (10 fixes)
+
+- **SKILL.md invocation form** (audit #1): added "How to invoke the
+  CLI" section at the top telling Claude to prefix every command with
+  `uv run --project "${CLAUDE_PLUGIN_ROOT}" neurolearn …`. Previously
+  SKILL.md examples used the bare `neurolearn` form — fresh
+  `/plugin install` users hit `command not found` on the first
+  transcription attempt.
+- **SKILL.md quota awareness rewritten for v0.12** (audit #4, #13):
+  the table assumed Gemini for everything (audio + vision +
+  analyze). Replaced with a per-stage table showing Groq as primary
+  with its real limits (8h audio/day, 1000 RPD vision, 14,400 RPD
+  analyze) and Gemini as fallback with the much smaller free quotas.
+- **SKILL.md backend cheat-sheet refreshed** (audit, #3): removed the
+  v0.10.5-era "smart cascades subtitles → Gemini-URL → fallback"
+  description. Updated to current v0.12.0 cascade
+  (subtitles → groq → whisper-local).
+- **SKILL.md visual moments section** (audit #5): documents the
+  `keyframes/manifest.json` schema and step-by-step instructions for
+  Claude to read each frame + transcript snippet and synthesize
+  descriptions natively. Without this v0.12.1 feature is silently
+  broken end-to-end — Claude doesn't know to read the manifest.
+- **SKILL.md analyze backend reference** (audit #3): `--analyze-backend
+  {gemini|claude|openai|ollama}` → `{groq|gemini|openai|ollama}` to
+  match the v0.12.2 Click choices.
+- **commands/transcribe.md**: new "Visual moments — extract-only mode"
+  section mirroring the SKILL.md guidance, with the manifest schema
+  inline.
+- **commands/setup.md** (audit #7, #9): Step 2 now sets
+  `backend smart` (not just `fallback groq`) — `fallback` only matters
+  when `backend = smart`. Added Step 3 verification of `has_fast_vision`
+  + `has_analyze_backend` (v0.12.1 doctor fields). New "Branch C —
+  has_fast_audio but missing vision or analyze" arm iterates
+  `recommended_setup[]` to upgrade users. New "Tier hint" section for
+  paid users (gemini-tier / groq-tier / gemini-url-fastpath via
+  `config set`). Warning that `config wizard` is TTY-only and Claude
+  should never invoke it from chat.
+- **README "Heads-up about smart" rewrite** (audit #10): replaced the
+  contradicting v0.10.5-era "smart enables Gemini visual analysis by
+  default" prose with current behavior — smart is audio-only since
+  v0.10.6, vision is opt-in via `--with-visuals`, default vision
+  backend is Groq Llama-4-Scout since v0.12.0.
+- **README `--backend claude` example** (audit #3, #12): swapped to
+  `--backend groq` with a v0.12 note.
+- **docs/agent-reference.md sweep** (audit #11): removed every
+  `--analyze-backend` / chain reference to `claude`; updated
+  tutorial-preset description to drop the removed Claude refinement
+  fallback; `--vision-backend {off, gemini}` → `{off, groq, gemini}`.
+- **Plugin marketplace keywords** (audit #15): `"claude"` →
+  `"claude-code"` in `.claude-plugin/plugin.json` and
+  `.claude-plugin/marketplace.json`. Old keyword set wrong expectations
+  ("claude transcription" searcher landed on a plugin that doesn't
+  call Anthropic API).
+
+### Tests
+
+1170 → 1175 (+5 net):
+- test_wizard.py: helper monkey-patches `sys.stdin.isatty = True` to
+  bypass the v0.12.2 guard; new `test_wizard_exits_when_not_tty` for
+  the guard itself.
+- test_batch_then_analyze.py: updated default chain assertion to
+  `[groq, gemini, openai, ollama]`.
+- test_config_cli.py: +4 `TestConfigGet` cases (known field, --json
+  output, unknown field error, v0.12.1 fields reachable).
+
+### Migration
+
+No action needed for existing users. The `claude` → `groq` swap in
+Click choices doesn't break runtime (the runtime never accepted
+`claude`); it just stops misleading users via `--help`. The wizard
+guard only fires when stdin is not a TTY — interactive users see no
+difference. Stale `gemini_model = "gemini-2.5-flash"` now triggers a
+proactive recommended_setup entry instead of silent timestamp-drift on
+the next audio run.
+
 ## [0.12.1] — 2026-05-21
 
 UX layer on top of v0.12.0 core. Two features that complete the Claude

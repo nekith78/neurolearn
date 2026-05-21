@@ -28,6 +28,30 @@ description: |
 > dir. This SKILL.md covers triggers and quick decisions; the reference
 > covers everything else.
 
+## How to invoke the CLI
+
+**Always prefer `${CLAUDE_PLUGIN_ROOT}` (zero-config).** Claude Code sets
+this env var to the plugin install dir. The plugin ships its own venv
+via `uv run --project`, so this form works immediately after
+`/plugin install` without the user needing to run `uv tool install`:
+
+```bash
+uv run --project "${CLAUDE_PLUGIN_ROOT}" neurolearn <subcommand> [flags]
+```
+
+**Fallback** (only if `${CLAUDE_PLUGIN_ROOT}` is empty): use plain
+`neurolearn <subcommand>` — works when the user has a global install
+via `uv tool install neurolearn` or pip.
+
+If the bare `neurolearn` command returns "command not found", relay this:
+
+> The `neurolearn` CLI isn't on PATH. Install once:
+> `uv tool install --from "${CLAUDE_PLUGIN_ROOT}" neurolearn`
+
+All examples below use the bare `neurolearn ...` form for brevity. When
+you actually invoke the CLI inside Claude Code, prefix it with
+`uv run --project "${CLAUDE_PLUGIN_ROOT}"`.
+
 ## Onboarding — first-time use (v0.11.0+)
 
 When the user invokes this skill for the first time after installing the
@@ -70,57 +94,110 @@ the user at the `/setup` slash command.
 - Never write the key to any file other than via `neurolearn config set-key`.
   That command stores it in `~/.neurolearn/.env` with mode 0600 on Unix.
 
-## Backend choice cheat-sheet
+## Backend choice cheat-sheet (v0.12+)
 
 Pick the backend BEFORE invoking, based on user intent + environment.
-Decision tree:
 
 | User intent / situation | Recommended invocation | Why |
 |---|---|---|
-| Fast transcript from YouTube (default) | `--backend smart` (or omit `--backend`) | Subtitles fast-path → on miss, Gemini direct URL → on quota, download+fallback. Three-tier auto-fallback, no skipped step. |
-| Offline / no API keys / privacy | `--backend whisper-local --whisper-model turbo` | Local mlx-whisper on Mac arm64 ≈ real-time. No network, no quota. |
-| User has paid Gemini tier | `--backend gemini` | URL path: no download, no upload, fastest. No quota concern. |
-| User has free Gemini tier | `--backend smart` (NOT `--backend gemini`) | Smart auto-falls-back when Gemini 429s. Pure `gemini` errors out. |
-| Instagram / TikTok URL | any backend (smart works) | Gemini direct-URL works ONLY for YouTube; smart downloads audio for other platforms automatically. |
-| Need keyframes / visual analysis | `--with-visuals` ⚠️ (or `--preset standard / premium / tutorial`) | Vision is opt-in as of v0.10.6 — quota cost 1+N per video. See quota warning below. |
+| Fast transcript from YouTube (default) | `--backend smart` (or omit `--backend`) | Subtitles fast-path → Groq Whisper turbo → whisper-local fallback. v0.12 default. |
+| Offline / no API keys / privacy | `--backend whisper-local --whisper-model turbo` | mlx-whisper on Apple Silicon, faster-whisper elsewhere. No network. |
+| Paid Gemini tier + 3.5-flash configured | `--backend gemini` | URL path: no download, no upload. Only safe with timestamp-accurate Gemini models. |
+| Free Gemini tier (anyone) | `--backend smart` (NOT `--backend gemini` for audio) | Gemini 3.5-flash free tier is only 20 RPD; use Groq instead. |
+| Instagram / TikTok URL | any backend (smart works) | Non-YouTube providers don't accept URL natively. Smart downloads audio then transcribes. |
+| Need keyframes / visual analysis | `--with-visuals` (Groq Llama-4-Scout by default v0.12) | Or `--preset standard / premium / tutorial`. See "Visual moments" section below. |
 | Diarization (who-said-what) | `--diarize` | Adds pyannote; requires HF token. Doesn't change transcription backend. |
-| Very high accuracy | `--backend whisper-local --whisper-model large` | Slowest but best Whisper variant. Or `--backend deepgram --deepgram-model nova-3` for the cloud equivalent. |
+| Very high accuracy | `--backend whisper-local --whisper-model large` | Best Whisper variant. Or `--backend deepgram --deepgram-model nova-3`. |
 
-If unsure: `smart` is the safe default. It cascades subtitles → Gemini-URL → download+fallback, so the user always gets a transcript.
+If unsure: `smart` is the safe default — `subtitles → groq → whisper-local`.
 
-## Quota awareness — Gemini free tier
+## Quota awareness (v0.12+)
 
-The Gemini free tier caps `gemini-2.5-flash` at **20 requests/day per
-project**. Heavy use can exhaust this in one session. Burn rates:
+Default audio is **Groq Whisper-large-v3-turbo**, default vision is
+**Groq Llama-4-Scout**, default analyze LLM is **Groq Llama-3.3-70b**.
+One Groq API key covers all three.
 
-| Operation | Gemini calls |
-|---|---|
-| `transcribe <YouTube URL>` (default smart preset, v0.10.6+) | **1** |
-| `transcribe <local file> --backend gemini` (upload path) | **1** |
-| `transcribe --with-visuals` (vision pipeline opt-in) | **1 + N** where N ≈ keyframe windows (≈4–6 per minute of video) |
-| `transcribe --preset standard / premium / tutorial` | **1 + N** — these presets enable vision by design |
-| `analyze --backend gemini` | **1** per run |
-| `research --filter "..."` LLM screen | **1** per run |
-| `report` outline (short video) | **1** |
-| `report` outline (long video, hierarchical) | **N+1** (one per chunk + assembly) |
+| Stage | Backend | Free tier limit | Comment |
+|---|---|---|---|
+| Audio | Groq Whisper turbo | 8 hours of audio per day, 2,000 RPD | ~12s per 17-min video |
+| Audio fallback | Gemini 3.5-flash | **20 RPD only** | Use sparingly; only when Groq unavailable |
+| Vision per-frame | Groq Llama-4-Scout | 1,000 RPD, 30 RPM | ~1.2s per frame, 5 frames max per request |
+| Vision fallback | Gemini 2.5-flash | 250 RPD | Used when Groq vision unavailable. (2.5-flash for vision is safe — the +63% timestamp bug only affects AUDIO output.) |
+| Analyze LLM | Groq Llama-3.3-70b | 14,400 RPD | Replaces Gemini's tiny 20 RPD for batch/research workloads |
 
-**Important** (v0.10.6): the default `smart` preset no longer enables
-vision automatically. A plain `neurolearn transcribe <URL>` now costs
-exactly 1 Gemini call. Vision is opt-in via `--with-visuals` or via
-the richer presets above. Pre-v0.10.6 versions silently triggered
-1+N vision calls on every default invocation — that behavior is gone.
+**v0.10.6+ note**: the default `smart` preset does NOT enable vision
+automatically. A plain `neurolearn transcribe <URL>` does audio only.
+Vision is opt-in via `--with-visuals` or via `--preset standard /
+premium / tutorial`.
+
+**v0.12.0 + audio-only-on-2.5-flash warning**: if user has the legacy
+`gemini-2.5-flash` audio model in their config, `doctor --json` reports
+it in `ready.recommended_setup[]` and the gemini backend prints a
+stderr warning at runtime. Relay the fix:
+`neurolearn config set gemini-model gemini-3.5-flash`.
 
 **On 429 `RESOURCE_EXHAUSTED`:**
-- `--backend gemini` exits with `BackendError`. NO fallback.
-- `--backend smart` automatically falls back to subtitles / download +
-  `fallback_backend` so the user still gets a transcript.
+- `--backend smart` (default) auto-falls-back: groq fails → whisper-local.
+- `--backend gemini` exits with `BackendError`. No fallback when explicit.
+- Gemini free quotas reset daily at midnight Pacific. The error message
+  includes `retryDelay` for per-minute limits; daily caps don't surface
+  a clean reset time.
 
-**For `--with-visuals`:** prefer paid Gemini tier or omit. On free tier
-an 8-minute YouTube video can burn 30+ calls just for vision.
+## Visual moments — vision pipeline (v0.12+)
 
-**To check quota status / reset window:** Gemini quotas reset daily at
-midnight Pacific Time. The error message includes `retryDelay` for
-the per-minute limit but daily caps don't surface a clean reset time.
+`--with-visuals` triggers keyframe extraction and per-frame description.
+
+### When the user is INSIDE Claude Code (the common case)
+
+**Default behavior**: when `$CLAUDE_PLUGIN_ROOT` env var is set
+(neurolearn detects Claude Code automatically) AND vision is requested,
+neurolearn writes `<batch>/keyframes/manifest.json` with frame paths +
+transcript snippets, then EXITS without calling any external vision API.
+
+YOU (Claude) then read the manifest and describe the frames yourself.
+This saves the user's API quota and uses your native vision instead.
+
+**How to consume `<batch>/keyframes/manifest.json`:**
+
+```json
+{
+  "video_id": "...",
+  "mode": "claude_code_extract_only",
+  "extracted_at": "2026-05-21T...Z",
+  "windows": [
+    {
+      "start": 30.0, "end": 34.0,
+      "transcript_window": "host says ...",
+      "trigger_reason": "trigger" | "scene_change" | ...,
+      "keyframes": ["frames/<id>_30.jpg", ...]
+    }
+  ]
+}
+```
+
+For each `windows[]` entry:
+1. Open every path in `keyframes[]` with your image-reading capability
+   (paths are RELATIVE to the manifest's parent directory).
+2. Read the `transcript_window` string — it's the audio transcript
+   ±4s around the moment.
+3. Synthesize a 1-3 sentence description of what's on the frame using
+   the transcript as disambiguation context.
+4. Report descriptions back to the user inline or write them into a
+   user-readable file (e.g. `<batch>/visual.md`).
+
+Apply the same epistemic stance (below) — describe what's actually on
+the frame, do not parrot the transcript.
+
+### When the user is RUNNING THE CLI STANDALONE (not via Claude Code)
+
+`$CLAUDE_PLUGIN_ROOT` is empty, so neurolearn calls the configured
+external vision backend (Groq Llama-4-Scout primary, Gemini 2.5-flash
+fallback). The user gets a `visual.md` written automatically.
+
+User can force one mode or the other with:
+- `--claude-extract` → force extract-only (write manifest, no API call)
+- `--no-claude-extract` → force external API call even from inside
+  Claude Code (e.g. for batch jobs where Claude isn't the consumer)
 
 ## Consuming neurolearn output — epistemic stance
 
@@ -245,7 +322,7 @@ video_id, transcribe with the chosen backend, write to `<output-dir>/research_<a
 
 **Critical for Claude:** ALWAYS pass `--no-analyze` when invoking `research` from chat.
 You are the LLM that will analyze the transcripts — there is no point routing them
-through Gemini/Claude/OpenAI via the CLI's `--analyze-backend`. After the command
+through Groq/Gemini/OpenAI/Ollama via the CLI's `--analyze-backend`. After the command
 returns, read `<batch_dir>/combined.md` yourself and answer the user's actual question.
 
 ### Subscribes (channel watch + incremental update)
@@ -373,7 +450,7 @@ This writes to `~/.neurolearn/config.toml` and affects all future sessions.
 
 ## Analyze backend (when CLI calls an LLM)
 
-The CLI has an optional `--analyze-backend {gemini|claude|openai|ollama}` flag that
+The CLI has an optional `--analyze-backend {groq|gemini|openai|ollama}` flag that
 runs an LLM pass on the transcripts and writes `analysis-*.md` inside the batch dir.
 
 **From inside Claude Code: you should NOT use it.** You're already the LLM in the

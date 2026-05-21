@@ -23,9 +23,9 @@ def test_version_matches_pyproject():
     """
     import skills.neurolearn
     # v0.11.0 raised the floor from 0.10.1 — audio default switched to Groq.
-    # v0.12.1 — added 3-stage wizard + $CLAUDE_PLUGIN_ROOT extract-only mode.
+    # v0.12.2 — plugin UX audit follow-up (Click choices cleanup,
+    # wizard TTY guard, config get, doctor warnings + docs sweep).
     parts = skills.neurolearn.__version__.split(".")
     assert int(parts[0]) == 0
     assert int(parts[1]) >= 12
-    # accept any patch ≥ 1
-    assert int(parts[2]) >= 1 or int(parts[1]) >= 13
+    assert int(parts[2]) >= 2 or int(parts[1]) >= 13

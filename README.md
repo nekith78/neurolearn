@@ -25,7 +25,7 @@ Works as:
 
 ## Status
 
-v0.12.1 — production-ready:
+v0.12.2 — production-ready:
 
 | Feature | Since | State |
 |---|---|---|
@@ -61,6 +61,7 @@ v0.12.1 — production-ready:
 | Audio default = Groq Whisper turbo (~12s for 17-min video); Claude Code plugin onboarding via `/setup` + `neurolearn doctor --json`; non-interactive `set-key` accepts pasted key as positional arg | v0.11.0 | Working |
 | Vision default = Groq Llama-4-Scout (per-model prompts, JSON-schema enforced); Anthropic API fully removed (Claude integration via chat only); explicit Gemini cache removed (free tier unavailable); `gemini_url_fastpath` opt-in with 3.5-flash whitelist | v0.12.0 | Working |
 | 3-stage wizard (audio/vision/analyze with tier branching + paid model overrides); `$CLAUDE_PLUGIN_ROOT` auto-detection → extract-only mode (writes `keyframes/manifest.json`, Claude reads frames in chat — no extra API call) | v0.12.1 | Working |
+| Plugin UX audit fixes — Click choices cleanup (claude→groq in 12+ places), wizard non-TTY guard, `config get` command, doctor warning for stale gemini-2.5-flash, SKILL.md/commands/agent-reference rewrites for v0.12 architecture | v0.12.2 | Working |
 | Web UI (Gradio) | v0.4 | **Experimental, hidden** — code preserved, not maintained |
 
 ---
@@ -257,11 +258,16 @@ set `default_preset` in `~/.neurolearn/config.toml`.
 | `standard` | whisper-local | on | gemini | hybrid |
 | `premium` | whisper-large | on | gemini | LLM full pass |
 
-**Heads-up about `smart`:** it enables Gemini visual analysis by default
-(`vision_backend = "gemini"`). If you don't want any cloud calls, pick `eco`
-explicitly or set `vision_backend = "off"` in your config. The `smart`
-preset trades a small Gemini cost for cross-referenced keyframes + visual
-context in `combined.md`.
+**Heads-up about `smart` (v0.12.0+):** the `smart` preset is audio-only
+by default. Vision is **opt-in** via `--with-visuals` or via the richer
+`standard` / `premium` / `tutorial` presets. (Pre-v0.10.6 `smart` did
+auto-enable vision; that's gone.)
+
+When you DO enable vision via `--with-visuals`, the default vision
+backend is Groq Llama-4-Scout (v0.12.0+) — Gemini is the fallback only.
+If you're running inside Claude Code AND opt in, `neurolearn` writes a
+keyframe manifest and lets Claude itself read the frames (no external
+vision API quota burn).
 
 ```bash
 neurolearn URL --preset eco              # nothing leaves the machine
@@ -380,7 +386,7 @@ neurolearn analyze ./transcripts/x.txt \
 
 # Analyze the most recent batch (skips picker)
 neurolearn analyze --latest \
-  --prompt-file my-prompt.md --backend claude
+  --prompt-file my-prompt.md --backend groq  # v0.12+: claude removed
 
 # Pick a subset of videos in a folder interactively
 neurolearn analyze ./transcripts/batch_2026-05-11_claude/ \

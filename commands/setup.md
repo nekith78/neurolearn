@@ -68,10 +68,22 @@ When the user pastes the key, you register it for them. The key looks like
 uv run --project "${CLAUDE_PLUGIN_ROOT}" neurolearn config set-key groq <THE_PASTED_KEY>
 ```
 
-Then set the audio default to Groq via smart cascade:
+Then set the audio default to Groq via smart cascade. Run BOTH:
 
 ```bash
+uv run --project "${CLAUDE_PLUGIN_ROOT}" neurolearn config set backend smart
 uv run --project "${CLAUDE_PLUGIN_ROOT}" neurolearn config set fallback groq
+```
+
+(`fallback groq` alone only kicks in when `backend = smart` — which is
+the v0.11+ default, but explicit is safer if the user had an older
+config.)
+
+Also enable Groq for vision and analyze (one Groq key covers all three):
+
+```bash
+uv run --project "${CLAUDE_PLUGIN_ROOT}" neurolearn config set vision-backend groq
+uv run --project "${CLAUDE_PLUGIN_ROOT}" neurolearn config set analyze-backend groq
 ```
 
 Step 3 — Verify:
@@ -80,9 +92,50 @@ Step 3 — Verify:
 uv run --project "${CLAUDE_PLUGIN_ROOT}" neurolearn doctor --json
 ```
 
-Confirm `ready.has_fast_audio == true` and `keys.groq.configured == true`.
+Confirm:
+- `ready.has_fast_audio == true`
+- `ready.has_fast_vision == true` (auto-true with Groq key)
+- `ready.has_analyze_backend == true` (auto-true with Groq key)
+- `keys.groq.configured == true`
+
 Tell the user: "Setup complete. You can paste a YouTube URL anytime and I'll
-transcribe it."
+transcribe it. Vision (`--with-visuals`) and analyze are also unlocked
+because Groq covers all three stages."
+
+### Branch C — has_fast_audio but missing vision or analyze
+
+If `ready.has_fast_audio == true` BUT one of:
+- `ready.has_fast_vision == false`
+- `ready.has_analyze_backend == false`
+
+…then the user has a fast audio key but vision/analyze stages will
+either skip or fall back to slower paths. Offer to enable them.
+
+Iterate `ready.recommended_setup[]` from `doctor --json` — v0.12.2 adds
+entries like `enable-vision` and `upgrade-stale-gemini-audio-model`.
+For each entry, relay its `why` to the user and (with consent) run the
+exact `command` field.
+
+### Tier hint (paid users)
+
+If the user mentions they're on a paid Gemini or Groq tier (e.g. "I
+have Gemini Tier 1"), set that in their config to unlock larger RPD
+caps + paid-only model overrides:
+
+```bash
+uv run --project "${CLAUDE_PLUGIN_ROOT}" neurolearn config set gemini-tier paid
+uv run --project "${CLAUDE_PLUGIN_ROOT}" neurolearn config set groq-tier paid
+```
+
+For paid Gemini, also enable the URL fast-path (zero-download audio
+for YouTube, only safe with gemini-3.5-flash):
+
+```bash
+uv run --project "${CLAUDE_PLUGIN_ROOT}" neurolearn config set gemini-url-fastpath true
+```
+
+Do NOT run `neurolearn config wizard` from chat — it's a TTY-only
+interactive flow and will exit 2 in a non-TTY context (v0.12.2+).
 
 ### Optional: also configure Gemini
 

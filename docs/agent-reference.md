@@ -50,13 +50,15 @@ Key flags (full list via `--help`):
                 **vision off** as of v0.10.6 (was on pre-0.10.6; that silently
                 burned ~1+N Gemini calls per video). Use `--with-visuals` or
                 a richer preset below to opt into vision.
-  - `standard`— whisper-local + vision on (1+N Gemini calls per video).
+  - `standard`— whisper-local + vision on (Gemini fallback; v0.12+ tutorial preset uses Groq).
   - `premium` — whisper-local + LLM-full-pass vision detection + quality+perplexity.
-  - `tutorial`— whisper-local + asymmetric keyframe offsets (-1.5/+0.3/+2.0s)
-                + Claude fallback for low-confidence frames. Auto-selected
-                when transcript looks like a UI tutorial.
+  - `tutorial`— smart + asymmetric keyframe offsets (-1.5/+0.3/+2.0s) +
+                Groq Llama-4-Scout vision (v0.12+). Auto-selected when
+                transcript looks like a UI tutorial. Pre-v0.12.0 used a
+                Claude-API fallback for low-confidence frames — removed
+                (see CHANGELOG v0.12.0; Anthropic SDK not used).
 - `--cookies-file <path>` — Netscape cookies.txt. Required for IG (sign-in-only), useful for YouTube age-restricted / members-only. We deliberately do NOT support `--cookies-from-browser` — it pulls the entire browser cookie store into memory. Export the cookies you want via the "Get cookies.txt LOCALLY" extension (Chrome / Firefox / Edge / Brave / etc.) and pass the file path
-- `--with-visuals` / `--vision-backend {off,gemini}` — visual moments
+- `--with-visuals` / `--vision-backend {off,groq,gemini}` — visual moments (v0.12+: groq default; v0.12.1+ extract-only via `--claude-extract` or `$CLAUDE_PLUGIN_ROOT`)
 - `--correct-asr` (+ `--correct-asr-backend`) — LLM post-fix
 - `--diarize` — pyannote speaker labels
 - `--translate-to <code>` (+ `--translate-backend`) — output translation
@@ -117,7 +119,7 @@ Key flags:
 - `--group <name>` — restrict to channels in this group (only with `--in-subscribes`)
 - `--yes` — skip the TTY checkpoint
 - `--no-analyze` — force-skip the LLM pass (recommended when driven from chat)
-- `--analyze-backend {gemini,claude,openai,ollama}` — pick LLM explicitly
+- `--analyze-backend {groq,gemini,openai,ollama}` — pick LLM explicitly
 - All `batch` flags (`--backend`, `--whisper-model`, `--workers`, etc.) pass through
 
 Output: same as batch + a row in `~/.neurolearn/history.toml` with
@@ -213,7 +215,7 @@ skills/neurolearn/
 │   ├── source_resolver.py    # locate transcripts (latest / batch / explicit)
 │   ├── picker.py             # questionary TUI for video selection
 │   ├── prompt_builder.py     # assemble system + user + transcripts
-│   ├── runner.py             # call gemini/claude/openai/ollama
+│   ├── runner.py             # call groq/gemini/openai/ollama
 │   ├── output_writer.py      # analysis-*.md + --append-to
 │   ├── select_parser.py      # "1,3,5-7" → [0,2,4,5,6]
 │   └── backend_resolver.py   # v0.7 — flag > config > onboarding > skip
@@ -257,7 +259,7 @@ skills/neurolearn/
 │   └── window_merge.py
 │
 ├── vision/                   # v0.2 vision backends + frame/ocr extraction
-│   ├── gemini.py / claude_vision.py / openai_vision.py
+│   ├── gemini.py / groq_vision.py / openai_vision.py
 │   ├── frames.py             # ffmpeg keyframe extraction
 │   ├── ocr.py                # pytesseract (opt-in)
 │   └── prompts.py
@@ -291,7 +293,7 @@ The CLI's analyze resolution order
 1. `--no-analyze` → return `None` (skip)
 2. `--analyze-backend X` → return `X`
 3. config `[analyze] backend = "skip"` → return `None`
-4. config `[analyze] backend = X` → return `X` (one of gemini/claude/openai/ollama)
+4. config `[analyze] backend = X` → return `X` (one of groq/gemini/openai/ollama)
 5. TTY + no preference saved → one-shot interactive prompt, save choice, return it
 6. Non-TTY + no preference → return `None` (silent skip)
 
@@ -301,7 +303,7 @@ flag the analyze step is always skipped — which is the right default. The
 obvious in logs.
 
 Fallback chain on analyze failure: when the primary backend returns "" (quota
-/ 429 / network), the chain falls through `gemini → claude → openai → ollama`,
+/ 429 / network), the chain falls through `groq → gemini → openai → ollama`,
 skipping any without a configured key. Ollama is always included as the local
 fallback. If the primary backend has no key, exit 4 (don't silently substitute).
 

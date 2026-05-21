@@ -72,6 +72,52 @@ to the user:
 
 If `$ARGUMENTS` is empty, prompt the user for a URL, file path, channel URL, or list.
 
+### Visual moments — extract-only mode (v0.12.1+)
+
+When the user passes `--with-visuals` AND you're running inside Claude
+Code (the `${CLAUDE_PLUGIN_ROOT}` env var is set), neurolearn DEFAULTS
+to extract-only mode: it pulls keyframes via ffmpeg, writes
+`<batch>/keyframes/manifest.json` describing the mapping, and exits
+WITHOUT calling any external vision API.
+
+**You (Claude) are responsible for reading the manifest and describing
+the frames yourself.** This saves the user's API quota and uses your
+native vision instead.
+
+After a `--with-visuals` run completes, look for `<batch>/keyframes/manifest.json`:
+
+```json
+{
+  "video_id": "...",
+  "mode": "claude_code_extract_only",
+  "extracted_at": "2026-05-21T...Z",
+  "windows": [
+    {
+      "start": 30.0, "end": 34.0,
+      "transcript_window": "the host says ...",
+      "trigger_reason": "trigger",
+      "keyframes": ["frames/<id>_30.jpg", ...]
+    },
+    ...
+  ]
+}
+```
+
+For each window:
+1. Open each path in `keyframes[]` (relative to manifest's parent dir)
+   with your image-reading capability.
+2. Use `transcript_window` as audio-context disambiguation.
+3. Synthesize a 1-3 sentence description.
+4. Write the result back to `<batch>/visual.md` or report inline.
+
+Apply the same epistemic stance below — describe what's actually on the
+frame, do not parrot the transcript.
+
+To FORCE the external vision API instead (e.g. for a non-Claude
+consumer running the batch unattended), add `--no-claude-extract`.
+To force extract-only from a standalone CLI run (no Claude Code), add
+`--claude-extract`.
+
 ### Epistemic stance when summarizing / analyzing transcripts
 
 Whenever you process transcript content downstream (summarize, write a
