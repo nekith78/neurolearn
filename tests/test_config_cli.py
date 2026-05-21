@@ -149,6 +149,65 @@ class TestConfigSetKey:
             env_text = (tmp_path / ".env").read_text()
             assert "GEMINI_API_KEY=\n" not in env_text
 
+    # ------------------------------------------------------------------
+    # v0.11.0: non-interactive forms (positional value, --from-env, --from-stdin)
+    # ------------------------------------------------------------------
+
+    def test_set_key_positional_value(self, tmp_path: Path, monkeypatch):
+        """`set-key groq <value>` works without TTY prompt — Claude-friendly."""
+        monkeypatch.setattr("skills.neurolearn.transcribe.ENV_PATH", tmp_path / ".env")
+        r = _runner().invoke(cli, ["config", "set-key", "groq", "gsk_test_value_123"])
+        assert r.exit_code == 0, r.output
+        env_text = (tmp_path / ".env").read_text()
+        assert "GROQ_API_KEY=gsk_test_value_123" in env_text
+        # full key must still not appear in console output (masked)
+        assert "gsk_test_value_123" not in r.output
+
+    def test_set_key_from_env_variable(self, tmp_path: Path, monkeypatch):
+        """`set-key groq --from-env MY_VAR` reads from env."""
+        monkeypatch.setattr("skills.neurolearn.transcribe.ENV_PATH", tmp_path / ".env")
+        monkeypatch.setenv("MY_GROQ_KEY", "gsk_from_env_xyz")
+        r = _runner().invoke(cli, ["config", "set-key", "groq", "--from-env", "MY_GROQ_KEY"])
+        assert r.exit_code == 0, r.output
+        env_text = (tmp_path / ".env").read_text()
+        assert "GROQ_API_KEY=gsk_from_env_xyz" in env_text
+
+    def test_set_key_from_env_missing_var_errors(self, tmp_path: Path, monkeypatch):
+        """`--from-env MISSING_VAR` exits non-zero with a clear message."""
+        monkeypatch.setattr("skills.neurolearn.transcribe.ENV_PATH", tmp_path / ".env")
+        monkeypatch.delenv("ABSENT_KEY", raising=False)
+        r = _runner().invoke(cli, ["config", "set-key", "groq", "--from-env", "ABSENT_KEY"])
+        assert r.exit_code != 0
+        assert "ABSENT_KEY" in r.output
+
+    def test_set_key_from_stdin(self, tmp_path: Path, monkeypatch):
+        """`echo KEY | set-key groq --from-stdin` reads from piped stdin."""
+        monkeypatch.setattr("skills.neurolearn.transcribe.ENV_PATH", tmp_path / ".env")
+        r = _runner().invoke(
+            cli, ["config", "set-key", "groq", "--from-stdin"],
+            input="gsk_from_stdin_abc\n",
+        )
+        assert r.exit_code == 0, r.output
+        env_text = (tmp_path / ".env").read_text()
+        assert "GROQ_API_KEY=gsk_from_stdin_abc" in env_text
+
+    def test_set_key_positional_takes_priority(self, tmp_path: Path, monkeypatch):
+        """If both positional and --from-env are given, positional wins (explicit > implicit)."""
+        monkeypatch.setattr("skills.neurolearn.transcribe.ENV_PATH", tmp_path / ".env")
+        monkeypatch.setenv("OTHER_VAR", "gsk_env_value")
+        r = _runner().invoke(cli, ["config", "set-key", "groq", "gsk_positional", "--from-env", "OTHER_VAR"])
+        assert r.exit_code == 0, r.output
+        env_text = (tmp_path / ".env").read_text()
+        assert "GROQ_API_KEY=gsk_positional" in env_text
+        assert "gsk_env_value" not in env_text
+
+    def test_set_key_positional_empty_value_rejected(self, tmp_path: Path, monkeypatch):
+        """Empty positional value '' is rejected — guard against shell expansion issues."""
+        monkeypatch.setattr("skills.neurolearn.transcribe.ENV_PATH", tmp_path / ".env")
+        r = _runner().invoke(cli, ["config", "set-key", "groq", ""])
+        assert r.exit_code != 0
+        assert not (tmp_path / ".env").exists() or "GROQ_API_KEY" not in (tmp_path / ".env").read_text()
+
 
 # ---------------------------------------------------------------------------
 # config test

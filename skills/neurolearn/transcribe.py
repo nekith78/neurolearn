@@ -1581,12 +1581,59 @@ def config_set(key: str, value: str) -> None:
 @click.argument("backend", type=click.Choice(
     ["gemini", "groq", "openai", "deepgram", "assemblyai", "custom"]
 ))
-def config_set_key(backend: str) -> None:
-    """Interactively set an API key for BACKEND (stored in .env, never in config)."""
-    key = click.prompt(f"{backend.upper()}_API_KEY", hide_input=True, default="")
-    if not key:
-        console.print("[yellow]No key entered — nothing saved.[/yellow]")
-        return
+@click.argument("value", required=False, default=None)
+@click.option("--from-env", "from_env", default=None, metavar="VAR_NAME",
+              help="Read key from the named environment variable (non-interactive).")
+@click.option("--from-stdin", "from_stdin", is_flag=True,
+              help="Read key from one line on stdin (non-interactive).")
+def config_set_key(
+    backend: str,
+    value: str | None,
+    from_env: str | None,
+    from_stdin: bool,
+) -> None:
+    """Set an API key for BACKEND (stored in .env, never in config).
+
+    Three non-interactive forms (Claude-friendly):
+
+    \b
+      neurolearn config set-key groq gsk_xxx        # positional
+      neurolearn config set-key groq --from-env GROQ_API_KEY
+      echo gsk_xxx | neurolearn config set-key groq --from-stdin
+
+    With no positional value and no flag: falls back to interactive prompt
+    (works only when stdin is a TTY).
+    """
+    # Positional value wins (explicit > flag-based > interactive)
+    if value is not None:
+        if not value.strip():
+            raise click.BadArgumentUsage(
+                "Empty positional value — pass the key as a non-empty string."
+            )
+        key = value.strip()
+    elif from_env is not None:
+        raw = os.environ.get(from_env)
+        if not raw or not raw.strip():
+            raise click.BadParameter(
+                f"Environment variable {from_env!r} is empty or not set.",
+                param_hint="--from-env",
+            )
+        key = raw.strip()
+    elif from_stdin:
+        # Read exactly one line so trailing newlines from `echo` don't end up
+        # in the saved .env value.
+        raw = sys.stdin.readline()
+        if not raw or not raw.strip():
+            raise click.BadParameter(
+                "stdin was empty — pipe the key as one line.",
+                param_hint="--from-stdin",
+            )
+        key = raw.strip()
+    else:
+        key = click.prompt(f"{backend.upper()}_API_KEY", hide_input=True, default="")
+        if not key:
+            console.print("[yellow]No key entered — nothing saved.[/yellow]")
+            return
     set_api_key(backend, key, env_path=ENV_PATH)
     console.print(f"[green]✓[/green] {backend} key saved to {ENV_PATH} ({mask_key(key)})")
 
