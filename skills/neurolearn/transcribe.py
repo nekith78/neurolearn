@@ -1503,6 +1503,175 @@ def batch_cmd(
 
 
 # ---------------------------------------------------------------------------
+# v0.11.0 — `doctor` diagnostic (Claude Code plugin UX foundation)
+# ---------------------------------------------------------------------------
+
+# Map backend → URL where the user gets the key. Same mapping wizard.py uses,
+# duplicated here so doctor can run without importing the (heavy) wizard module.
+_KEY_GUIDE_URLS: dict[str, str] = {
+    "gemini":     "https://aistudio.google.com/apikey",
+    "groq":       "https://console.groq.com/keys",
+    "openai":     "https://platform.openai.com/api-keys",
+    "deepgram":   "https://console.deepgram.com/",
+    "assemblyai": "https://www.assemblyai.com/dashboard/signup",
+    "custom":     "(specify base URL + key in config.toml)",
+}
+
+# Backends whose configured key gives a "fast cloud" audio backend.
+_FAST_AUDIO_BACKENDS = ("groq", "gemini", "deepgram", "openai", "assemblyai")
+
+
+def _build_doctor_payload() -> dict:
+    """Build the structured diagnostic payload used by `doctor` and `doctor --json`."""
+    from skills.neurolearn import __version__
+    from skills.neurolearn.utils.platform_detect import detect_platform
+
+    cfg_exists = CONFIG_PATH.exists()
+    cfg = load_config(CONFIG_PATH) if cfg_exists else Config()
+
+    keys_section: dict[str, dict] = {}
+    has_fast_audio = False
+    for backend in ["gemini", "groq", "openai", "deepgram", "assemblyai", "custom"]:
+        k = get_api_key(backend, env_path=ENV_PATH)
+        configured = bool(k)
+        entry: dict = {
+            "configured": configured,
+            "key_url": _KEY_GUIDE_URLS.get(backend, ""),
+        }
+        if configured:
+            entry["masked"] = mask_key(k)
+            if backend in _FAST_AUDIO_BACKENDS:
+                has_fast_audio = True
+        keys_section[backend] = entry
+
+    info = detect_platform()
+    platform = {
+        "system": sys.platform,                # "darwin"/"linux"/"win32"
+        "arch": info.machine if hasattr(info, "machine") else "",
+        "label": info.label,
+        "device": info.device,
+        "vram_mb": info.vram_mb,
+    }
+
+    # whisper-local is always available (mlx or faster-whisper); use it as
+    # the always-on offline floor — only false if we can detect a broken env.
+    has_offline_fallback = True
+
+    recommended_setup: list[dict] = []
+    if not has_fast_audio:
+        recommended_setup.append({
+            "step": "set-fast-audio-key",
+            "why": "No fast cloud audio backend configured. Groq Whisper turbo "
+                   "is 5-10x faster than local whisper and has a generous "
+                   "free tier (8h audio/day).",
+            "command": "neurolearn config set-key groq <YOUR_KEY>",
+            "get_key_at": _KEY_GUIDE_URLS["groq"],
+        })
+    if not cfg_exists:
+        recommended_setup.append({
+            "step": "init-config",
+            "why": "~/.neurolearn/config.toml does not exist. neurolearn falls "
+                   "back to defaults but writing the file lets you customize.",
+            "command": "neurolearn config wizard  # (TTY) or any other command writes defaults",
+        })
+
+    ready_for_basic_use = has_offline_fallback  # whisper-local always works
+    ready_for_fast_use = has_fast_audio
+
+    return {
+        "version": __version__,
+        "config_file": {
+            "path": str(CONFIG_PATH),
+            "exists": cfg_exists,
+        },
+        "config": {
+            "default_backend": cfg.default_backend,
+            "fallback_backend": cfg.fallback_backend,
+            "whisper_model": cfg.whisper_model,
+            "groq_model": getattr(cfg, "groq_model", None),
+            "gemini_model": cfg.gemini_model,
+            "language": cfg.language,
+        },
+        "keys": keys_section,
+        "platform": platform,
+        "ready": {
+            "ready_for_basic_use": ready_for_basic_use,
+            "ready_for_fast_use": ready_for_fast_use,
+            "has_fast_audio": has_fast_audio,
+            "has_offline_fallback": has_offline_fallback,
+            "recommended_setup": recommended_setup,
+        },
+    }
+
+
+@cli.command(name="doctor")
+@click.option("--json", "as_json", is_flag=True,
+              help="Emit machine-readable JSON (for Claude Code or scripts).")
+def doctor_cmd(as_json: bool) -> None:
+    """Show diagnostic info: config, API keys, platform, readiness.
+
+    Default output is human-readable. `--json` emits a single structured
+    object that Claude (or any script) can parse to drive onboarding.
+
+    Always exits 0 if it produced output successfully. Check `ready.has_fast_audio`
+    in the JSON to decide whether onboarding is needed.
+    """
+    payload = _build_doctor_payload()
+
+    if as_json:
+        import json as _json
+        click.echo(_json.dumps(payload, indent=2, ensure_ascii=False, default=str))
+        return
+
+    # Human-readable rendering (mirrors `config show` but extended).
+    console.print(f"[bold]neurolearn doctor[/bold]  (v{payload['version']})")
+    cf = payload["config_file"]
+    cf_status = "present" if cf["exists"] else (
+        "[yellow]NOT PRESENT — showing defaults[/yellow]"
+    )
+    console.print(f"\n[bold]Config file:[/bold] {cf['path']}  ({cf_status})")
+
+    pf = payload["platform"]
+    console.print(
+        f"[bold]Platform:[/bold] {pf['label']}  "
+        f"(device={pf['device']}, vram={pf['vram_mb'] or 'n/a'})"
+    )
+
+    console.print("\n[bold]Audio config:[/bold]")
+    cc = payload["config"]
+    console.print(f"  default_backend  = {cc['default_backend']}")
+    console.print(f"  fallback_backend = {cc['fallback_backend']}")
+    console.print(f"  whisper_model    = {cc['whisper_model']}")
+    if cc.get("groq_model"):
+        console.print(f"  groq_model       = {cc['groq_model']}")
+
+    console.print("\n[bold]API keys:[/bold]")
+    for backend, entry in payload["keys"].items():
+        if entry["configured"]:
+            console.print(f"  [green]✓[/green] {backend}: {entry['masked']}")
+        else:
+            url = entry["key_url"]
+            console.print(f"  [dim]✗ {backend}: not set    ({url})[/dim]")
+
+    rd = payload["ready"]
+    console.print("\n[bold]Readiness:[/bold]")
+    fast_marker = "[green]✓[/green]" if rd["has_fast_audio"] else "[red]✗[/red]"
+    offline_marker = "[green]✓[/green]" if rd["has_offline_fallback"] else "[red]✗[/red]"
+    console.print(f"  {fast_marker} fast cloud audio backend configured")
+    console.print(f"  {offline_marker} offline (whisper-local) fallback available")
+
+    if rd["recommended_setup"]:
+        console.print("\n[bold yellow]Recommended setup:[/bold yellow]")
+        for step in rd["recommended_setup"]:
+            console.print(f"  • {step['why']}")
+            console.print(f"    [cyan]{step['command']}[/cyan]")
+            if "get_key_at" in step:
+                console.print(f"    Key: [link={step['get_key_at']}]{step['get_key_at']}[/link]")
+    else:
+        console.print("\n[green]All set — ready to transcribe.[/green]")
+
+
+# ---------------------------------------------------------------------------
 # Task 21 — config sub-group
 # ---------------------------------------------------------------------------
 
