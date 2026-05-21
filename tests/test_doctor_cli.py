@@ -133,3 +133,42 @@ class TestDoctorJsonOutput:
         _wire_paths(monkeypatch, tmp_path)
         r = _runner().invoke(cli, ["doctor", "--json"])
         assert r.exit_code == 0
+
+
+# ---------------------------------------------------------------------------
+# v0.12.0: doctor exposes per-stage backend state
+# ---------------------------------------------------------------------------
+
+
+class TestDoctorV012Fields:
+    def test_ready_has_fast_vision_when_groq_key_set(self, tmp_path, monkeypatch):
+        _wire_paths(monkeypatch, tmp_path)
+        (tmp_path / ".env").write_text("GROQ_API_KEY=gsk_x\n")
+        r = _runner().invoke(cli, ["doctor", "--json"])
+        data = json.loads(r.output)
+        assert data["ready"]["has_fast_vision"] is True
+
+    def test_ready_has_analyze_backend_when_groq_key_set(self, tmp_path, monkeypatch):
+        _wire_paths(monkeypatch, tmp_path)
+        (tmp_path / ".env").write_text("GROQ_API_KEY=gsk_x\n")
+        r = _runner().invoke(cli, ["doctor", "--json"])
+        data = json.loads(r.output)
+        assert data["ready"]["has_analyze_backend"] is True
+
+    def test_ready_has_fast_vision_false_without_groq_or_gemini(self, tmp_path, monkeypatch):
+        _wire_paths(monkeypatch, tmp_path)
+        # OpenAI key alone is not enough — vision through OpenAI is paid only
+        # and not in our default cascade for free-tier users.
+        (tmp_path / ".env").write_text("OPENAI_API_KEY=sk-test\n")
+        r = _runner().invoke(cli, ["doctor", "--json"])
+        data = json.loads(r.output)
+        assert data["ready"]["has_fast_vision"] is False
+
+    def test_config_includes_gemini_url_fastpath_field(self, tmp_path, monkeypatch):
+        _wire_paths(monkeypatch, tmp_path)
+        r = _runner().invoke(cli, ["doctor", "--json"])
+        data = json.loads(r.output)
+        # New v0.12 config field — defaults False; Claude reads this to
+        # tell the user whether the URL fast-path is active.
+        assert "gemini_url_fastpath" in data["config"]
+        assert data["config"]["gemini_url_fastpath"] is False

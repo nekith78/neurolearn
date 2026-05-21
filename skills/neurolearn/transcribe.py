@@ -1533,6 +1533,8 @@ def _build_doctor_payload() -> dict:
 
     keys_section: dict[str, dict] = {}
     has_fast_audio = False
+    has_fast_vision = False     # Groq Llama-4-Scout, Gemini 2.5-flash etc.
+    has_analyze_backend = False  # Groq llama-3.3-70b, Gemini for analyze
     for backend in ["gemini", "groq", "openai", "deepgram", "assemblyai", "custom"]:
         k = get_api_key(backend, env_path=ENV_PATH)
         configured = bool(k)
@@ -1544,6 +1546,11 @@ def _build_doctor_payload() -> dict:
             entry["masked"] = mask_key(k)
             if backend in _FAST_AUDIO_BACKENDS:
                 has_fast_audio = True
+            # v0.12.0: same Groq key serves audio + vision + analyze.
+            # Gemini key serves vision + analyze (audio via Groq preferred).
+            if backend in ("groq", "gemini"):
+                has_fast_vision = True
+                has_analyze_backend = True
         keys_section[backend] = entry
 
     info = detect_platform()
@@ -1592,6 +1599,7 @@ def _build_doctor_payload() -> dict:
             "whisper_model": cfg.whisper_model,
             "groq_model": getattr(cfg, "groq_model", None),
             "gemini_model": cfg.gemini_model,
+            "gemini_url_fastpath": getattr(cfg, "gemini_url_fastpath", False),
             "language": cfg.language,
         },
         "keys": keys_section,
@@ -1600,6 +1608,11 @@ def _build_doctor_payload() -> dict:
             "ready_for_basic_use": ready_for_basic_use,
             "ready_for_fast_use": ready_for_fast_use,
             "has_fast_audio": has_fast_audio,
+            # v0.12.0 additions — Claude Code plugin onboarding reads these
+            # to decide whether vision / analyze pipelines can run on the
+            # current config.
+            "has_fast_vision": has_fast_vision,
+            "has_analyze_backend": has_analyze_backend,
             "has_offline_fallback": has_offline_fallback,
             "recommended_setup": recommended_setup,
         },
