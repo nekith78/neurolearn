@@ -314,3 +314,348 @@ RULES:
 3. `importance`: "high" when visuals carry meaning beyond the speech;
    "medium" otherwise; "low" when it's only a talking head.
 """
+
+# ===========================================================================
+# v0.12.0 — Groq Llama-4-Scout-tuned variants
+#
+# Llama-4-Scout (and Llama 4 vision in general) is highly steerable but
+# literal. Two observed failure modes:
+#  1. Literal copying of canonical example strings ("GOOD: ..." patterns
+#     in our base prompts) verbatim into output.
+#  2. Over-description of irrelevant aesthetics (clothing, mic, lighting)
+#     when given loose "describe what's shown" instructions.
+#
+# Per Meta's prompting guide and our empirical tests on the PoE2 review
+# video (qa-out/v0.12.0-vision-compare/), the right Scout prompt pattern:
+#   - Positive whitelist ("describe ONLY ...") instead of negative rules
+#   - Hard NEVER rules for known-bad outputs (no clothing, no aesthetics)
+#   - Schema-enforced brevity (≤30 words for description) instead of
+#     prose pleas for brevity
+#   - NO canonical example output strings; describe the SHAPE instead
+#   - Non-English on-screen text: extract verbatim, do NOT translate in
+#     the same call (English-only image grounding limitation)
+#   - Keep prompt ≤500 chars; instruction-following degrades on Scout
+#     past ~2k tokens of preamble
+#
+# Each [prompts.<type>.groq] subsection inherits `append_global = false`
+# because the global prefix doubles the prompt size without helping Scout
+# (we re-encode the relevant constraints in the variant itself).
+# ===========================================================================
+
+[prompts.tutorial.groq]
+append_global = false
+prompt = """\
+You generate metadata for ONE keyframe from a UI tutorial / software walkthrough video.
+Output: ONE valid JSON object matching the response schema. No prose outside JSON.
+
+DESCRIBE ONLY (positive whitelist):
+- On-screen UI: button text, menu labels, dialog titles, field values
+- Cursor position and click targets if visibly highlighted
+- File paths, command names, terminal output text
+- UI state change vs spoken context (e.g. "Save button hovered; dialog appeared")
+
+NEVER DESCRIBE:
+- Person's clothing, hair, face, microphone, room
+- Lighting, atmosphere, design aesthetics
+
+LANGUAGE:
+- Non-English on-screen text: extract verbatim in its native script
+- Do NOT translate inside this call. Output description in {language}.
+
+FIELDS (schema-enforced — stay within):
+- description: ≤30 words. Factual UI state + action taken.
+- key_objects: array of named UI labels (max 6) extracted from the frame
+- importance: "high" if an action advances the tutorial; "medium" if setup; "low" if static / talking head
+- confidence: 1.0 only if all labels are clearly readable
+- needs_refinement: true if any UI label is too small to read confidently
+
+Audio context (for disambiguation only — do NOT describe spoken words):
+{transcript_snippet}
+Time: {start_sec:.1f}s - {end_sec:.1f}s.
+
+If no UI is visible and only the speaker is in frame, output a single short factual sentence
+saying the speaker is the only subject, key_objects=[], importance="low".
+"""
+
+[prompts.lecture.groq]
+append_global = false
+prompt = """\
+You generate metadata for ONE keyframe from a lecture / talk / educational presentation.
+Output: ONE valid JSON object. No prose outside JSON.
+
+DESCRIBE ONLY:
+- Slide title, headings, bullet points (extract verbatim)
+- Diagrams: boxes/arrows, flowcharts, system diagrams
+- Equations, formulas (literal, do not paraphrase)
+- Charts: axes labels, trend direction, data labels
+- Code snippets shown on slides
+
+NEVER DESCRIBE:
+- Speaker's appearance, podium, room, lighting
+- Audience reactions or off-slide content
+
+LANGUAGE:
+- Non-English text on slide: extract verbatim in native script
+- Description in {language}; do NOT translate text inside this call
+
+FIELDS:
+- description: ≤30 words. State slide type then substantive content.
+- key_objects: slide title + named concepts/terms shown (max 8)
+- importance: "high" for new concept / key diagram; "medium" for continuation; "low" when no slide change
+- confidence: 1.0 only if title and key labels readable
+- needs_refinement: true if equations or small text uncertain
+
+Audio context: {transcript_snippet}
+Time: {start_sec:.1f}s - {end_sec:.1f}s.
+
+If the camera is on the speaker with no slide visible, output one short
+factual sentence noting that, key_objects=[], importance="low".
+"""
+
+[prompts.code.groq]
+append_global = false
+prompt = """\
+You generate metadata for ONE keyframe from a coding / programming video (IDE, terminal, code review).
+Output: ONE valid JSON object. No prose outside JSON.
+
+DESCRIBE ONLY:
+- File path / tab name visible (extract verbatim)
+- Programming language (from syntax highlighting / file extension)
+- Function/class names visible in the editor
+- Highlighted lines, selected ranges
+- Error messages, exception names, stack trace lines (verbatim)
+- Terminal command + first line of its output
+- Diff highlights (added/removed lines)
+
+NEVER DESCRIBE:
+- IDE theme, font choice, editor aesthetics
+- Person in webcam overlay (unless code is not visible)
+- General "Python code on the screen" — name the actual code
+
+LANGUAGE:
+- Code: keep verbatim in original casing/symbols
+- Description in {language}
+
+FIELDS:
+- description: ≤30 words. Name the file, then what the code at the focus does.
+- key_objects: function names, class names, file paths, error types (max 8)
+- importance: "high" when new code is written/explained; "medium" navigation; "low" talking head
+- confidence: 1.0 only if file path and identifiers are clearly readable
+- needs_refinement: true if font is too small or panes overlap
+
+Audio context: {transcript_snippet}
+Time: {start_sec:.1f}s - {end_sec:.1f}s.
+
+If only the speaker is on camera with no code visible, output one short
+sentence noting that, key_objects=[], importance="low".
+"""
+
+[prompts.demo.groq]
+append_global = false
+prompt = """\
+You generate metadata for ONE keyframe from a product demo / feature showcase video.
+Output: ONE valid JSON object. No prose outside JSON.
+
+DESCRIBE ONLY:
+- Feature name (from headings, tab labels, menu names — verbatim)
+- Settings / toggles / sliders being adjusted, with their current values
+- Before/after visual change between frames (filter applied, view changed)
+- Brand and product names (verbatim, original casing)
+- Sample data values shown on screen
+- Version labels, environment badges (dev / prod / etc.)
+
+NEVER DESCRIBE:
+- Presenter's outfit, mic, background
+- General "modern interface" / "sleek design" aesthetic terms
+
+LANGUAGE:
+- Non-English UI text: extract verbatim
+- Description in {language}
+
+FIELDS:
+- description: ≤30 words. Lead with the feature, then the state change.
+- key_objects: feature name + named UI elements + product name (max 8)
+- importance: "high" for core feature demo; "medium" for transitions; "low" for talking head
+- confidence: 1.0 only if feature labels readable
+- needs_refinement: true if version numbers or settings values are blurry
+
+Audio context: {transcript_snippet}
+Time: {start_sec:.1f}s - {end_sec:.1f}s.
+
+If only the speaker is on camera with no demo visible, output one short
+factual sentence noting that, key_objects=[], importance="low".
+"""
+
+[prompts.interview.groq]
+append_global = false
+prompt = """\
+You generate metadata for ONE keyframe from an interview / podcast / panel video.
+Output: ONE valid JSON object. No prose outside JSON.
+
+DESCRIBE ONLY:
+- Lower-third graphics: speaker name, title, organization (verbatim)
+- Inserted slides, charts, quotes, or B-roll graphics with content
+- Screen-share segments: app/website/document title + key content
+- Multi-camera composition type ("split-screen" / "picture-in-picture")
+- On-screen text overlays, captions, pull-quotes (verbatim)
+
+NEVER DESCRIBE:
+- Speakers' clothing, faces, gesture, "engaged conversation"
+- Studio lighting, microphone brand, set design
+- Generic "two people talking" — that's the default; note specific graphics
+
+LANGUAGE:
+- Non-English text: extract verbatim
+- Description in {language}
+
+FIELDS:
+- description: ≤30 words. If a graphic exists, describe it. Otherwise note the composition.
+- key_objects: names, titles, organizations, chart/diagram titles (max 8)
+- importance: "high" if graphic adds substantive info; "medium" for ID title cards; "low" for talking-head only
+- confidence: 1.0 only if lower-third text is clearly readable
+- needs_refinement: true if any name spelling uncertain
+
+Audio context: {transcript_snippet}
+Time: {start_sec:.1f}s - {end_sec:.1f}s.
+"""
+
+[prompts.vlog.groq]
+append_global = false
+prompt = """\
+You generate metadata for ONE keyframe from a vlog / travel / opinion video.
+Output: ONE valid JSON object. No prose outside JSON.
+
+DESCRIBE ONLY:
+- Location: signs, landmark names, street names (verbatim)
+- Activity in progress (cooking specific dish, walking, building X)
+- Notable objects the creator interacts with (named items, brands)
+- Captions / text overlays present in this frame (verbatim)
+- Time-of-day / weather signals if narratively relevant
+
+NEVER DESCRIBE:
+- Creator's outfit, hair, accessories
+- Aesthetic / atmospheric adjectives ("cozy", "vibrant", "breathtaking")
+- Camera shake, focus, color grading
+
+LANGUAGE:
+- Non-English signs / captions: extract verbatim
+- Description in {language}
+
+FIELDS:
+- description: ≤30 words. One sentence setting the scene + activity.
+- key_objects: visible landmarks, brand names, sign text (max 6)
+- importance: "high" for scene change / key activity; "medium" steady scene; "low" filler shot
+- confidence: 1.0 only if landmark / sign text readable
+- needs_refinement: true if signs / captions partially obscured
+
+Audio context: {transcript_snippet}
+Time: {start_sec:.1f}s - {end_sec:.1f}s.
+"""
+
+[prompts.review.groq]
+append_global = false
+prompt = """\
+You generate metadata for ONE keyframe from a product review / unboxing / comparison video.
+Output: ONE valid JSON object. No prose outside JSON.
+
+DESCRIBE ONLY:
+- Product name and model (from packaging / device — verbatim)
+- Specific feature shot: port, button, screen, accessory in focus
+- Side-by-side comparison: which two products visible
+- Specs as overlay text (verbatim numbers)
+- Product in use vs static display state
+
+NEVER DESCRIBE:
+- Reviewer's hands, clothing, table surface
+- Lighting, photography quality
+- General "premium-looking" / "well-built" judgments
+
+LANGUAGE:
+- Product labels, specs: extract verbatim in original script
+- Description in {language}
+
+FIELDS:
+- description: ≤30 words. Lead with product name, then the angle / feature shown.
+- key_objects: product name + specific parts/specs visible (max 8)
+- importance: "high" for key feature demo or comparison; "medium" general shots; "low" talking-head intro
+- confidence: 1.0 only if product name and specs are clearly readable
+- needs_refinement: true if model number or spec digits are unclear
+
+Audio context: {transcript_snippet}
+Time: {start_sec:.1f}s - {end_sec:.1f}s.
+"""
+
+[prompts.talking_head.groq]
+append_global = false
+prompt = """\
+You generate metadata for ONE keyframe from a talking-head video (host talking to camera,
+sometimes with B-roll inserts).
+Output: ONE valid JSON object. No prose outside JSON.
+
+THIS VIDEO TYPE: host monologue is dominant. Most frames will have NO substantive
+visuals beyond the speaker. Your job is to identify the EXCEPTIONS — B-roll cuts,
+inserted slides, graphics, screen shares.
+
+DESCRIBE ONLY (when present):
+- Inserted slides, graphics, text overlays (verbatim text content)
+- B-roll footage: what scene / activity / UI is shown
+- Lower-third captions, pull-quotes (verbatim)
+- Setting change: zoom level, different room, new prop visible
+- If gameplay / app UI is the dominant frame content (host is a small webcam corner):
+  treat it like a B-roll and DESCRIBE the gameplay / UI, NOT the host
+
+NEVER DESCRIBE:
+- Host's clothing, expression, microphone, pose
+- Studio lighting, camera angle
+- "Speaker continues talking" — be more specific than that template
+
+LANGUAGE:
+- Non-English text in B-roll / graphics: extract verbatim
+- Description in {language}
+
+FIELDS:
+- description: ≤30 words. If a graphic / B-roll exists, describe it factually.
+  If only the speaker is visible (no graphic, no B-roll), state that briefly.
+- key_objects: names from any graphic / B-roll text (max 8); empty list if none
+- importance: "high" if B-roll or graphic carries information; "medium" if a slide
+  is inserted; "low" only when the speaker is the entire content
+- confidence: 1.0 only if graphic / B-roll text is readable
+- needs_refinement: true if a graphic has small text or partial visibility
+
+Audio context: {transcript_snippet}
+Time: {start_sec:.1f}s - {end_sec:.1f}s.
+"""
+
+[prompts.generic.groq]
+append_global = false
+prompt = """\
+You generate metadata for ONE keyframe from a video.
+Output: ONE valid JSON object. No prose outside JSON.
+
+DESCRIBE ONLY:
+- On-screen text, UI labels, charts, diagrams (verbatim)
+- Distinct visual elements that carry information (code, slides, demos)
+- Named entities visible: products, files, places, people in lower-thirds
+
+NEVER DESCRIBE:
+- Clothing, hair, microphone, lighting, aesthetic adjectives
+- "Modern", "clean", "engaging" — these add no information
+
+LANGUAGE:
+- Non-English text: extract verbatim in native script
+- Description in {language}
+
+FIELDS:
+- description: ≤30 words. Be specific. Reference named elements.
+- key_objects: distinct named items visible in frame (max 6)
+- importance: "high" when visuals carry meaning beyond the speech;
+              "medium" when they confirm speech; "low" talking head only
+- confidence: 1.0 only if key text labels are readable
+- needs_refinement: true if any text is too small to read confidently
+
+Audio context: {transcript_snippet}
+Time: {start_sec:.1f}s - {end_sec:.1f}s.
+
+If only a person is visible with no graphic / UI / text, output one short
+factual sentence noting that, key_objects=[], importance="low".
+"""

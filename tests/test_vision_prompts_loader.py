@@ -255,3 +255,64 @@ prompt = "Groq variant (inherits default append_global=true)."
     spec = load_prompt("tutorial", user_path=user_toml, model_family="groq")
     assert "GLOBAL HEADER" in spec.template
     assert "Groq variant" in spec.template
+
+
+# ---------------------------------------------------------------------------
+# C2 — verify shipped .groq variants per type
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("video_type", [
+    "tutorial", "lecture", "code", "demo", "interview",
+    "vlog", "review", "talking_head", "generic",
+])
+def test_builtin_groq_variant_exists_per_type(video_type: str):
+    """Each builtin type must have a [prompts.<type>.groq] subsection
+    with a non-empty `prompt` field — otherwise vision-pipeline silently
+    falls back to default prompts when Groq is primary."""
+    spec = load_prompt(video_type, model_family="groq")
+    assert spec.template, f"{video_type}.groq variant produced empty template"
+    assert spec.source.endswith("/groq") or spec.source == "builtin", (
+        f"{video_type}.groq variant not picked up; source={spec.source}"
+    )
+
+
+@pytest.mark.parametrize("video_type", [
+    "tutorial", "lecture", "code", "demo", "interview",
+    "vlog", "review", "talking_head", "generic",
+])
+def test_groq_variants_omit_canonical_examples(video_type: str):
+    """Groq variants must NOT include literal 'GOOD: ...' / 'BAD: ...'
+    examples — Llama-4-Scout copies those strings verbatim into output.
+
+    The Groq variants describe SHAPE instead of providing example outputs.
+    """
+    spec = load_prompt(video_type, model_family="groq")
+    # The Llama-4-Scout-tuned variants intentionally drop the GOOD/BAD
+    # example blocks present in the Gemini-style base prompts.
+    assert "GOOD:" not in spec.template, (
+        f"{video_type}.groq variant contains 'GOOD:' literal example — "
+        f"will be copied verbatim by Llama-4-Scout"
+    )
+    assert "BAD:" not in spec.template, (
+        f"{video_type}.groq variant contains 'BAD:' literal example"
+    )
+
+
+def test_groq_variants_use_positive_whitelist():
+    """Groq variants use 'DESCRIBE ONLY' + 'NEVER DESCRIBE' pattern
+    (per Meta prompting guide: positive constraints > negative)."""
+    for vt in ["tutorial", "demo", "review", "talking_head", "generic"]:
+        spec = load_prompt(vt, model_family="groq")
+        assert "DESCRIBE ONLY" in spec.template, (
+            f"{vt}.groq variant missing positive whitelist"
+        )
+
+
+def test_groq_variants_cap_description_length():
+    """Schema-enforced brevity: every Groq variant must state the
+    ≤30-word description cap so Scout knows what to target."""
+    for vt in ["tutorial", "demo", "review", "talking_head", "generic"]:
+        spec = load_prompt(vt, model_family="groq")
+        assert "≤30 words" in spec.template, (
+            f"{vt}.groq missing ≤30 words schema hint"
+        )
