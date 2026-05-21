@@ -8,7 +8,10 @@ Use cases:
 - Watch a Russian tutorial, ask for English transcript
 - Watch English content with non-native viewers, output in Russian/Spanish/...
 
-One LLM call per video. Cheap: gemini-flash, claude-haiku, gpt-4o-mini.
+One LLM call per video. Cheap: gemini-flash, groq-llama-3.3, gpt-4o-mini.
+
+v0.12.0: "claude" backend removed (see feedback_no_anthropic_api). Groq
+Llama-3.3-70b replaces it as the default cheap-LLM translator.
 """
 from __future__ import annotations
 
@@ -16,7 +19,7 @@ import json
 import re
 
 from skills.neurolearn.quality.asr_corrector import (
-    _call_claude, _call_gemini, _call_ollama, _call_openai,
+    _call_gemini, _call_groq, _call_ollama, _call_openai,
 )
 from skills.neurolearn.utils.output_writer import Segment
 
@@ -101,8 +104,8 @@ def translate_transcript(
     try:
         if backend == "gemini":
             text = _call_gemini(prompt, api_key or "")
-        elif backend == "claude":
-            text = _call_claude(prompt, api_key or "")
+        elif backend == "groq":
+            text = _call_groq(prompt, api_key or "")
         elif backend == "openai":
             text = _call_openai(prompt, api_key or "")
         elif backend == "ollama":

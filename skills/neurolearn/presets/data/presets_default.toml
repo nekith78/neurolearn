@@ -57,10 +57,12 @@ quality_perplexity = true
 # Auto-applied by the smart preset when the transcript contains a high
 # density of action triggers; set --preset tutorial to force.
 [presets.tutorial]
-transcribe_backend = "whisper-local"
-vision_backend = "gemini"
+transcribe_backend = "smart"
+vision_backend = "groq"
 detect_method = "keywords_only"
 frames_per_window = 3
 max_windows_per_video = 30
 asymmetric_frames = true
-claude_fallback = true
+# v0.12.0: claude_fallback removed (was no-op anyway after Anthropic
+# API removal). Users wanting Claude refinement should run via
+# Claude Code plugin — see SKILL.md.

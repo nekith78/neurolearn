@@ -96,9 +96,10 @@ def resolve_with_env_checks(
     info: list[str] = []
 
     vb = values.get("vision_backend")
+    # v0.12.0: 'claude' removed from this map; Anthropic API not used.
     _VISION_KEY_MAP = {
+        "groq": ("groq", "GROQ_API_KEY"),
         "gemini": ("gemini", "GEMINI_API_KEY"),
-        "claude": ("anthropic", "ANTHROPIC_API_KEY"),
         "openai": ("openai", "OPENAI_API_KEY"),
     }
     if vb in _VISION_KEY_MAP:

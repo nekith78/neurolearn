@@ -7,10 +7,13 @@ translate that into exit code 4 with a friendly hint.
 from __future__ import annotations
 
 from skills.neurolearn.quality.asr_corrector import (
-    _call_claude, _call_gemini, _call_ollama, _call_openai,
+    _call_gemini, _call_groq, _call_ollama, _call_openai,
 )
 
-_KNOWN = {"gemini", "claude", "openai", "ollama"}
+# v0.12.0: "claude" removed (see feedback_no_anthropic_api). "groq"
+# (llama-3.3-70b-versatile) is the new primary default — 14,400 RPD
+# free tier vs Gemini 3.5-flash's 20 RPD.
+_KNOWN = {"groq", "gemini", "openai", "ollama"}
 
 
 def run_analysis(
@@ -26,10 +29,10 @@ def run_analysis(
         raise ValueError(f"unknown backend: {backend!r}")
 
     try:
+        if backend == "groq":
+            return _call_groq(full_prompt, api_key or "")
         if backend == "gemini":
             return _call_gemini(full_prompt, api_key or "")
-        if backend == "claude":
-            return _call_claude(full_prompt, api_key or "")
         if backend == "openai":
             return _call_openai(full_prompt, api_key or "")
         if backend == "ollama":

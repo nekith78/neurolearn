@@ -255,12 +255,17 @@ def apply_v02_stages(
                     pass
 
     # === Visual detection + annotation ===
+    # v0.12.0: Anthropic API is no longer a backend choice. When the user
+    # works through Claude Code (plugin mode), Claude reads the extracted
+    # keyframes directly in chat — no extra API call. Standalone CLI uses
+    # Groq Llama-4-Scout (primary) or Gemini (fallback). See
+    # feedback_no_anthropic_api memory.
     vision_backend_name = cfg.get("vision_backend", "off")
-    if vision_backend_name in ("gemini", "claude", "openai") and video_path is not None:
+    if vision_backend_name in ("gemini", "groq", "openai") and video_path is not None:
         # Each multimodal backend uses its own API key.
         api_key_lookup = {
             "gemini": "gemini",
-            "claude": "anthropic",
+            "groq": "groq",
             "openai": "openai",
         }[vision_backend_name]
         api_key = _config_mod.get_api_key(api_key_lookup)
@@ -296,11 +301,14 @@ def apply_v02_stages(
             # it; otherwise auto-detect from the transcript.
             video_type = cfg.get("video_type") or _autodetect_video_type(result)
             prompt_template = _resolve_vision_prompt(cfg, video_type)
-            if vision_backend_name == "claude":
-                from skills.neurolearn.vision.claude_vision import (
-                    ClaudeVisionBackend,
+            if vision_backend_name == "groq":
+                # v0.12.0 primary: GroqVisionBackend (Llama-4-Scout, batch≤3).
+                # Loaded lazily so users without GROQ_API_KEY don't pay
+                # the import.
+                from skills.neurolearn.vision.groq_vision import (
+                    GroqVisionBackend,
                 )
-                backend = ClaudeVisionBackend(api_key=api_key, frames_per_window=fpw)
+                backend = GroqVisionBackend(api_key=api_key, frames_per_window=fpw)
             elif vision_backend_name == "openai":
                 from skills.neurolearn.vision.openai_vision import (
                     OpenAIVisionBackend,
@@ -350,28 +358,11 @@ def apply_v02_stages(
                 except Exception:
                     pass
 
-            # === Claude fallback on low-confidence segments ===
-            # Only fires when primary is Gemini AND user opted in via
-            # the tutorial preset (or `claude_fallback = true` override).
-            # ANTHROPIC_API_KEY must be set; otherwise silently skipped.
-            if (
-                vision_backend_name == "gemini"
-                and cfg.get("claude_fallback", False)
-                and result.visual_segments
-            ):
-                anthropic_key = _config_mod.get_api_key("anthropic")
-                if anthropic_key:
-                    result.visual_segments = _refine_low_confidence_with_claude(
-                        visuals=result.visual_segments,
-                        windows=windows,
-                        video_path=video_path,
-                        api_key=anthropic_key,
-                        prompt_template=prompt_template,
-                        language=result.language_detected or "en",
-                        video_id=video_id,
-                        out_dir=out_dir,
-                        frames_per_window=fpw,
-                    )
+            # v0.12.0: removed Claude-based low-confidence refinement.
+            # The `claude_fallback` preset option no longer activates a
+            # Claude API call — users wanting Claude refinement should
+            # run neurolearn through Claude Code and let Claude itself
+            # read the keyframes from manifest.json (see SKILL.md).
 
         # === v0.2: OCR (opt-in) ===
         if cfg.get("ocr") and result.visual_segments:
@@ -394,86 +385,10 @@ def apply_v02_stages(
     return result
 
 
-# Confidence threshold below which a Gemini description is treated as
-# uncertain enough to merit a Claude re-check. Calibrated against the
-# tutorial-pipeline guide: typical Gemini outputs score 0.75-0.90, so
-# 0.7 catches the bottom ~15-20% of segments where small text or
-# similar-looking elements caused doubt.
-_CLAUDE_REFINE_THRESHOLD = 0.7
-
-
-def _refine_low_confidence_with_claude(
-    *,
-    visuals: list,
-    windows: list[DetectionWindow],
-    video_path: Path,
-    api_key: str,
-    prompt_template: str,
-    language: str,
-    video_id: str,
-    out_dir: Path,
-    frames_per_window: int,
-) -> list:
-    """Re-process low-confidence visual segments through Claude.
-
-    Pairs each VisualSegment with its source DetectionWindow by index
-    (Gemini emits one segment per window, in order). Segments where
-    `confidence < 0.7` OR `needs_refinement = True` are sent to Claude
-    Vision for a second-pass description. The replacement re-uses the
-    same keyframes — we don't re-extract.
-
-    On any Claude error (rate limit, network, malformed reply), the
-    original Gemini segment stays. Failure is silent and non-fatal.
-    """
-    if not visuals or not windows:
-        return visuals
-    # Identify candidates needing refinement.
-    refine_indices = [
-        i for i, v in enumerate(visuals)
-        if (
-            getattr(v, "confidence", 1.0) < _CLAUDE_REFINE_THRESHOLD
-            or getattr(v, "needs_refinement", False)
-        )
-    ]
-    if not refine_indices:
-        return visuals
-    # Pair indices to source windows. annotate_segments returns one
-    # result per successfully-processed window in input order, so the
-    # index mapping is identity unless some windows were skipped — we
-    # accept that minor risk; refinement on the wrong window only hurts
-    # quality (yields slightly less relevant description), never crashes.
-    refine_windows = [windows[i] for i in refine_indices if i < len(windows)]
-    if not refine_windows:
-        return visuals
-
-    try:
-        from skills.neurolearn.vision.claude_vision import (
-            ClaudeVisionBackend,
-        )
-        refiner = ClaudeVisionBackend(
-            api_key=api_key,
-            frames_per_window=frames_per_window,
-        )
-        refined = refiner.annotate_segments(
-            video_path=video_path,
-            windows=refine_windows,
-            prompt_template=prompt_template,
-            language=language,
-            video_id=video_id,
-            out_dir=out_dir,
-        )
-    except Exception:
-        # Claude unavailable / errored — keep original Gemini outputs.
-        return visuals
-
-    if not refined:
-        return visuals
-
-    # Splice refined results back into the visuals list at their
-    # original positions. If Claude returned fewer than expected
-    # (some failed), keep the original Gemini segment at those slots.
-    out = list(visuals)
-    for slot, ref in zip(refine_indices, refined):
-        if slot < len(out):
-            out[slot] = ref
-    return out
+# v0.12.0: removed `_refine_low_confidence_with_claude`.
+# Anthropic API was the only consumer; per memory rule
+# feedback_no_anthropic_api we never call anthropic SDK directly.
+# Users wanting Claude refinement should run neurolearn from a
+# Claude Code chat; Claude reads the extracted keyframes from
+# keyframes/manifest.json and refines descriptions in the chat
+# itself — no extra API call needed.

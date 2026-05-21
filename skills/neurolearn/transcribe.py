@@ -152,9 +152,10 @@ def cli() -> None:
 @click.option("--correct-asr", "correct_asr_opt", is_flag=True, default=None,
               help="Run LLM-based correction on low-quality transcripts (opt-in).")
 @click.option("--correct-asr-backend", "correct_asr_backend_opt",
-              type=click.Choice(["gemini", "claude", "openai", "ollama"]), default=None,
-              help="LLM provider for ASR correction (default: gemini; "
-                   "ollama=local llama via `ollama serve`).")
+              type=click.Choice(["groq", "gemini", "openai", "ollama"]), default=None,
+              help="LLM provider for ASR correction (default: groq; "
+                   "ollama=local llama via `ollama serve`). "
+                   "v0.12.0: 'claude' removed.")
 @click.option("--diarize", "diarize_opt", is_flag=True, default=None,
               help="Run speaker diarization via pyannote.audio "
                    "(needs HF_TOKEN + `[diarization]` extra).")
@@ -1269,9 +1270,10 @@ def _run_batch_pipeline(
 @click.option("--correct-asr", "correct_asr_opt", is_flag=True, default=None,
               help="Run LLM-based correction on low-quality transcripts (opt-in).")
 @click.option("--correct-asr-backend", "correct_asr_backend_opt",
-              type=click.Choice(["gemini", "claude", "openai", "ollama"]), default=None,
-              help="LLM provider for ASR correction (default: gemini; "
-                   "ollama=local llama via `ollama serve`).")
+              type=click.Choice(["groq", "gemini", "openai", "ollama"]), default=None,
+              help="LLM provider for ASR correction (default: groq; "
+                   "ollama=local llama via `ollama serve`). "
+                   "v0.12.0: 'claude' removed.")
 @click.option("--diarize", "diarize_opt", is_flag=True, default=None,
               help="Run speaker diarization via pyannote.audio "
                    "(needs HF_TOKEN + `[diarization]` extra).")

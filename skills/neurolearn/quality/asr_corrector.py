@@ -1,12 +1,16 @@
 """ASR error correction via cheap text-only LLM (spec §17 carry-over).
 
 Takes a transcript that failed quality check and asks a cheap LLM
-(gemini-flash / claude-haiku / gpt-4o-mini) to fix obviously broken
+(gemini-flash / groq-llama / gpt-4o-mini) to fix obviously broken
 or garbled words while preserving timestamps, segment boundaries,
 slang, jargon, and names.
 
 Opt-in via `cfg["correct_asr"]=True` (preset / CLI flag). Defaults
 to backend="gemini" but can use any of the three LLM providers.
+
+v0.12.0: "claude" was removed as a backend choice — Anthropic SDK
+is no longer used as an API client (see memory rule
+feedback_no_anthropic_api). Groq Llama-3.3-70b replaces it.
 
 Single call per video; cost ≈ $0.001-$0.01 depending on transcript
 length and chosen backend.
@@ -85,7 +89,7 @@ def correct_transcript_via_llm(
     """Run a single LLM call to fix obvious ASR errors. Best-effort.
 
     backend:
-      - "gemini" | "claude" | "openai" — cloud (cheap text-only model)
+      - "gemini" | "groq" | "openai" — cloud (cheap text-only model)
       - "ollama" — local model via http://localhost:11434 (default).
         api_key ignored for Ollama. Default model llama3.2:3b is small (~2GB).
 
@@ -103,13 +107,15 @@ def correct_transcript_via_llm(
     try:
         if backend == "gemini":
             text = _call_gemini(prompt, api_key or "")
-        elif backend == "claude":
-            text = _call_claude(prompt, api_key or "")
+        elif backend == "groq":
+            text = _call_groq(prompt, api_key or "")
         elif backend == "openai":
             text = _call_openai(prompt, api_key or "")
         elif backend == "ollama":
             text = _call_ollama(prompt, model=ollama_model, host=ollama_host)
         else:
+            # v0.12.0: "claude" backend removed — see feedback_no_anthropic_api.
+            # Falling through silently keeps the original segments.
             return segments
     except Exception:
         return segments
@@ -126,16 +132,22 @@ def _call_gemini(prompt: str, api_key: str) -> str:
     return resp.text or ""
 
 
-def _call_claude(prompt: str, api_key: str) -> str:
-    from anthropic import Anthropic
-    client = Anthropic(api_key=api_key)
-    resp = client.messages.create(
-        model="claude-haiku-4-5",
+def _call_groq(prompt: str, api_key: str) -> str:
+    """v0.12.0: replaces the removed `_call_claude` path.
+
+    Groq Llama-3.3-70b-versatile is our primary text-LLM for analyze /
+    ASR-correction tasks: free-tier 14,400 RPD vs Gemini 3.5-flash's 20,
+    and identical price tier on paid. See memory:
+    feedback_no_anthropic_api for the reasoning behind dropping Claude.
+    """
+    from groq import Groq
+    client = Groq(api_key=api_key)
+    resp = client.chat.completions.create(
+        model="llama-3.3-70b-versatile",
         max_tokens=8192,
         messages=[{"role": "user", "content": prompt}],
     )
-    blocks = [b.text for b in resp.content if getattr(b, "type", None) == "text"]
-    return "".join(blocks)
+    return (resp.choices[0].message.content or "") if resp.choices else ""
 
 
 def _call_openai(prompt: str, api_key: str) -> str:

@@ -41,12 +41,15 @@ REGISTRY: list[OptionField] = [
     # === vision ===
     OptionField(
         key="vision_backend", type=str, default="off",
-        choices=["off", "gemini", "claude", "openai"],
+        choices=["off", "groq", "gemini", "openai"],
         description=(
             "Visual mode. off = audio only. "
+            "groq = Llama-4-Scout via Groq (default for paid+free tiers). "
             "gemini = multimodal (video+frames via File API). "
-            "claude = images-only (keyframes via ffmpeg). "
-            "openai = GPT-4o vision (keyframes via ffmpeg)."
+            "openai = GPT-4o vision (keyframes via ffmpeg). "
+            "v0.12.0: 'claude' choice removed — Anthropic API is not "
+            "used as a backend; Claude Code chat reads keyframes "
+            "directly when neurolearn runs as a plugin."
         ),
         section="vision",
     ),
@@ -106,12 +109,13 @@ REGISTRY: list[OptionField] = [
         section="smart",
     ),
     OptionField(
-        key="correct_asr_backend", type=str, default="gemini",
-        choices=["gemini", "claude", "openai", "ollama"],
+        key="correct_asr_backend", type=str, default="groq",
+        choices=["groq", "gemini", "openai", "ollama"],
         description=(
-            "LLM provider for ASR correction. gemini=2.5-flash; "
-            "claude=haiku-4-5; openai=gpt-4o-mini; ollama=local llama3.2:3b "
-            "(requires `ollama serve` running)."
+            "LLM provider for ASR correction. groq=llama-3.3-70b (default, "
+            "14,400 RPD free tier); gemini=2.5-flash; openai=gpt-4o-mini; "
+            "ollama=local llama3.2:3b (requires `ollama serve` running). "
+            "v0.12.0: 'claude' removed — see feedback_no_anthropic_api."
         ),
         section="smart",
     ),
@@ -158,8 +162,8 @@ REGISTRY: list[OptionField] = [
         section="output",
     ),
     OptionField(
-        key="translate_backend", type=str, default="gemini",
-        choices=["gemini", "claude", "openai", "ollama"],
+        key="translate_backend", type=str, default="groq",
+        choices=["groq", "gemini", "openai", "ollama"],
         description="LLM provider for translation (same options as correct_asr).",
         section="output",
     ),
@@ -186,14 +190,19 @@ REGISTRY: list[OptionField] = [
         ),
         section="vision",
     ),
+    # v0.12.0: `claude_fallback` option deprecated — kept as no-op for
+    # backwards compatibility with preset TOML files that still set it.
+    # Users wanting Claude refinement should run neurolearn through
+    # Claude Code; Claude reads keyframes from manifest.json in the chat
+    # itself, no extra API call. See feedback_no_anthropic_api memory.
     OptionField(
         key="claude_fallback", type=bool, default=False,
         choices=None,
         description=(
-            "After Gemini annotation, re-process low-confidence segments "
-            "(confidence < 0.7 or needs_refinement) through Claude. "
-            "Improves accuracy on small UI text / similar-looking elements "
-            "without paying Claude prices for the entire video."
+            "DEPRECATED in v0.12.0 — no-op. Kept for preset-TOML backward "
+            "compat. Setting this true no longer triggers any Claude API "
+            "call. Run neurolearn via Claude Code instead; Claude reads "
+            "keyframes from manifest.json directly in chat."
         ),
         section="vision",
     ),
