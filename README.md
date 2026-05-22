@@ -33,6 +33,33 @@ from the terminal **and** from a Claude Code chat.
 - **PDF reports** — `neurolearn report --latest` renders structured PDFs (tutorial / vlog / generic layouts) from any batch.
 - **Offline-capable** — `--backend whisper-local` is fully offline. `--backend subtitles` only talks to YouTube.
 
+## Why it exists
+
+The killer use case: **comprehensive research that combines Claude's web
+research with neurolearn-fetched video transcripts**. Claude is excellent at
+researching written sources (docs, papers, articles, web pages). But a huge
+share of the most current and most candid take on any technical or business
+topic lives in **spoken form** — podcasts, conference talks, interviews,
+long-form YouTube discussions. Experts say things in interviews they never
+write down.
+
+Neither side alone gives you the full picture. Together they do:
+
+```
+"Research the current state of agentic AI safety. Use both
+ web sources and neurolearn to pull recent video interviews."
+```
+
+Claude reads web sources, runs `neurolearn research "agentic AI safety"
+--days 90 --languages en --limit 20` in parallel, gets transcripts of 20
+relevant talks and interviews, and writes a synthesis that catches what's
+*only* said out loud alongside what's been written down.
+
+Other patterns: daily channel digests, long-form video → structured PDF,
+multi-language research without speaking the languages, offline / private
+transcription. See **[docs/USE_CASES.md](docs/USE_CASES.md)** for full
+walkthroughs.
+
 ## Install
 
 The two paths most people want:
@@ -97,6 +124,7 @@ writes the summary. The skill produces transcripts; analysis is the LLM's job.
 
 | | |
 |---|---|
+| 💡 **[Use cases](docs/USE_CASES.md)** | The flagship Claude+neurolearn research pattern, plus 7 supporting workflows: channel digests, long-form → PDF, multi-language research, offline transcription, dataset building, claim verification, quote mining. |
 | 📖 **[Usage](docs/USAGE.md)** | Every command, every flag, with examples. `transcribe` · `batch` · `analyze` · `research` · `subscribes` · `report` · `history` · `triggers` · `config` |
 | ⚙️ **[Backends](docs/BACKENDS.md)** | The 8 transcription backends compared. Hardware guide. Whisper model comparison. Groq size handling. Privacy table. |
 | 🤖 **[Claude Code integration](docs/CLAUDE_CODE.md)** | Plugin install, slash commands, switching backends from chat, secure key handoff, visual mode in Claude Code. |
