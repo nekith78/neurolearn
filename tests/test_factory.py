@@ -174,7 +174,9 @@ def test_build_backend_groq():
         instance.name = "groq"
         MockCls.return_value = instance
         b = build_backend("groq", cfg)
-    MockCls.assert_called_once_with(model="whisper-large-v3")
+    # v0.14.1: factory now also forwards groq_tier so the backend can
+    # pick the right 25 MB / 100 MB upload limit.
+    MockCls.assert_called_once_with(model="whisper-large-v3", tier="free")
     assert b.name == "groq"
 
 

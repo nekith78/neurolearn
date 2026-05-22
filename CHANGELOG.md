@@ -3,6 +3,91 @@
 All notable changes to neurolearn will be documented here.
 The format is loosely based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.14.1] — 2026-05-22
+
+User hit a confusing failure: Groq Whisper rejected a video as
+"too large" with no warning ahead of time. Groq's free tier caps
+audio uploads at 25 MB — typical m4a from yt-dlp crosses that
+around 17 minutes. Above ~2 hours even Opus-recompressed audio
+won't fit, so the existing recompress path was a half-fix.
+
+v0.14.1 makes audio size handling **fully transparent**: the user
+never has to think about it, even from inside a Claude Code chat
+session (no TTY assumptions).
+
+### Opus 24 kbps mono recompression (replaces AAC 32k)
+
+`GroqBackend` now re-encodes oversized inputs to **Opus 24 kbps
+mono at 16 kHz** instead of AAC. Whisper internally downsamples
+everything to 16 kHz mono anyway, so this is lossless for
+transcription — but ~5.4× smaller payload than typical YouTube
+audio. Math:
+
+- 1 hour of audio → ~11 MB (was ~14 MB on AAC 32k)
+- 2h15m → ~25 MB (just under the free-tier limit before chunking)
+
+Side-by-side comparison artifact:
+`qa-out/v0.14.1-opus-compare/{original_1min.m4a, recompressed_opus_24k_mono.ogg}`.
+
+### Adaptive chunking with silence-boundary cuts
+
+Beyond 2h15m on free tier (or ~9 hours on paid), even Opus can't
+squeeze it in one upload. The new `utils/audio_chunker` module:
+
+1. Computes the **minimum N chunks** that fit the tier's limit.
+   A 3-hour Opus file (~33 MB) splits into 2 halves, not eight
+   10-minute pieces.
+2. Runs `ffmpeg silencedetect` to find silent intervals (<-30 dB,
+   ≥0.4 s). For each ideal cut point, picks the closest silence
+   in a progressively widening window (5% → 50% of segment width).
+3. Splits with `ffmpeg -c copy` (stream copy, no re-encode) so the
+   chunks stay the same size as the planned slices.
+4. **Reassembles segment timestamps** by adding each chunk's
+   start offset to every segment's start/end. End-to-end timeline
+   matches the original video.
+
+Verification on a real 10:32 video at `qa-out/v0.14.1-chunking-verify/`:
+
+- 3 chunks, both cuts landed inside silence intervals
+  ([212.64, 213.17] and [429.54, 430.16])
+- Baseline single-call span: 0.00–631.72 s
+- Chunked reassembled span:   0.00–631.70 s — timestamps align
+- Boundary gaps: +0.15 s and +0.54 s (under 2 s, no mid-word cuts)
+- Text fidelity: 99.7% chars between baseline and chunked
+
+### Tier-aware upload limits
+
+`GroqBackend.tier` (forwarded from `cfg.groq_tier`) picks the right
+ceiling per tier with a 1-2 MB headroom for HTTP multipart overhead:
+
+| tier | wire limit | usable |
+|---|---|---|
+| free | 25 MB | ~24 MB |
+| paid / paid-tier2 / paid-tier3 | 100 MB | ~98 MB |
+
+Unknown tier strings fall back to free — typos can't silently
+enable a 100 MB upload that would then 413 on the wire.
+
+### v0.14.0's "even after recompress, still too large" hard-error is gone
+
+The old BackendError message that said "split the source into
+shorter clips" no longer fires — the chunker handles that
+automatically.
+
+### Files
+
+- `skills/neurolearn/utils/audio_chunker.py` — new module
+- `skills/neurolearn/backends/groq.py` — Opus codec, chunked
+  upload loop, segment offset reassembly, temp-file cleanup
+- `skills/neurolearn/backends/factory.py` — forwards `cfg.groq_tier`
+- `tests/test_audio_chunker.py` — chunker unit tests
+- `tests/test_backend_groq.py` — tier limits, chunked transcribe,
+  cleanup invariants
+- `qa-out/v0.14.1-opus-compare/` — side-by-side audio comparison
+- `qa-out/v0.14.1-chunking-verify/` — real-Groq round-trip report
+
+Tests: **1212 passed**, 3 skipped.
+
 ## [0.14.0] — 2026-05-22
 
 User reported that even after v0.13.0's forced onboarding gate, Claude

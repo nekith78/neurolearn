@@ -70,7 +70,12 @@ def build_backend(name: str, cfg: Config) -> Transcriber:
         return GeminiBackend(model=cfg.gemini_model)
 
     if name == "groq":
-        return GroqBackend(model=cfg.groq_model)
+        # v0.14.1: forward groq_tier so the backend can pick the right
+        # 25 MB / 100 MB upload limit before re-encoding too-large audio.
+        return GroqBackend(
+            model=cfg.groq_model,
+            tier=getattr(cfg, "groq_tier", "free"),
+        )
 
     if name == "openai":
         return OpenAIBackend(model=cfg.openai_model)
