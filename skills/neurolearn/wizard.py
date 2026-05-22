@@ -181,6 +181,8 @@ def run_wizard() -> None:
     if "groq" in chosen_providers:
         _ask_groq_tier_and_models(console, cfg, vision_backend, analyze_backend)
 
+    # v0.13.0: mark onboarding complete so work-commands stop refusing.
+    cfg.onboarding_complete = True
     save_config(cfg, CONFIG_PATH)
 
     # === Stage 6: API keys for any cloud backend we just selected ===

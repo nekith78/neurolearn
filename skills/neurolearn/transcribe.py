@@ -198,6 +198,17 @@ def transcribe_cmd(audio_or_url: str | None, **opts) -> None:
     if opts.get("no_fast_path"):
         cfg.fast_path_enabled = False
 
+    # v0.13.0 onboarding gate. Permit explicit offline backends so
+    # users without API keys still have an escape hatch.
+    _offline_backends = {"whisper-local", "subtitles"}
+    _allow_offline = (
+        opts.get("backend_opt") in _offline_backends
+        or cfg.default_backend in _offline_backends
+    )
+    _require_onboarding_complete(
+        cfg, command_name="transcribe", allow_offline=_allow_offline,
+    )
+
     targets, failures = resolve([audio_or_url], None, ResolverFilters())
     if failures:
         f = failures[0]
@@ -567,15 +578,53 @@ def _ensure_config_or_skip_wizard() -> None:
     if _stdin_is_tty():
         run_wizard()
         return
-    # Non-TTY first run: write defaults silently, continue.
+    # Non-TTY first run: write defaults silently, continue. v0.13.0
+    # writes onboarding_complete=False so subsequent work-commands
+    # (transcribe/batch/analyze/research) refuse to run until the user
+    # explicitly completes /setup. This stops Claude Code from
+    # silently using whisper-local or stale Gemini defaults on a
+    # fresh install — caller must go through /setup first.
     import sys
     CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
-    save_config(Config(), CONFIG_PATH)
+    save_config(Config(), CONFIG_PATH)  # onboarding_complete=False by default
     sys.stderr.write(
         f"[neurolearn] First run, non-TTY context — wrote default config "
-        f"to {CONFIG_PATH}. Run `neurolearn config wizard` later to "
-        f"customize.\n"
+        f"to {CONFIG_PATH} (onboarding_complete=false). Run `/setup` from "
+        f"Claude Code or `neurolearn config wizard` from a terminal to "
+        f"complete setup before transcribing.\n"
     )
+
+
+def _require_onboarding_complete(cfg: Config, *, command_name: str, allow_offline: bool = True) -> None:
+    """v0.13.0: hard gate — refuse to run work-commands until /setup or
+    the wizard explicitly marks onboarding_complete=True.
+
+    The exception: when the user passed --backend whisper-local or
+    --backend subtitles (allow_offline=True caller knows the backend is
+    offline-safe), we permit the run. Pure offline paths don't need
+    keys, so they're always safe to fire.
+
+    Raises SystemExit(7) with a clear stderr message pointing at the
+    /setup flow (Claude Code) or `neurolearn config wizard` (TTY).
+    """
+    if cfg.onboarding_complete:
+        return
+    if allow_offline:
+        return
+    import sys
+    sys.stderr.write(
+        f"[neurolearn] Setup is not complete. Refusing to run `{command_name}` "
+        f"with an incomplete configuration.\n\n"
+        f"  • From Claude Code: run `/setup` and let Claude walk you "
+        f"through the choices (audio / vision / analyze backend + keys).\n"
+        f"  • From a terminal: run `neurolearn config wizard` for the "
+        f"interactive flow.\n"
+        f"  • Or override: pass `--backend whisper-local` for an offline-"
+        f"only one-off run (no API keys required).\n\n"
+        f"Config file: {CONFIG_PATH}\n"
+        f"After setup, this gate disappears for all future runs.\n"
+    )
+    sys.exit(7)
 
 
 def _smart_fallback_hint(
@@ -1393,6 +1442,16 @@ def batch_cmd(
     )
 
     _ensure_config_or_skip_wizard()
+    # v0.13.0 onboarding gate (mirrors transcribe_cmd)
+    _gate_cfg = load_config(CONFIG_PATH)
+    _offline_backends = {"whisper-local", "subtitles"}
+    _allow_offline = (
+        opts.get("backend_opt") in _offline_backends
+        or _gate_cfg.default_backend in _offline_backends
+    )
+    _require_onboarding_complete(
+        _gate_cfg, command_name="batch", allow_offline=_allow_offline,
+    )
 
     cfg = load_config(CONFIG_PATH)
     cfg = _override_config(cfg, opts)
@@ -1878,26 +1937,62 @@ def config_get(key: str, as_json: bool) -> None:
               help="Read key from the named environment variable (non-interactive).")
 @click.option("--from-stdin", "from_stdin", is_flag=True,
               help="Read key from one line on stdin (non-interactive).")
+@click.option("--from-file", "from_file", default=None,
+              type=click.Path(dir_okay=False),
+              help="Read key from the first non-empty line of FILE. v0.13.0 — "
+                   "use this when handling keys through Claude Code: the key "
+                   "never appears in the chat history, the user creates the "
+                   "file manually and tells Claude only the path.")
 def config_set_key(
     backend: str,
     value: str | None,
     from_env: str | None,
     from_stdin: bool,
+    from_file: str | None,
 ) -> None:
     """Set an API key for BACKEND (stored in .env, never in config).
 
-    Three non-interactive forms (Claude-friendly):
+    Four non-interactive forms (Claude-friendly):
 
     \b
-      neurolearn config set-key groq gsk_xxx        # positional
+      neurolearn config set-key groq gsk_xxx        # positional (insecure in chat)
       neurolearn config set-key groq --from-env GROQ_API_KEY
+      neurolearn config set-key groq --from-file ~/Desktop/groq-key.txt   ★ RECOMMENDED
       echo gsk_xxx | neurolearn config set-key groq --from-stdin
 
     With no positional value and no flag: falls back to interactive prompt
     (works only when stdin is a TTY).
+
+    v0.13.0: --from-file is the recommended Claude Code path. The user
+    creates a file containing only the key on one line, tells Claude
+    the path, and Claude registers it without ever seeing the key in
+    chat. After registration, prompt the user to delete the file.
     """
-    # Positional value wins (explicit > flag-based > interactive)
-    if value is not None:
+    from pathlib import Path as _P
+    # Recommended explicit > flag-based > interactive
+    if from_file is not None:
+        try:
+            raw_bytes = _P(from_file).expanduser().read_bytes()
+        except OSError as e:
+            raise click.BadParameter(
+                f"Cannot read {from_file!r}: {e}",
+                param_hint="--from-file",
+            )
+        # Take the first non-empty line. Strip BOM + whitespace.
+        text = raw_bytes.decode("utf-8-sig", errors="replace")
+        first_line = ""
+        for line in text.splitlines():
+            stripped = line.strip()
+            if stripped:
+                first_line = stripped
+                break
+        if not first_line:
+            raise click.BadParameter(
+                f"{from_file} contains no non-empty line.",
+                param_hint="--from-file",
+            )
+        key = first_line
+    elif value is not None:
         if not value.strip():
             raise click.BadArgumentUsage(
                 "Empty positional value — pass the key as a non-empty string."
@@ -1928,6 +2023,11 @@ def config_set_key(
             return
     set_api_key(backend, key, env_path=ENV_PATH)
     console.print(f"[green]✓[/green] {backend} key saved to {ENV_PATH} ({mask_key(key)})")
+    if from_file is not None:
+        console.print(
+            f"[dim]Now safe to delete {from_file} — the key is stored at "
+            f"{ENV_PATH} with mode 0600.[/dim]"
+        )
 
 
 @config.command("set-cookies")
@@ -1985,6 +2085,27 @@ def config_test(backend: str) -> None:
 def config_wizard() -> None:
     """Re-run the first-run setup wizard."""
     run_wizard()
+
+
+@config.command("complete-onboarding")
+def config_complete_onboarding() -> None:
+    """Mark onboarding as complete (v0.13.0).
+
+    This flips the `onboarding_complete` gate to True so subsequent
+    work-commands (transcribe/batch/analyze/research) stop refusing to
+    run with "Setup is not complete".
+
+    The TTY wizard already runs this implicitly. Use this command
+    explicitly from /setup when Claude walks the user through manual
+    configuration via `config set` / `config set-key --from-file`.
+    """
+    cfg = load_config(CONFIG_PATH)
+    cfg.onboarding_complete = True
+    save_config(cfg, CONFIG_PATH)
+    console.print(
+        "[green]✓[/green] Onboarding marked complete. Work-commands "
+        "(transcribe/batch/analyze/research) will now run without the gate."
+    )
 
 
 from skills.neurolearn.detection.triggers_cli import triggers_cli

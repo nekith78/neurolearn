@@ -228,6 +228,16 @@ class Config:
     # users can opt out via --no-claude-extract.
     vision_extract_only: bool = False
 
+    # === v0.13.0: forced-onboarding gate ===
+    # True only after the user explicitly completes /setup or the
+    # TTY wizard. While False, transcribe/batch/analyze/research commands
+    # refuse to run with a clear "complete setup first" message, EXCEPT
+    # when --backend whisper-local is passed (offline path is always safe).
+    # Auto-set defaults (non-TTY first run, missing config.toml) stay at
+    # False so Claude Code doesn't silently auto-proceed with a half-
+    # configured stack.
+    onboarding_complete: bool = False
+
 
 DEFAULT_CONFIG = Config()
 
@@ -291,6 +301,9 @@ def _to_toml_dict(cfg: Config) -> dict:
         "vision": {
             "backend": d["vision_backend"],
         },
+        "onboarding": {
+            "complete": d["onboarding_complete"],
+        },
         "instagram": {
             "cookies_file": d["instagram_cookies_file"],
         },
@@ -331,6 +344,7 @@ def _from_toml_dict(d: dict) -> Config:
         groq_vision_model=d.get("groq", {}).get("vision_model", ""),
         groq_analyze_model=d.get("groq", {}).get("analyze_model", ""),
         vision_backend=d.get("vision", {}).get("backend", DEFAULT_CONFIG.vision_backend),
+        onboarding_complete=d.get("onboarding", {}).get("complete", False),
         openai_model=d.get("openai", {}).get("model", DEFAULT_CONFIG.openai_model),
         deepgram_model=d.get("deepgram", {}).get("model", DEFAULT_CONFIG.deepgram_model),
         assemblyai_model=d.get("assemblyai", {}).get("model", DEFAULT_CONFIG.assemblyai_model),
