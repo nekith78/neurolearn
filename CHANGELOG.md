@@ -3,6 +3,123 @@
 All notable changes to neurolearn will be documented here.
 The format is loosely based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.13.0] — 2026-05-22
+
+Major release. Two critical UX gaps surfaced during real-world fresh-machine
+plugin install testing:
+
+1. **Claude SKIPPED setup** on first run and started transcribing with
+   whatever defaults the non-TTY auto-config had written. The user
+   never got to choose their backends; the plugin just decided.
+2. **API key handoff went through chat history** — the existing flow
+   asked the user to paste their key in chat for `set-key groq <KEY>`,
+   leaving the secret in conversation logs.
+
+v0.13.0 fixes both with a hard gate + a secure key flow.
+
+### Forced onboarding gate
+
+New `Config.onboarding_complete: bool = False` field. While `false`,
+`transcribe` / `batch` / `analyze` / `research` REFUSE to run with
+**exit code 7** and a message pointing at the `/setup` flow.
+
+The only bypass: `--backend whisper-local` or `--backend subtitles`
+(offline; no API keys needed). Everything else hits the gate.
+
+Auto-default config writes (e.g. fresh non-TTY first run) write
+`onboarding_complete = false` so Claude Code can't silently auto-
+proceed. The gate flips to `true` via either:
+
+- `neurolearn config wizard` (TTY interactive flow — flips at the end)
+- `neurolearn config complete-onboarding` (new explicit subcommand for
+  Claude to call after a manual `/setup` walkthrough)
+
+### Secure key handoff via `--from-file`
+
+New flag on `neurolearn config set-key`:
+
+```bash
+neurolearn config set-key groq --from-file <PATH>
+```
+
+Reads the first non-empty line of `<PATH>` as the API key. The intended
+Claude Code flow:
+
+1. Claude tells the user: "Create a file at e.g. `~/Desktop/groq-key.txt`
+   containing only your API key on one line. Tell me the path."
+2. User creates the file manually (Finder / VS Code / terminal — their
+   choice). The key never enters chat.
+3. User replies with the path.
+4. Claude runs `set-key groq --from-file <PATH>`. The CLI reads the
+   key, saves to `~/.neurolearn/.env` (mode 0600), prints masked
+   confirmation + "you can delete the temp file now".
+5. User deletes the temp file.
+
+The previously-shipped non-interactive forms (positional value,
+`--from-env`, `--from-stdin`) still work for users running the CLI
+directly. `--from-file` is the recommended path through Claude Code.
+
+### Documentation rewrites
+
+- **`commands/setup.md`** — entirely rewritten as a multi-step forced
+  flow:
+  1. Probe `doctor --json` for current state
+  2. Ask working mode (Claude Code chat-native vs Standalone CLI)
+  3. Ask free vs paid tier
+  4. Audio backend choice (with recommendations)
+  5. Vision backend choice
+  6. Analyze backend choice (with `skip` option when Claude does analysis in chat)
+  7. Tier configuration (paid users only)
+  8. Key handoff via `--from-file` for each chosen cloud backend
+  9. `config complete-onboarding` to flip the gate
+  10. Verify via `doctor --json`
+
+  Includes a verbatim security script telling the user how to create the
+  key file without exposing the value in chat, and a recovery section
+  for half-finished setups.
+
+- **`SKILL.md`** — Onboarding section restructured around the new HARD
+  RULE. Explicit forbidden patterns:
+  - Don't auto-proceed past `onboarding_complete = false`
+  - Don't accept keys pasted into chat — refuse and walk through `--from-file`
+  - Don't invoke `config wizard` from chat (TTY-only)
+  Plus an "ALREADY pasted a key by mistake" recovery path: tell the
+  user to revoke the leaked key at the provider console immediately.
+
+### Tests
+
+1175 → 1184 (+9):
+
+- `tests/test_onboarding_gate.py` (new, 9 cases):
+  - `_require_onboarding_complete` unit tests (passes when complete,
+    passes with allow_offline=True, raises SystemExit(7) with the
+    right error message)
+  - CLI smoke for offline-backend bypass + complete-state pass-through
+  - `config complete-onboarding` command flips the flag
+  - `set-key --from-file` happy path + missing-file + empty-file errors
+- `tests/conftest.py` autouse fixture: patches the gate to no-op for
+  the rest of the suite. 15 pre-existing transcribe/batch tests would
+  otherwise all break since they don't run the wizard.
+
+### Migration
+
+For users with existing config.toml (v0.12.x or older):
+
+- `onboarding_complete` defaults to `False` when missing from TOML.
+- Next time they run transcribe → exit 7 → message points at `/setup`
+  or `config wizard`.
+- Quickest unblock: `neurolearn config complete-onboarding` (assumes the
+  existing config is already what they want).
+- Or: `neurolearn config wizard` (interactive re-walk-through).
+- Or: continue with `--backend whisper-local` for individual runs that
+  bypass the gate.
+
+This is a **breaking change** for anyone scripting around `neurolearn`
+on a missing/half-configured `~/.neurolearn/config.toml`. The gate
+catches what was previously a silent "use whatever defaults exist"
+behavior. Per-call `--backend whisper-local` is the recommended
+unattended path until setup is explicitly completed.
+
 ## [0.12.2] — 2026-05-22
 
 Plugin UX audit follow-up. After v0.12.0 (Anthropic removal + Groq vision)

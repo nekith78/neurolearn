@@ -52,47 +52,67 @@ All examples below use the bare `neurolearn ...` form for brevity. When
 you actually invoke the CLI inside Claude Code, prefix it with
 `uv run --project "${CLAUDE_PLUGIN_ROOT}"`.
 
-## Onboarding — first-time use (v0.11.0+)
+## Onboarding — REQUIRED first-time setup (v0.13.0+)
 
-When the user invokes this skill for the first time after installing the
-plugin, run a pre-flight check **before** attempting any transcription:
+**HARD RULE**: `neurolearn` refuses to run transcribe / batch / analyze /
+research commands while `config.onboarding_complete == false`. The CLI
+exits with code **7** and a message pointing here. Only escape: passing
+`--backend whisper-local` (offline; no keys needed).
+
+**DO NOT** try to bypass this by setting whisper-local on every call —
+the user wants to be asked. The correct response on a fresh install is:
 
 ```bash
 uv run --project "${CLAUDE_PLUGIN_ROOT}" neurolearn doctor --json
 ```
 
-Parse the JSON. If `ready.has_fast_audio == false`, **stop** and walk the
-user through getting a Groq API key (free tier, 8 hours/day, ~12s per video):
+Check `config.onboarding_complete`:
 
-1. Read `ready.recommended_setup[0]` — it carries `command` (the exact CLI
-   call to make) and `get_key_at` (the URL to send the user to).
-2. Tell the user: "Before I transcribe, you need a free Groq key. Open
-   [URL], click 'Create API Key', name it 'neurolearn', copy the `gsk_...`
-   value, and paste it here."
-3. When they paste, run:
-   `neurolearn config set-key groq <PASTED_KEY>` (v0.11.0+ accepts the key
-   as a positional argument — no TTY prompt needed).
-4. Re-run `doctor --json` to confirm.
+- **`true`** → user has completed setup. Skip onboarding and serve their
+  actual request.
+- **`false` (or missing field)** → STOP. Do NOT attempt the user's
+  request yet. Tell them: "I see neurolearn isn't fully configured yet.
+  I'm going to walk you through setup now — won't take more than a minute."
+  Then run the **`/setup`** flow (see `commands/setup.md` for the full
+  multi-step procedure: working mode → audio → vision → analyze → tier →
+  keys via file → `complete-onboarding`).
 
-If the user already has a fast key configured (`has_fast_audio == true`),
-skip onboarding entirely and proceed to the user's actual request.
+### Key security — file-based handoff only
 
-For a standalone setup walkthrough not tied to a transcribe request, point
-the user at the `/setup` slash command.
+The user's API key must NEVER appear in chat history. When you (Claude)
+need to register a key:
 
-### When NOT to run the pre-flight
+1. Tell the user to manually paste the key into a file at a path THEY
+   choose (e.g. `~/Desktop/groq-key.txt`).
+2. Ask them only for the file PATH.
+3. Run:
 
-- The user has explicitly chosen `--backend whisper-local` (no key needed).
-- The user has explicitly chosen `--backend subtitles` (no key needed).
+```bash
+uv run --project "${CLAUDE_PLUGIN_ROOT}" neurolearn config set-key groq --from-file <PATH>
+```
+
+The CLI reads the key from the file and stores it at `~/.neurolearn/.env`
+(mode 0600). It prints a masked confirmation; relay that to the user.
+Tell them they can delete the temp file now.
+
+**Forbidden**: `neurolearn config set-key groq <PASTED_KEY>` when the key
+came through chat. The positional form is fine when the user is
+typing it directly into their own terminal; for Claude Code → CLI
+interactions, use `--from-file` only.
+
+If the user has ALREADY pasted a key into chat by mistake, tell them to
+revoke that key at the provider console (it's now in chat history),
+then walk them through the file-based handoff for a fresh key.
+
+### When NOT to run the pre-flight check
+
+- The user has explicitly chosen `--backend whisper-local` or
+  `--backend subtitles` (no key needed; gate auto-bypasses these).
 - The user has already been onboarded earlier in this same chat — don't
-  re-run `doctor` every turn.
-
-### Key handling — security
-
-- Never echo a pasted key back in full. `set-key` prints a masked
-  confirmation `gsk_***...XXXX` — relay that, not the raw input.
-- Never write the key to any file other than via `neurolearn config set-key`.
-  That command stores it in `~/.neurolearn/.env` with mode 0600 on Unix.
+  re-run `doctor` every turn (cache the result in your context).
+- The user explicitly said "skip setup, just try" — relay the gate
+  message exactly so they understand the trade-off, then offer the
+  whisper-local fallback.
 
 ## Backend choice cheat-sheet (v0.12+)
 
