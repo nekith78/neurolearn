@@ -5,17 +5,26 @@ repository.
 
 ## Repository state
 
-`neurolearn` is a mature CLI tool: v0.10.3, ~1052 unit tests
+`neurolearn` is a mature CLI tool: v0.13.0+, ~1184 unit tests
 passing, in active use. Shipped commands: `transcribe`, `batch`,
 `analyze`, `research`, `subscribes` (YouTube / Instagram / TikTok),
-`report` (PDF generation, v0.10.2), `history`, `config`, `webui`
-(hidden).
+`report` (PDF generation, v0.10.2), `history`, `doctor` (v0.11.0),
+`config` group (`show` / `set` / `get` / `set-key` / `complete-onboarding`
+/ `wizard` / `test`), `schedule`, `webui` (hidden).
 
-v0.10.3 highlight: `GeminiBackend.transcribe(youtube_url)` now uses
-`Part.from_uri` directly — no download, no upload. Smart composer
-routes YouTube URLs to Gemini's URL path when fallback is gemini,
-falls back to download+upload on any backend error (e.g. free-tier
-quota exhaustion).
+Current architectural headlines:
+
+- **v0.11.0**: default audio = `smart` cascade with Groq as primary
+  fallback; `gemini-2.5-flash` audio path BLOCKED (verified +63%
+  timestamp drift bug).
+- **v0.12.0**: default vision = Groq Llama-4-Scout, with Gemini
+  fallback. Anthropic API removed entirely from the codebase.
+  Per-model prompts in `vision/data/prompts_default.toml`.
+- **v0.12.1**: `$CLAUDE_PLUGIN_ROOT` auto-detection enables
+  extract-only vision mode (manifest.json + Claude-in-chat reads frames).
+- **v0.13.0**: forced onboarding gate (`Config.onboarding_complete`).
+  Work-commands exit 7 until `/setup` or `config wizard` completes.
+  Secure key handoff via `config set-key <backend> --from-file <path>`.
 
 The source of truth for behavior is the code. Design documents in
 `docs/specs/` and plan documents in `docs/plans/` capture the original
@@ -51,7 +60,7 @@ uv sync --extra webui              # + gradio
 uv sync --extra ocr                # + pytesseract, easyocr
 uv sync --extra report             # + weasyprint, jinja2, markdown (PDF reports)
 
-uv run pytest                      # full suite (~25s, ~1030 tests)
+uv run pytest                      # full suite (~25s, ~1184 tests)
 uv run pytest tests/test_X.py -v   # one file
 uv run pytest -k keyword -v        # filter by keyword
 RUN_E2E_SMOKE=1 uv run pytest -v   # enable network-touching e2e
@@ -89,13 +98,51 @@ against the interface; SDKs are mocked. To add a backend:
 implement `Transcriber` + register in `backends/factory.py::build_backend`.
 
 **`smart` is composition, not a backend.** When `default_backend ==
-"smart"`, the flow is: try `subtitles` if the URL is YouTube and
-`fast_path_enabled`, otherwise (or on subtitles failure) download
-audio and fall back to `cfg.fallback_backend` (default `whisper-local`).
-The smart composer is in `backends/factory.run_smart`; it's
-responsible for downloading audio when the input is a URL because
-non-subtitles backends call `Path(audio).exists()` and reject URLs.
-(v0.8 fix `4e1afcf`.)
+"smart"`, the v0.12+ flow is: try `subtitles` if the URL is YouTube and
+`fast_path_enabled`, otherwise (or on subtitles failure / low quality)
+download audio and fall back to `cfg.fallback_backend` (default
+**`groq`** since v0.11.0). The smart composer is in
+`backends/factory.run_smart`; it's responsible for downloading audio
+when the input is a URL because non-subtitles backends call
+`Path(audio).exists()` and reject URLs.
+
+v0.12.0+ Gemini URL middle-step is OPT-IN via `gemini_url_fastpath = true`
+AND `gemini_model` in the timestamp-safe whitelist (`gemini-3.5-flash`,
+`gemini-3-flash-lite`, `gemini-3.1-flash-lite`). Default is `false` —
+plain smart cascade does not call Gemini.
+
+**Anthropic API is NOT a backend.** Per memory rule
+`feedback_no_anthropic_api`: neurolearn never calls `anthropic` SDK.
+Claude integration happens through Claude Code chat (user's Pro/Max
+subscription) — we hand over raw data, Claude does analysis. The 8
+backends are: `subtitles`, `whisper-local`, `gemini`, `groq`, `openai`,
+`deepgram`, `assemblyai`, `custom`. No `claude` choice anywhere.
+
+**Onboarding gate (v0.13.0+).** `Config.onboarding_complete: bool = False`
+is the gatekeeper. While `false`, `transcribe`/`batch`/`analyze`/`research`
+exit with code **7** and a message pointing at `/setup` or `config
+wizard`. Only escapes: `--backend whisper-local` or `--backend subtitles`
+(offline; auto-bypass via `allow_offline=True` in
+`_require_onboarding_complete`). Flipped to `true` by either the TTY
+wizard at end of `run_wizard()`, or explicitly via
+`neurolearn config complete-onboarding`. Doctor's JSON exposes the flag
+at `config.onboarding_complete` (v0.13.1+) so Claude can read and branch.
+
+**Secure key handoff (v0.13.0+).** Through Claude Code chat, use ONLY
+`neurolearn config set-key <backend> --from-file <path>`. The user
+manually creates a file with the key on one line and tells Claude the
+PATH; the key never enters chat history. The positional form
+(`set-key groq <KEY>`) is reserved for users typing in their own
+terminal. Per memory rule (the failure mode that motivated v0.13.0):
+chat-paste leaves the key in conversation logs.
+
+**Vision pipeline (v0.12+).** Default vision backend is **Groq**
+(`vision/groq_vision.GroqVisionBackend`, Llama-4-Scout); Gemini is the
+fallback. Inside Claude Code (`$CLAUDE_PLUGIN_ROOT` env var set),
+`--with-visuals` auto-enables extract-only mode: ffmpeg pulls keyframes,
+`pipeline_v02._write_keyframes_manifest` writes
+`<batch>/keyframes/manifest.json`, no external vision API call. Claude
+reads frames with native vision in the chat.
 
 **Whisper-local: two physical implementations.** On macOS arm64 we use
 `mlx-whisper`; everywhere else `faster-whisper`. The choice is
@@ -181,7 +228,7 @@ Optional deps via `uv sync --extra report` (weasyprint + jinja2 +
 markdown). On macOS the package primes `DYLD_FALLBACK_LIBRARY_PATH`
 so `brew install pango cairo` libs are picked up automatically.
 
-## Out of scope for v0.10.2 (currently)
+## Out of scope (currently — as of v0.13.0)
 
 Chunking videos > 2h, PyPI publication, Web UI revival (Gradio tabs
 re-do). These are tracked in README `## Roadmap`; add new requests

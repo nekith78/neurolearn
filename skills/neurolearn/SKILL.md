@@ -410,7 +410,7 @@ flag overrides for both. Optional deps: `uv sync --extra report`.
 
 ### Default behavior
 
-- No flags → uses configured default backend (usually `whisper-local`).
+- No flags → uses configured default backend (v0.11+: `smart` cascade with Groq as primary fallback by default).
 - First-run automatically launches `wizard` (interactive setup).
 - Single output: `./transcripts/<name>.txt` and `<name>.srt`.
 - Batch output: `./transcripts/batch_<timestamp>_<auto-slug>/` with `videos/`, `combined.md`, `manifest.json`, optional `errors.log`.
@@ -443,11 +443,14 @@ This writes to `~/.neurolearn/config.toml` and affects all future sessions.
 
 ### Other useful sub-commands
 
-- `neurolearn doctor` — diagnostic command; `--json` for machine-parseable output
-- `neurolearn config show` — list current settings + which API keys are configured
-- `neurolearn config set-key <backend> [VALUE]` — set an API key. v0.11.0+ accepts the key as a positional argument or `--from-env VAR` / `--from-stdin` for non-interactive use (Claude can call this directly with a pasted key). Bare form still prompts via TTY.
+- `neurolearn doctor [--json]` — diagnostic command; JSON is machine-parseable. Key fields: `config.onboarding_complete` (v0.13.1+ gate signal), `ready.has_fast_audio` / `has_fast_vision` / `has_analyze_backend`, `ready.recommended_setup[]` with exact fix commands.
+- `neurolearn config show` — list current settings + which API keys are configured (human-readable)
+- `neurolearn config get <key> [--json]` — print a single config value (v0.12.2+). Kebab-case keys (e.g. `backend`, `vision-backend`, `onboarding-complete`, `gemini-url-fastpath`).
+- `neurolearn config set <key> <value>` — write a single config field.
+- `neurolearn config set-key <backend> [VALUE]` — set an API key. v0.13.0+: prefer `--from-file <path>` for chat-safe handoff (key never enters chat history). Other forms: positional value (terminal-only), `--from-env VAR`, `--from-stdin`. Bare form prompts via TTY.
+- `neurolearn config complete-onboarding` — v0.13.0+ — flip the gate to True after a manual /setup walkthrough. The TTY wizard does this implicitly at the end.
 - `neurolearn config test <backend>` — sanity-check a backend's configuration
-- `neurolearn config wizard` — re-run the first-run wizard
+- `neurolearn config wizard` — re-run the first-run wizard (TTY-only; refuses non-TTY contexts with exit 2)
 
 ## Platform support — what works where
 

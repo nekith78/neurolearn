@@ -23,7 +23,9 @@ def test_version_matches_pyproject():
     """
     import skills.neurolearn
     # v0.11.0 raised the floor from 0.10.1 — audio default switched to Groq.
-    # v0.13.0 — forced onboarding gate + secure key handoff via --from-file.
+    # v0.13.1 — docs audit follow-up + doctor JSON onboarding_complete field.
     parts = skills.neurolearn.__version__.split(".")
     assert int(parts[0]) == 0
     assert int(parts[1]) >= 13
+    if int(parts[1]) == 13:
+        assert int(parts[2]) >= 1

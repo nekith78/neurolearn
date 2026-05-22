@@ -6,41 +6,58 @@ description: |
 argument-hint: <URL_or_path> | batch <inputs...> [flags]
 ---
 
-### Step 0 — Pre-flight check (v0.11.0+, IMPORTANT)
+### Step 0 — Pre-flight check (v0.13.0+, IMPORTANT)
 
-**Before running any transcription**, check that the user has a fast cloud
-audio backend configured. Run `neurolearn doctor --json` and parse the
-output:
+**Before running any transcription**, check the onboarding gate. As of
+v0.13.0, neurolearn refuses to run transcribe/batch/analyze/research
+with `onboarding_complete = false` (exit code 7). Don't try to bypass
+this — the user wants to be asked.
 
 ```bash
 uv run --project "${CLAUDE_PLUGIN_ROOT}" neurolearn doctor --json
 ```
 
-The JSON has `ready.has_fast_audio` (boolean). When **false**:
+Parse the JSON and check `config.onboarding_complete` (boolean):
 
-1. **Stop. Do NOT run transcribe yet** — without a key, neurolearn falls back
-   to local whisper which is much slower (especially on Windows, where every
-   yt-dlp subprocess is also slow) and the user will think the plugin is broken.
-2. Walk the user through getting a free Groq key. Read the JSON
-   `ready.recommended_setup[0]` — it contains `command` and `get_key_at`
-   ready-to-relay. Suggested flow:
-   - Tell the user: "neurolearn isn't fully set up yet. The fastest free
-     transcription backend is Groq Whisper-large-v3-turbo (~12s for a
-     17-min video, 8 hours/day free). Want me to set it up?"
-   - If yes: ask them to open `https://console.groq.com/keys`, sign in
-     (Google works), click **Create API Key**, name it `neurolearn`, copy
-     the `gsk_...` value, and paste it in chat.
-   - When they paste, register it via:
-     ```bash
-     uv run --project "${CLAUDE_PLUGIN_ROOT}" neurolearn config set-key groq <PASTED_KEY>
-     ```
-   - Re-run `doctor --json` to confirm `ready.has_fast_audio == true`.
-3. After setup is complete, proceed to Step 1 below.
+- **`true`** → setup is complete. Skip to Step 1 and serve the request.
+- **`false` (or field absent)** → STOP. Do NOT run transcribe yet. The
+  CLI would just exit 7 with a setup-required message. Instead:
+  - Tell the user: "I see neurolearn isn't fully set up yet. Let me walk
+    you through it — won't take more than a minute."
+  - Run the **`/setup`** flow (full multi-step procedure in
+    `commands/setup.md`). It collects backend choices and API keys
+    securely via files on disk.
 
-If `ready.has_fast_audio` is **true** on the first check, skip straight to Step 1.
+The **only** way around the gate without completing setup is to pass
+`--backend whisper-local` or `--backend subtitles` for that one run
+(offline; no API keys needed). Suggest this only if the user explicitly
+declines setup and wants an offline one-off.
 
-For the dedicated onboarding walkthrough (not coupled to a transcribe request),
-use the `/setup` slash command instead.
+### Security — never accept API keys in chat
+
+When registering any API key during onboarding, **never** ask the user
+to paste the key into chat. The correct flow (v0.13.0+):
+
+1. Tell the user: "Create a file at e.g. `~/Desktop/groq-key.txt`
+   containing only your API key on one line. Tell me the path."
+2. User creates the file manually (Finder / VS Code / terminal — their
+   choice). Key never enters chat.
+3. User replies with the path.
+4. Register via:
+   ```bash
+   uv run --project "${CLAUDE_PLUGIN_ROOT}" neurolearn config set-key groq --from-file <PATH>
+   ```
+5. CLI saves the key to `~/.neurolearn/.env` (mode 0600), prints a
+   masked confirmation, and reminds the user to delete the temp file.
+
+**Forbidden**: `neurolearn config set-key groq <PASTED_KEY>` (positional
+value) when the key came through chat — it persists in conversation
+history. The positional form is fine when the user is running the CLI
+themselves in their terminal; for Claude Code → CLI interactions, use
+`--from-file` only.
+
+For the full onboarding walkthrough (audio / vision / analyze backend
+choices, tier handling, etc.), use the `/setup` slash command.
 
 ### Step 1 — How to invoke the CLI (v0.10.6+)
 
@@ -162,8 +179,27 @@ If the command exits non-zero, the stdout/stderr will contain a friendly hint �
 - **Private/unlisted YouTube + Gemini direct URL**: Gemini can only fetch public videos via `file_uri`. Suggest downloading with cookies (`--cookies-file <path>`) or using `--backend smart` for auto-fallback.
 - **`command not found: neurolearn`**: see "How to invoke the CLI" above — switch to the `uv run --project "${CLAUDE_PLUGIN_ROOT}"` form, or suggest `uv tool install --from "${CLAUDE_PLUGIN_ROOT}" neurolearn` for a one-time global install.
 
-### Backend default recommendation
+### Backend default recommendation (v0.12+)
 
-If the user didn't specify a backend and pastes a YouTube URL: prefer `--backend smart` (default). It cascades subtitles → Gemini direct URL → download+fallback, costs **1** Gemini API call per video (no vision in v0.10.6+ smart preset), and gracefully handles quota / private / network failures.
+If the user didn't specify a backend and pastes a YouTube URL: prefer
+`--backend smart` (default). The v0.12+ cascade is:
 
-**Want visual analysis too?** Add `--with-visuals` (or use `--preset standard / premium / tutorial`). This adds ~1 + N Gemini calls per video, where N is the number of keyframe windows (≈4–6 per minute) — heavy on the free tier (20 calls/day cap).
+  subtitles fast-path → Groq Whisper-large-v3-turbo → whisper-local fallback
+
+Costs **1** Groq audio API call per video on the default smart path
+(no Gemini in the cascade — `gemini_url_fastpath` is opt-in, off by
+default). Free Groq tier covers 8 hours of audio per day.
+
+**Want visual analysis too?** Add `--with-visuals` (or use `--preset
+standard / premium / tutorial`).
+
+- **Inside Claude Code** (this chat — `$CLAUDE_PLUGIN_ROOT` is set):
+  vision auto-defaults to extract-only mode. neurolearn writes
+  `keyframes/manifest.json` with frame paths and transcript snippets;
+  YOU read the frames natively and synthesize descriptions in chat.
+  **Zero external vision API calls.**
+- **Standalone CLI**: vision goes through Groq Llama-4-Scout per frame
+  (1000 RPD free tier) with Gemini 2.5-flash as fallback.
+- Per-call quota burn on the default vision path is roughly 5-15 calls
+  per video (one per detected window), against Groq's 1000 RPD limit —
+  ~66 videos/day even at the maximum 15 frames each.

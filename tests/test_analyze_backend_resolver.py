@@ -36,9 +36,10 @@ def test_cli_flag_wins_over_config(tmp_path: Path):
         'default_preset = "smart"\n\n[analyze]\nbackend = "gemini"\n',
         encoding="utf-8",
     )
+    # v0.13.1: 'claude' removed from _VALID_BACKENDS; use 'groq' instead.
     assert resolve_analyze_backend(
-        cli_flag="claude", no_analyze=False, config_path=cfg, is_tty=False,
-    ) == "claude"
+        cli_flag="groq", no_analyze=False, config_path=cfg, is_tty=False,
+    ) == "groq"
 
 
 def test_config_skip_returns_none(tmp_path: Path):
@@ -96,7 +97,9 @@ def test_tty_prompt_skip_saves_and_returns_none(tmp_path: Path):
     assert _read_config_field(cfg, section="analyze", key="backend") == "skip"
 
 
-def test_tty_prompt_gemini_saves_and_returns(tmp_path: Path):
+def test_tty_prompt_groq_saves_and_returns(tmp_path: Path):
+    """v0.13.1: option 2 in the TTY prompt is 'groq' now (was 'gemini').
+    Anthropic SDK removed in v0.12.0; menu reshuffled."""
     from skills.neurolearn.analyze import backend_resolver
     cfg = tmp_path / "config.toml"
 
@@ -104,17 +107,21 @@ def test_tty_prompt_gemini_saves_and_returns(tmp_path: Path):
         result = backend_resolver.resolve_analyze_backend(
             cli_flag=None, no_analyze=False, config_path=cfg, is_tty=True,
         )
-    assert result == "gemini"
-    assert _read_config_field(cfg, section="analyze", key="backend") == "gemini"
+    assert result == "groq"
+    assert _read_config_field(cfg, section="analyze", key="backend") == "groq"
 
 
 def test_tty_prompt_options_cover_all_four_backends(tmp_path: Path):
     """Each numeric choice maps to the correct backend. We reset the config
     between iterations because a saved preference short-circuits the prompt
-    on subsequent calls (that's the test_saved_preference_persists case)."""
+    on subsequent calls (that's the test_saved_preference_persists case).
+
+    v0.13.1: option 2 is now 'groq' (was 'gemini'), option 3 'gemini'
+    (was 'claude'). Anthropic SDK was removed in v0.12.0.
+    """
     from skills.neurolearn.analyze import backend_resolver
 
-    table = {"3": "claude", "4": "openai", "5": "ollama"}
+    table = {"2": "groq", "3": "gemini", "4": "openai", "5": "ollama"}
     for choice_num, backend in table.items():
         cfg = tmp_path / f"config-{choice_num}.toml"
         with patch("click.prompt", return_value=choice_num):
@@ -129,7 +136,9 @@ def test_tty_prompt_options_cover_all_four_backends(tmp_path: Path):
 
 
 def test_saved_preference_persists_across_calls(tmp_path: Path):
-    """Once saved, no more prompts on subsequent invocations."""
+    """Once saved, no more prompts on subsequent invocations.
+
+    v0.13.1: option 2 in TTY prompt is 'groq' (was 'gemini')."""
     from skills.neurolearn.analyze import backend_resolver
     cfg = tmp_path / "config.toml"
 
@@ -146,4 +155,4 @@ def test_saved_preference_persists_across_calls(tmp_path: Path):
         result = backend_resolver.resolve_analyze_backend(
             cli_flag=None, no_analyze=False, config_path=cfg, is_tty=True,
         )
-    assert result == "gemini"
+    assert result == "groq"

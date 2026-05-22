@@ -25,12 +25,12 @@ Works as:
 
 ## Status
 
-v0.13.0 — production-ready:
+v0.13.1 — production-ready:
 
 | Feature | Since | State |
 |---|---|---|
 | 8 transcription backends (subtitles, whisper-local, gemini, groq, openai, deepgram, assemblyai, custom) | v0.1 | Working |
-| Smart preset (subtitles fast-path → whisper-local fallback + visual moments) | v0.1 / v0.2 | Working |
+| Smart preset (v0.12+: subtitles fast-path → Groq Whisper → whisper-local fallback; vision is opt-in, NOT auto) | v0.1 / v0.2 / v0.12 | Working |
 | Batch / channel / playlist | v0.1 | Working |
 | First-run wizard with hardware auto-detect | v0.1 | Working |
 | CLI (`transcribe`, `batch`, `config`) | v0.1 | Working |
@@ -63,6 +63,7 @@ v0.13.0 — production-ready:
 | 3-stage wizard (audio/vision/analyze with tier branching + paid model overrides); `$CLAUDE_PLUGIN_ROOT` auto-detection → extract-only mode (writes `keyframes/manifest.json`, Claude reads frames in chat — no extra API call) | v0.12.1 | Working |
 | Plugin UX audit fixes — Click choices cleanup (claude→groq in 12+ places), wizard non-TTY guard, `config get` command, doctor warning for stale gemini-2.5-flash, SKILL.md/commands/agent-reference rewrites for v0.12 architecture | v0.12.2 | Working |
 | Forced onboarding gate (`onboarding_complete` flag → exit 7 if not set up); secure API-key handoff via `--from-file <path>` (key never appears in chat); `config complete-onboarding` subcommand; SKILL.md / setup.md rewritten for hard gate + file-based key flow | v0.13.0 | Working |
+| Doc audit follow-up — `doctor --json` exposes `config.onboarding_complete`; SKILL.md / CLAUDE.md / HANDOFF.md / agent-reference / README synced to v0.13 architecture; `backend_resolver._VALID_BACKENDS` claude→groq cleanup; cookies-walkthrough yt-tr rename | v0.13.1 | Working |
 | Web UI (Gradio) | v0.4 | **Experimental, hidden** — code preserved, not maintained |
 
 ---
@@ -223,8 +224,14 @@ for tutorial videos: you get a markdown walkthrough with pictures.
 neurolearn https://youtube.com/watch?v=... --with-visuals
 ```
 
-Requires `GEMINI_API_KEY` (free tier ~1500 RPD is enough for ~75
-videos/day). If the key isn't set, visual analysis is silently
+**v0.12+**: default vision backend is **Groq Llama-4-Scout**
+(`GROQ_API_KEY`). Free tier 1,000 RPD vision + 30 RPM. Gemini is the
+fallback when Groq vision fails or rate-limits. Inside Claude Code
+(`$CLAUDE_PLUGIN_ROOT` detected), vision auto-defaults to
+**extract-only mode** — neurolearn writes `keyframes/manifest.json`
+and Claude reads the frames in chat (no external API call).
+
+If neither Groq nor Gemini key is set, visual analysis is silently
 disabled and you get a plain transcript.
 
 ### Triggers — control where visual analysis fires
@@ -494,7 +501,7 @@ ranking decides relevance, you decide period + analysis angle.
 
 > **About the analyze step.** By default, on the first interactive run
 > `research` / `subscribes update` / `batch --then-analyze` asks once
-> which LLM to use for the analyze pass (skip / gemini / claude / openai
+> which LLM to use for the analyze pass (skip / groq / gemini / openai
 > / ollama) and persists the choice in `~/.neurolearn/config.toml`.
 > Override per-call with `--analyze-backend X`. In a non-TTY context
 > (Claude Code subprocess, CI, piped run) the prompt is skipped and the
@@ -876,11 +883,16 @@ are mocked.
 
 ### Smart mode — composition, not a backend
 
-When `default_backend = "smart"`:
+When `default_backend = "smart"` (v0.11+):
 1. URL → YouTube? → try `subtitles`.
 2. Success → return the result.
 3. No subtitles / not YouTube / `--no-fast-path` → use
-   `fallback_backend` (default: `whisper-local`).
+   `fallback_backend` (v0.11+ default: **`groq`**; pre-v0.11 default
+   was `whisper-local`).
+4. If `gemini_url_fastpath=true` AND `gemini_model` is whitelisted
+   (`gemini-3.5-flash` family), there's an opt-in Gemini URL middle
+   step before the download+Groq path — saves the audio download for
+   YouTube videos. Off by default.
 
 The logic lives at the top level; backends don't know about each
 other.
@@ -934,27 +946,33 @@ CLI) doesn't change.
 
 ## Roadmap
 
-**Shipped** (v0.1 → v0.7):
+**Shipped** (v0.1 → v0.13):
 - v0.3 — channel filters (--since/--until/--min/max-duration/--no-shorts), --skip-existing, --workers, --search
 - v0.4 — `--correct-asr` (LLM post-processing on low-quality transcripts)
 - v0.5 — `--diarize` (pyannote-audio speaker labels)
 - v0.6 — `analyze` sub-command, `batch --then-analyze`
 - v0.7 — `research`, `subscribes`, `history`, YouTube SP date filter, cross-OS scheduler
+- v0.8 — Instagram / TikTok subscribes (yt-dlp + instaloader fallback); cookies = strict file-only
+- v0.9 — internal cleanup, security hardening
+- v0.10 — Visual pipeline v2 (per-video-type prompts, 9 templates, cost tracking)
+- v0.10.2 — `report` (PDF generation via Jinja2 + WeasyPrint)
+- v0.10.3+ — Gemini accepts YouTube URLs directly; performance cache + parallelism
+- v0.10.5 — smart preset auto-tries Gemini direct URL after subtitles
+- v0.10.6 — vision opt-in (`smart` default no longer burns Gemini quota)
+- v0.10.7-9 — Windows cp1251 fix, cuBLAS fallback, robustness
+- v0.10.8 — epistemic framing for downstream LLM consumers
+- v0.11.0 — **Groq audio default**, Claude Code plugin onboarding (doctor / setup / set-key), `gemini-2.5-flash` audio blocked (+63% timestamp drift)
+- v0.12.0 — Groq Vision Llama-4-Scout primary; **Anthropic API fully removed**; explicit Gemini cache removed; per-model prompts
+- v0.12.1 — 3-stage wizard (audio + vision + analyze, tier branching); `$CLAUDE_PLUGIN_ROOT` extract-only mode
+- v0.12.2 — plugin UX audit follow-up (Click choices cleanup, wizard non-TTY guard, `config get`, doctor warnings)
+- v0.13.0 — **forced onboarding gate** (exit 7 until setup complete); secure key handoff via `--from-file <path>`; `config complete-onboarding`
+- v0.13.1 — doctor JSON exposes `onboarding_complete`; docs synced to v0.13.0 architecture
 
-**v0.8 (in progress):**
-- **Instagram / TikTok subscribes** — `subscribes add` accepts an IG profile
-  or TikTok user. Cookies are required (registered via `subscribes cookies set
-  <platform> <netscape-cookies.txt>`); we never read browser cookies. For
-  Instagram, yt-dlp is primary; when its profile extractor is marked broken
-  upstream (which happens periodically), we fall back to **instaloader**
-  (`uv sync --extra instagram`). Intended for occasional fetches, not bulk
-  scraping — the loader prints a one-time warning per process.
-- **Cross-OS scheduler installer** for `subscribes update` (cron / launchd /
-  Task Scheduler).
-
-**v0.9 candidates** (not started, ordered by likely value):
+**Future candidates** (not started):
 - **Chunking videos > 2h** for cloud backends with payload limits.
 - **PyPI publication.**
+- **`set-key --from-clipboard`** convenience (opt-in; pyperclip dep).
+- **Submit to `anthropics/claude-plugins-community`** marketplace.
 - **Web UI revival** — currently hidden as experimental; if there's demand we'll
   re-do the Gradio tabs properly.
 

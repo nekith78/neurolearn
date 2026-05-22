@@ -3,6 +3,87 @@
 All notable changes to neurolearn will be documented here.
 The format is loosely based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.13.1] — 2026-05-22
+
+Doc-and-cleanup release. A documentation audit against v0.13.0 code
+surfaced 6 CRITICAL gaps where docs still pointed at v0.10/v0.11-era
+behavior, and 25 HIGH-priority inconsistencies. This release fixes
+all of them plus 2 small code cleanups discovered during the audit.
+
+### Code
+
+- **`doctor --json` exposes `config.onboarding_complete`** — was
+  missing from the JSON payload, so `commands/setup.md` Step 0
+  instructed Claude to read a non-existent field. Now exposed at
+  `config.onboarding_complete` (boolean). Also added `vision_backend`
+  and `analyze_backend` to the JSON config block for completeness.
+- **`backend_resolver._VALID_BACKENDS` cleaned** — still contained
+  `"claude"` despite v0.12.2 removing it from the Click choices.
+  Cleanup: `("skip", "groq", "gemini", "openai", "ollama")`.
+- **`_prompt_for_default` TTY menu** in `backend_resolver.py`
+  reshuffled: option 2 is now `groq` (was `gemini`), option 3
+  `gemini` (was `claude`).
+
+### Documentation rewrites
+
+CRITICAL fixes:
+- **`commands/setup.md`** Step 0 — clarified the `config.onboarding_complete`
+  read path (now in JSON since v0.13.1, plus alternative via
+  `config get onboarding-complete --json`).
+- **`commands/transcribe.md`** Step 0 — full rewrite. Old version told
+  Claude to ask the user to paste API keys directly in chat. New version:
+  hard gate based on `onboarding_complete` (exit 7), explicit
+  "never accept keys in chat" rule, points at `--from-file` flow.
+- **`commands/transcribe.md`** backend recommendation — v0.10.5-era
+  "smart cascade subtitles → Gemini URL → fallback, 1 Gemini call"
+  prose replaced with v0.12+ reality (Groq primary; vision quota
+  uses Groq Llama-4-Scout default; extract-only mode inside Claude Code).
+- **`HANDOFF.md`** — v0.8.0 → v0.13.0+, 898 → 1184 tests, full command
+  list updated (added `report`, `doctor`, `schedule`,
+  `complete-onboarding`), wizard described as TTY-only with Claude
+  Code → `/setup` branch noted, dropped `anthropic` from the
+  set-key example list (removed in v0.12.0).
+- **`docs/agent-reference.md`** — added exit code 7 row to the failure
+  table.
+- **`CLAUDE.md`** — added v0.11/v0.12/v0.13 architecture invariants
+  (Groq-default audio + vision, Anthropic API removal, onboarding gate
+  + exit 7, secure key handoff via `--from-file`, vision extract-only
+  mode under `$CLAUDE_PLUGIN_ROOT`); test count 1030 → 1184; `v0.10.2`
+  "Out of scope" header re-versioned to v0.13.
+
+HIGH fixes (sweep across all docs):
+- Smart-cascade description corrected to v0.12+ flow
+  (subtitles → Groq → whisper-local) in README, SKILL.md, agent-reference.
+- Default vision backend = Groq Llama-4-Scout (not Gemini) across all
+  vision-related sections.
+- `--analyze-backend` choice lists no longer mention `claude` in
+  README, SKILL.md, agent-reference (matches v0.12.2 Click choices).
+- README Roadmap section refreshed: was frozen at v0.7, now spans
+  v0.1 → v0.13.1 with capsule notes per major release.
+- SKILL.md sub-commands list now includes `config get`,
+  `config complete-onboarding`, mentions `--from-file` on `set-key`.
+- agent-reference.md `config` sub-commands block enumerates all
+  v0.12.2/v0.13.0 additions.
+
+LOW fixes:
+- `docs/cookies-walkthrough.md` — backup folder renamed
+  `~/yt-tr-walkthrough-bak` → `~/neurolearn-walkthrough-bak` (and any
+  remaining `yt-tr` aliases). Per project memory: yt-tr is not a valid
+  alias.
+
+### Test updates
+
+- `tests/test_analyze_backend_resolver.py` — `claude` → `groq` /
+  `gemini` migration across 3 tests to match the cleaned-up TTY menu.
+
+### Migration
+
+No action needed. Same `onboarding_complete = false` default behavior
+as v0.13.0. If you'd already configured v0.13.0 and ran
+`config complete-onboarding`, nothing changes. Docs match reality now.
+
+Tests: 1184 still green.
+
 ## [0.13.0] — 2026-05-22
 
 Major release. Two critical UX gaps surfaced during real-world fresh-machine

@@ -27,10 +27,22 @@ Step 0 — Detect current state:
 uv run --project "${CLAUDE_PLUGIN_ROOT}" neurolearn doctor --json
 ```
 
-Parse the JSON. Look at `config.onboarding_complete` (or check whether
-it's even present — older versions return absent/false). If `true`,
-tell the user "you're already set up, here's the current config" and
-stop. Otherwise continue.
+Parse the JSON. v0.13.1+ exposes the gate signal at
+`config.onboarding_complete` (boolean):
+
+- `true` → user has completed setup. Tell them "you're already set up,
+  here's the current config" and stop. (`doctor --json` also has
+  `config.default_backend`, `config.vision_backend`, etc. for the
+  summary.)
+- `false` (or field absent on older builds) → continue with this flow.
+
+Alternative inspection — if you want only the gate flag:
+
+```bash
+uv run --project "${CLAUDE_PLUGIN_ROOT}" neurolearn config get onboarding-complete --json
+```
+
+returns `{"onboarding-complete": true}` or `{"onboarding-complete": false}`.
 
 Step 1 — Pick working mode (CRITICAL — affects later steps):
 

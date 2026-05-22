@@ -15,16 +15,16 @@ automated end-to-end because:
 ### 1. Back up your current state
 
 ```bash
-mkdir -p ~/yt-tr-walkthrough-bak
+mkdir -p ~/neurolearn-walkthrough-bak
 [[ -f ~/.neurolearn/subscribes.toml ]] && \
-  cp ~/.neurolearn/subscribes.toml ~/yt-tr-walkthrough-bak/
+  cp ~/.neurolearn/subscribes.toml ~/neurolearn-walkthrough-bak/
 [[ -f ~/.neurolearn/config.toml ]] && \
-  cp ~/.neurolearn/config.toml ~/yt-tr-walkthrough-bak/
+  cp ~/.neurolearn/config.toml ~/neurolearn-walkthrough-bak/
 [[ -f ~/.neurolearn/instagram-cookies.txt ]] && \
-  cp ~/.neurolearn/instagram-cookies.txt ~/yt-tr-walkthrough-bak/
+  cp ~/.neurolearn/instagram-cookies.txt ~/neurolearn-walkthrough-bak/
 [[ -f ~/.neurolearn/tiktok-cookies.txt ]] && \
-  cp ~/.neurolearn/tiktok-cookies.txt ~/yt-tr-walkthrough-bak/
-echo "✓ backup saved to ~/yt-tr-walkthrough-bak/"
+  cp ~/.neurolearn/tiktok-cookies.txt ~/neurolearn-walkthrough-bak/
+echo "✓ backup saved to ~/neurolearn-walkthrough-bak/"
 ```
 
 ### 2. Install a browser extension that exports cookies
@@ -213,16 +213,16 @@ neurolearn subscribes remove "@nasa" 2>/dev/null || true
 neurolearn subscribes remove "@duolingo" 2>/dev/null || true
 
 # Restore from backup if you had your own data
-[[ -f ~/yt-tr-walkthrough-bak/subscribes.toml ]] && \
-  cp ~/yt-tr-walkthrough-bak/subscribes.toml ~/.neurolearn/
-[[ -f ~/yt-tr-walkthrough-bak/config.toml ]] && \
-  cp ~/yt-tr-walkthrough-bak/config.toml ~/.neurolearn/
-[[ -f ~/yt-tr-walkthrough-bak/instagram-cookies.txt ]] && \
-  cp ~/yt-tr-walkthrough-bak/instagram-cookies.txt ~/.neurolearn/
-[[ -f ~/yt-tr-walkthrough-bak/tiktok-cookies.txt ]] && \
-  cp ~/yt-tr-walkthrough-bak/tiktok-cookies.txt ~/.neurolearn/
+[[ -f ~/neurolearn-walkthrough-bak/subscribes.toml ]] && \
+  cp ~/neurolearn-walkthrough-bak/subscribes.toml ~/.neurolearn/
+[[ -f ~/neurolearn-walkthrough-bak/config.toml ]] && \
+  cp ~/neurolearn-walkthrough-bak/config.toml ~/.neurolearn/
+[[ -f ~/neurolearn-walkthrough-bak/instagram-cookies.txt ]] && \
+  cp ~/neurolearn-walkthrough-bak/instagram-cookies.txt ~/.neurolearn/
+[[ -f ~/neurolearn-walkthrough-bak/tiktok-cookies.txt ]] && \
+  cp ~/neurolearn-walkthrough-bak/tiktok-cookies.txt ~/.neurolearn/
 
 # Delete the test batches and the backup folder
-rm -rf /tmp/yt-walk-ig /tmp/yt-walk-ig-d ~/yt-tr-walkthrough-bak
+rm -rf /tmp/yt-walk-ig /tmp/yt-walk-ig-d ~/neurolearn-walkthrough-bak
 echo "✓ restored"
 ```

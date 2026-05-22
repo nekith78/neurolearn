@@ -46,11 +46,11 @@ Key flags (full list via `--help`):
 - `--language <code>` (else auto-detect)
 - `--preset {eco,smart,standard,premium,tutorial}` — bundle of (backend, vision, detection)
   - `eco`     — subtitles only, vision off, no quality checks. Cheapest.
-  - `smart`   — **default**. Subtitles fast-path + Gemini URL + local fallback.
+  - `smart`   — **default** (v0.11+). Subtitles fast-path → Groq Whisper turbo → whisper-local fallback. Gemini URL middle-step is opt-in via `cfg.gemini_url_fastpath = true` + timestamp-safe model whitelist (3.5-flash family).
                 **vision off** as of v0.10.6 (was on pre-0.10.6; that silently
                 burned ~1+N Gemini calls per video). Use `--with-visuals` or
                 a richer preset below to opt into vision.
-  - `standard`— whisper-local + vision on (Gemini fallback; v0.12+ tutorial preset uses Groq).
+  - `standard`— whisper-local + vision on. v0.12+ default vision = Groq Llama-4-Scout; Gemini 2.5-flash is the fallback. Same applies to `premium` and `tutorial` presets.
   - `premium` — whisper-local + LLM-full-pass vision detection + quality+perplexity.
   - `tutorial`— smart + asymmetric keyframe offsets (-1.5/+0.3/+2.0s) +
                 Groq Llama-4-Scout vision (v0.12+). Auto-selected when
@@ -176,11 +176,16 @@ Read-only. IDs are short (`r-MMDD-HHMMSS` / `s-MMDD-HHMMSS`).
 ### `config` sub-commands
 
 ```
-config show                # current TOML + which API keys are set (masked)
-config set <key> <value>   # write to ~/.neurolearn/config.toml
-config set-key <backend>   # interactively store an API key in .env
-config test <backend>      # sanity-check a backend's configuration
-config wizard              # re-run first-run setup
+config show                            # current TOML + masked API keys
+config get <key> [--json]              # read single field (v0.12.2+)
+config set <key> <value>               # write to ~/.neurolearn/config.toml
+config set-key <backend> [VALUE]       # store API key in .env
+config set-key <backend> --from-file P # v0.13.0+ secure handoff (RECOMMENDED from Claude Code)
+config set-key <backend> --from-env V  # read key from env var V
+config set-key <backend> --from-stdin  # read key from stdin (one line)
+config complete-onboarding             # v0.13.0+: flip the gate to True
+config test <backend>                  # sanity-check a backend's configuration
+config wizard                          # interactive TTY-only setup; refuses non-TTY w/ exit 2
 ```
 
 ### Hidden / experimental
@@ -383,7 +388,8 @@ the loader prints a one-time warning per process.
 | 1 | Generic error | check stderr |
 | 2 | Bad user input (mutex flags, missing prompt for analyze, validation fail) | re-read the CLI help |
 | 3 | TTY required but not available (questionary picker without `--yes`) | pass `--yes` or `--all` / `--select` |
-| 4 | Backend not configured / API key missing / analyze unavailable | `config set-key <backend>` |
+| 4 | Backend not configured / API key missing / analyze unavailable | `config set-key <backend>` (use `--from-file <path>` from Claude Code) |
+| 7 | Onboarding incomplete (v0.13.0 gate) — `config.onboarding_complete = false` | run `/setup` from Claude Code, or `neurolearn config wizard` from a terminal, or pass `--backend whisper-local` for a one-off offline run |
 
 Examples that exit 2:
 - `research` with `--prompt` AND `--prompt-file`

@@ -1722,10 +1722,16 @@ def _build_doctor_payload() -> dict:
         "config": {
             "default_backend": cfg.default_backend,
             "fallback_backend": cfg.fallback_backend,
+            "vision_backend": getattr(cfg, "vision_backend", "off"),
+            "analyze_backend": cfg.analyze_backend or "",
             "whisper_model": cfg.whisper_model,
             "groq_model": getattr(cfg, "groq_model", None),
             "gemini_model": cfg.gemini_model,
             "gemini_url_fastpath": getattr(cfg, "gemini_url_fastpath", False),
+            # v0.13.0: gate signal Claude reads to decide whether to run
+            # /setup or proceed with the user's request. False = MUST run
+            # /setup; True = onboarding complete, business as usual.
+            "onboarding_complete": getattr(cfg, "onboarding_complete", False),
             "language": cfg.language,
         },
         "keys": keys_section,
