@@ -6,12 +6,11 @@ description: |
 argument-hint: <URL_or_path> | batch <inputs...> [flags]
 ---
 
-### Step 0 — Pre-flight check (v0.13.0+, IMPORTANT)
+### Step 0 — Pre-flight check (v0.13.0+, hardened v0.14.0)
 
-**Before running any transcription**, check the onboarding gate. As of
-v0.13.0, neurolearn refuses to run transcribe/batch/analyze/research
-with `onboarding_complete = false` (exit code 7). Don't try to bypass
-this — the user wants to be asked.
+**Before running any transcription**, check the onboarding gate.
+neurolearn refuses to run transcribe/batch/analyze/research with
+`onboarding_complete = false` (exit code 7).
 
 ```bash
 uv run --project "${CLAUDE_PLUGIN_ROOT}" neurolearn doctor --json
@@ -19,19 +18,34 @@ uv run --project "${CLAUDE_PLUGIN_ROOT}" neurolearn doctor --json
 
 Parse the JSON and check `config.onboarding_complete` (boolean):
 
-- **`true`** → setup is complete. Skip to Step 1 and serve the request.
-- **`false` (or field absent)** → STOP. Do NOT run transcribe yet. The
-  CLI would just exit 7 with a setup-required message. Instead:
-  - Tell the user: "I see neurolearn isn't fully set up yet. Let me walk
-    you through it — won't take more than a minute."
-  - Run the **`/setup`** flow (full multi-step procedure in
-    `commands/setup.md`). It collects backend choices and API keys
-    securely via files on disk.
+**Case A — `true`** → setup is complete. Skip to Step 1 and serve the
+user's request.
 
-The **only** way around the gate without completing setup is to pass
-`--backend whisper-local` or `--backend subtitles` for that one run
-(offline; no API keys needed). Suggest this only if the user explicitly
-declines setup and wants an offline one-off.
+**Case B — `false` (or field absent)** → STOP. Run the auto-resume flow:
+
+1. Tell the user verbatim: "neurolearn isn't fully set up yet. I'll
+   walk you through the one-time setup (under a minute), then come
+   back to transcribe `<URL>` automatically."
+2. Run the full **`/setup`** flow (see `commands/setup.md`).
+3. After `neurolearn config complete-onboarding` succeeds, AUTOMATICALLY
+   re-run the original transcribe command with the user's original URL
+   and any flags they passed. Don't ask them to repeat the URL.
+4. Deliver the transcript.
+
+### ⚠ DO NOT auto-bypass with --backend whisper-local
+
+The CLI accepts `--backend whisper-local` as an offline escape from
+the gate. **You must NOT add this flag on the user's behalf** when the
+gate fires. Choosing offline mode silently means:
+
+- User never registers an API key.
+- User runs slow local whisper instead of fast Groq cloud.
+- Future runs continue to bypass setup forever.
+
+Offline-only mode is a USER CHOICE made during `/setup`. Use
+`--backend whisper-local` only when the user explicitly said:
+"just run offline" / "no setup" / "use whisper-local". Without that
+signal, the default is ALWAYS: run /setup first, auto-resume after.
 
 ### Security — never accept API keys in chat
 

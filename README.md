@@ -25,7 +25,7 @@ Works as:
 
 ## Status
 
-v0.13.1 — production-ready:
+v0.14.0 — production-ready:
 
 | Feature | Since | State |
 |---|---|---|
@@ -64,6 +64,7 @@ v0.13.1 — production-ready:
 | Plugin UX audit fixes — Click choices cleanup (claude→groq in 12+ places), wizard non-TTY guard, `config get` command, doctor warning for stale gemini-2.5-flash, SKILL.md/commands/agent-reference rewrites for v0.12 architecture | v0.12.2 | Working |
 | Forced onboarding gate (`onboarding_complete` flag → exit 7 if not set up); secure API-key handoff via `--from-file <path>` (key never appears in chat); `config complete-onboarding` subcommand; SKILL.md / setup.md rewritten for hard gate + file-based key flow | v0.13.0 | Working |
 | Doc audit follow-up — `doctor --json` exposes `config.onboarding_complete`; SKILL.md / CLAUDE.md / HANDOFF.md / agent-reference / README synced to v0.13 architecture; `backend_resolver._VALID_BACKENDS` claude→groq cleanup; cookies-walkthrough yt-tr rename | v0.13.1 | Working |
+| Anti-bypass hardening — gate error message + SKILL.md / setup.md / transcribe.md explicitly forbid Claude from auto-adding `--backend whisper-local` to route around the gate; new "stop → settings → auto-resume original request" pattern; offline mode is a user choice, not a Claude workaround | v0.14.0 | Working |
 | Web UI (Gradio) | v0.4 | **Experimental, hidden** — code preserved, not maintained |
 
 ---

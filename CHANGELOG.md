@@ -3,6 +3,83 @@
 All notable changes to neurolearn will be documented here.
 The format is loosely based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.14.0] — 2026-05-22
+
+User reported that even after v0.13.0's forced onboarding gate, Claude
+Code would STILL bypass the gate on first install. Specifically: user
+pastes a URL, Claude runs transcribe → sees exit 7 → reads the offered
+`--backend whisper-local` "override" in the error message → silently
+re-runs with that flag to "not block the user". Result: onboarding
+never happens, user gets slow local whisper, no API keys ever
+registered, no preferred backend chosen.
+
+v0.14.0 closes the bypass via three coordinated changes.
+
+### Gate error message reworded
+
+`_require_onboarding_complete` no longer presents `--backend whisper-local`
+as an "override" option. The new message:
+
+1. Frames setup as ONE-TIME ("under a minute"), not an obstacle.
+2. Explicitly tells Claude to run `/setup` and **auto-resume the
+   original request** after — no need to ask the user again.
+3. Includes a "⚠ Claude:" addressed warning: "DO NOT auto-bypass this
+   gate by adding `--backend whisper-local` to the command. Offline
+   mode is a CHOICE the user makes during setup, not a workaround for
+   the gate."
+
+### SKILL.md HARD RULE strengthened
+
+The Onboarding section now lists the explicit failure mode the gate
+prevents:
+- User never picks preferred audio backend (probably Groq).
+- User never registers an API key.
+- User runs slow local whisper instead of fast cloud Groq.
+- Future runs continue to bypass setup forever.
+
+The "Correct response when the gate fires" subsection makes the
+stop-settings-resume pattern explicit:
+
+```
+User: "Transcribe https://youtu.be/xxx"
+You:  [doctor --json → onboarding_complete=false]
+You:  "neurolearn isn't fully set up yet — I'll walk you through setup
+       first, then come back to transcribe right after."
+You:  [/setup multi-step]
+You:  [config complete-onboarding]
+You:  [neurolearn transcribe https://youtu.be/xxx]   ← auto-resumed
+You:  "Here's the transcript: ..."
+```
+
+The "When IS offline mode appropriate?" subsection enumerates the only
+acceptable triggers for `--backend whisper-local`:
+- User says "I don't want to give you any API keys".
+- User says "use whisper-local".
+- User says "skip setup".
+
+Without one of those explicit signals, Claude must NOT pick offline.
+
+### commands/transcribe.md + commands/setup.md updated
+
+Both files got the same anti-bypass language and an explicit auto-
+resume section. `commands/setup.md` now ends with a "Auto-resume the
+original request (CRITICAL)" section that tells Claude not to stop
+after the setup verification step.
+
+### Tests
+
+1184 → 1185 (+1):
+- `test_onboarding_gate.py`: new `test_error_message_warns_against_auto_bypass_v014`
+  verifies the stderr message contains "DO NOT", "auto-bypass" / "auto-resume",
+  and "one-time" / "ONE-TIME" — without these, Claude reads the gate
+  message and routes around it.
+
+### Migration
+
+No action needed. `onboarding_complete` semantics unchanged. The
+behavior change is in the message text and Claude's instructions; the
+gate itself still gates the same commands.
+
 ## [0.13.1] — 2026-05-22
 
 Doc-and-cleanup release. A documentation audit against v0.13.0 code

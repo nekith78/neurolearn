@@ -52,15 +52,67 @@ All examples below use the bare `neurolearn ...` form for brevity. When
 you actually invoke the CLI inside Claude Code, prefix it with
 `uv run --project "${CLAUDE_PLUGIN_ROOT}"`.
 
-## Onboarding — REQUIRED first-time setup (v0.13.0+)
+## Onboarding — REQUIRED first-time setup (v0.13.0+, hardened v0.14.0)
 
 **HARD RULE**: `neurolearn` refuses to run transcribe / batch / analyze /
 research commands while `config.onboarding_complete == false`. The CLI
-exits with code **7** and a message pointing here. Only escape: passing
-`--backend whisper-local` (offline; no keys needed).
+exits with code **7** and a message pointing here.
 
-**DO NOT** try to bypass this by setting whisper-local on every call —
-the user wants to be asked. The correct response on a fresh install is:
+**⚠ DO NOT route around the gate by adding `--backend whisper-local`
+to the command.** The CLI accepts that flag as an offline escape, but
+choosing it on the user's behalf silently means:
+- The user never picks their preferred audio backend (probably Groq).
+- The user never registers their API key.
+- The user runs transcription on slow local whisper instead of fast
+  cloud Groq.
+- Future runs continue to bypass setup forever.
+
+Offline-only mode is a CHOICE the user makes during `/setup` (or by
+explicitly saying "I want offline only, no API keys"). It is NOT a
+workaround Claude reaches for when the gate fires.
+
+### Correct response when the gate fires (exit 7)
+
+Whatever the user originally asked you to do (transcribe / analyze /
+research a video), you do this:
+
+1. Tell the user verbatim or equivalent:
+   > "neurolearn isn't fully set up yet — I'll walk you through the
+   > one-time setup (under a minute), then come back to your original
+   > request automatically."
+2. Run the full `/setup` flow (see `commands/setup.md`).
+3. Once `neurolearn config complete-onboarding` succeeds at the end of
+   setup, **automatically re-run the user's original command** with the
+   same arguments. They already told you what they want — don't ask
+   again. Just deliver.
+
+This pattern is "stop → settings → original action" — exactly what the
+user expects from a polite first-time setup.
+
+### Correct response on a fresh install (BEFORE the gate fires)
+
+The above kicks in if you discovered the gate by hitting exit 7. If
+you can detect the unset state earlier (e.g. via `doctor --json`
+showing `config.onboarding_complete == false`), use the same
+"setup → auto-resume" flow without first hitting the gate.
+
+### When IS offline mode appropriate?
+
+Only when the user has explicitly said one of:
+- "I don't want to give you any API keys, just run offline"
+- "Use whisper-local"
+- "Skip setup, just transcribe quickly with what's available"
+
+In those cases, run with `--backend whisper-local` and inform the user
+that setup is still incomplete and they can complete it later via
+`/setup`.
+
+Without that explicit signal, the default is ALWAYS: run /setup first.
+
+### Pre-flight check pattern
+
+Run this BEFORE attempting any user request (transcribe / batch /
+analyze / research):
 
 ```bash
 uv run --project "${CLAUDE_PLUGIN_ROOT}" neurolearn doctor --json
@@ -70,12 +122,29 @@ Check `config.onboarding_complete`:
 
 - **`true`** → user has completed setup. Skip onboarding and serve their
   actual request.
-- **`false` (or missing field)** → STOP. Do NOT attempt the user's
-  request yet. Tell them: "I see neurolearn isn't fully configured yet.
-  I'm going to walk you through setup now — won't take more than a minute."
-  Then run the **`/setup`** flow (see `commands/setup.md` for the full
-  multi-step procedure: working mode → audio → vision → analyze → tier →
-  keys via file → `complete-onboarding`).
+- **`false` (or missing field)** → STOP. Run the **`/setup`** flow first
+  (see `commands/setup.md` for the full multi-step procedure: working
+  mode → audio → vision → analyze → tier → keys via file →
+  `complete-onboarding`). After `complete-onboarding` succeeds,
+  AUTOMATICALLY re-run the user's original request with the same
+  arguments — don't ask them to repeat the URL or topic.
+
+Example sequence:
+
+```
+User: "Transcribe https://youtu.be/xxx"
+You:  [doctor --json → onboarding_complete=false]
+You:  "neurolearn isn't fully set up yet. I'll walk you through setup
+       first, then transcribe the video right after."
+You:  [run /setup multi-step]
+You:  [config complete-onboarding]
+You:  [neurolearn transcribe https://youtu.be/xxx]   ← auto-resumed
+You:  "Setup done. Here's the transcript: ..."
+```
+
+This is the "stop → settings → original action" pattern — the user
+gets what they asked for, after a brief one-time setup, without
+having to repeat themselves.
 
 ### Key security — file-based handoff only
 

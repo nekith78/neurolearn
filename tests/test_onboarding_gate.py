@@ -59,10 +59,27 @@ class TestRequireOnboardingComplete:
         assert exc.value.code == 7  # documented exit code
         err = capsys.readouterr().err
         assert "Setup is not complete" in err
-        # Points at the two escape hatches
+        # Points at /setup (Claude Code) and config wizard (TTY)
         assert "/setup" in err
         assert "config wizard" in err
-        assert "whisper-local" in err
+
+    def test_error_message_warns_against_auto_bypass_v014(self, capsys):
+        """v0.14.0: the error must EXPLICITLY warn Claude not to add
+        `--backend whisper-local` on the user's behalf. Without this
+        warning, Claude reads the gate message and 'helpfully' routes
+        around it, never running /setup."""
+        cfg = Config(onboarding_complete=False)
+        with pytest.raises(SystemExit):
+            _require_onboarding_complete(
+                cfg, command_name="transcribe", allow_offline=False,
+            )
+        err = capsys.readouterr().err
+        # The anti-bypass language must reach Claude.
+        assert "DO NOT" in err
+        assert "auto-bypass" in err.lower() or "auto-resume" in err.lower()
+        # Setup is framed as ONE-TIME, not as a long process Claude
+        # would want to skip.
+        assert "ONE-TIME" in err or "one-time" in err.lower()
 
 
 class TestGateInTranscribeCLI:

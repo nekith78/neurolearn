@@ -599,6 +599,12 @@ def _require_onboarding_complete(cfg: Config, *, command_name: str, allow_offlin
     """v0.13.0: hard gate — refuse to run work-commands until /setup or
     the wizard explicitly marks onboarding_complete=True.
 
+    v0.14.0: error message reworded. The previous wording listed
+    `--backend whisper-local` as an "override" — Claude Code read that
+    as an offered easy bypass and silently routed around the gate.
+    The new wording frames offline mode as a user-explicit choice, not
+    a Claude-side workaround. Setup remains the recommended path.
+
     The exception: when the user passed --backend whisper-local or
     --backend subtitles (allow_offline=True caller knows the backend is
     offline-safe), we permit the run. Pure offline paths don't need
@@ -613,16 +619,21 @@ def _require_onboarding_complete(cfg: Config, *, command_name: str, allow_offlin
         return
     import sys
     sys.stderr.write(
-        f"[neurolearn] Setup is not complete. Refusing to run `{command_name}` "
-        f"with an incomplete configuration.\n\n"
-        f"  • From Claude Code: run `/setup` and let Claude walk you "
-        f"through the choices (audio / vision / analyze backend + keys).\n"
-        f"  • From a terminal: run `neurolearn config wizard` for the "
-        f"interactive flow.\n"
-        f"  • Or override: pass `--backend whisper-local` for an offline-"
-        f"only one-off run (no API keys required).\n\n"
+        f"[neurolearn] Setup is not complete. Refusing to run `{command_name}`.\n\n"
+        f"This is a ONE-TIME configuration — pick your audio / vision /\n"
+        f"analyze backend choices and (optionally) drop your API keys.\n"
+        f"After setup completes, all future runs work without this gate.\n\n"
+        f"NEXT STEP — run setup, do NOT bypass:\n"
+        f"  • From Claude Code: run `/setup`. Claude walks the user through\n"
+        f"    every choice. After setup completes, Claude automatically\n"
+        f"    re-runs the ORIGINAL `{command_name}` request — no need to\n"
+        f"    ask the user again.\n"
+        f"  • From a terminal: run `neurolearn config wizard` (TTY).\n\n"
+        f"⚠ Claude: DO NOT auto-bypass this gate by adding `--backend\n"
+        f"  whisper-local` to the command. The user has not consented to\n"
+        f"  offline-only mode. Offline mode is a CHOICE the user makes\n"
+        f"  during setup, not a workaround for the gate.\n\n"
         f"Config file: {CONFIG_PATH}\n"
-        f"After setup, this gate disappears for all future runs.\n"
     )
     sys.exit(7)
 

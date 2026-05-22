@@ -221,6 +221,29 @@ Tell the user verbatim:
 > You can paste a YouTube/TikTok/Instagram URL or local file path
 > anytime. I'll transcribe it.
 
+### Auto-resume the original request (CRITICAL)
+
+If `/setup` was triggered because the user ALREADY asked you for
+something (e.g. "transcribe this URL") and the onboarding gate fired,
+do not stop after Step 8.
+
+After `config complete-onboarding` succeeds, AUTOMATICALLY re-run the
+user's original command with the same arguments. They already told
+you what they want — don't make them repeat. Example sequence:
+
+```
+User: "Transcribe https://youtu.be/xxx"
+You:  [doctor → onboarding_complete=false]
+You:  "I'll walk you through setup first, then transcribe right after."
+You:  [run /setup Steps 1-8]
+You:  [config complete-onboarding succeeds]
+You:  [neurolearn transcribe https://youtu.be/xxx]   ← auto-resumed
+You:  "Here's the transcript: ..."
+```
+
+This is the "stop → settings → original action" pattern — the user
+should see setup as a brief interruption, not a derailment.
+
 ### Security checklist (re-iterate this when Claude is in plugin context)
 
 - ❌ Never accept an API key pasted into chat. If the user pastes one
