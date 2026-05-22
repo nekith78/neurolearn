@@ -296,17 +296,25 @@ def test_transcribe_chunked_offsets_segment_timestamps(tmp_path: Path):
 
     # Each chunk's response has segments expressed relative to its own
     # start; reassembly must add the offset.
+    # Use realistic char-density so segments survive the v0.14.2
+    # hallucination filter (≥ 2 cps).
     resp1 = MagicMock(
-        text="Hello",
+        text="Hello, this is the first chunk of real speech.",
         language="en",
         duration=10.0,
-        segments=[{"start": 0.0, "end": 5.0, "text": "Hello"}],
+        segments=[{
+            "start": 0.0, "end": 5.0,
+            "text": "Hello, this is the first chunk of real speech.",
+        }],
     )
     resp2 = MagicMock(
-        text="world",
+        text="And here is the second chunk continuing the talk.",
         language="en",
         duration=15.0,
-        segments=[{"start": 0.0, "end": 8.0, "text": "world"}],
+        segments=[{
+            "start": 0.0, "end": 8.0,
+            "text": "And here is the second chunk continuing the talk.",
+        }],
     )
     fake_client = MagicMock()
     fake_client.audio.transcriptions.create.side_effect = [resp1, resp2]
@@ -320,13 +328,13 @@ def test_transcribe_chunked_offsets_segment_timestamps(tmp_path: Path):
     assert len(result.segments) == 2
     assert result.segments[0].start == 0.0
     assert result.segments[0].end == 5.0
-    assert result.segments[0].text == "Hello"
+    assert result.segments[0].text.startswith("Hello")
     assert result.segments[1].start == 100.0   # offset applied
     assert result.segments[1].end == 108.0     # offset applied
-    assert result.segments[1].text == "world"
+    assert result.segments[1].text.startswith("And here")
 
     # Texts are joined; durations summed
-    assert "Hello" in result.text and "world" in result.text
+    assert "Hello" in result.text and "second chunk" in result.text
     assert result.duration_seconds == 25.0
 
 

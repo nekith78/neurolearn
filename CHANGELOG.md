@@ -3,6 +3,79 @@
 All notable changes to neurolearn will be documented here.
 The format is loosely based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.14.2] — 2026-05-22
+
+Verification of v0.14.1 on a real 4-hour video surfaced a separate
+issue: Whisper hallucinates a phantom segment at the end of audio
+with trailing silence. User caught it: their 3h57m34s video produced
+a transcript with a final segment "Продолжение следует..." (To be
+continued...) spanning **30 seconds** for 3 words at 03:57:34 →
+03:58:04 — past the actual video end.
+
+This is a well-documented Whisper failure mode (`m-bain/whisperX#1064`,
+`Whisper-WebUI/blob/master/modules/utils/blacklist.py`): the model
+fills silent / musical tails with phrases it has seen often in
+training data (Russian YouTube credits like "Продолжение следует",
+English vlog closers like "Subscribe to my channel"). The chunker
+preserved end-to-end timestamps correctly — the bug is in Groq's
+returned segments, not our reassembly.
+
+### Two-layer hallucination filter
+
+New `utils/hallucination_filter.py`:
+
+1. **Density filter** — segments where `duration ≥ 5s` AND
+   `chars_per_second < 2` are dropped. Real speech is 8-20 cps; a
+   phrase under 2 cps on a multi-second segment can only be a
+   silence-fill.
+
+2. **Blocklist** — case-insensitive whole-segment match against a
+   conservative list of known Whisper fillers (RU: "Продолжение
+   следует", "Субтитры сделал dimatorzok", credit-line patterns;
+   EN: "Subscribe to my channel", "(music)", "(applause)"). Common
+   real-speech endings ("спасибо большое", "thanks for watching")
+   are deliberately NOT blocklisted — they're real in interviews
+   and vlogs, and the density filter catches them when they're
+   actually hallucinations.
+
+The two filters compose; a segment dropped by either is excluded.
+Conservative by design — when in doubt, the segment stays. The
+filter runs on the merged Groq result so it sees the full
+reassembled timeline.
+
+### Effect on real data
+
+Re-applying the filter to the v0.14.1 verification SRT
+(`qa-out/v0.14.1-real-test/`, 4477 segments):
+
+| Caught | Span | Density | Text |
+|---|---|---|---|
+| Tail | 14254→14284s | 0.73 cps | "Продолжение следует..." ← user's report |
+| Mid | 2820→2850s | 0.87 cps | "Это лимитированная работа." (30 s for 26 chars) |
+| Mid | 1772→1786s | 0.51 cps | "100 100" |
+| Mid | 3550→3561s | 0.53 cps | "4 4 90" |
+| Mid | 10677→10690s | 0.24 cps | "5 7" |
+| Mid | 12462→12473s | 1.23 cps | "Rolls 900 170" |
+| 2× | various | 0.00 cps | empty-text segments |
+
+**8 of 4477 segments dropped; 4469 real segments preserved.** All
+short real signoffs survived ("Спасибо.", "Честь.", "Сила в любви.").
+
+### Files
+
+- `skills/neurolearn/utils/hallucination_filter.py` — new module
+- `skills/neurolearn/backends/groq.py` — applies the filter after
+  reassembling chunks
+- `tests/test_hallucination_filter.py` — 20 cases covering the
+  density filter, the blocklist, and the user's exact tail pattern
+
+Other backends (whisper-local, OpenAI, Deepgram, AssemblyAI) have
+the same hallucination class; wiring the filter into them is
+follow-up work. Groq is fixed today because that's where the user
+caught it.
+
+Tests: **1232 passed**, 3 skipped.
+
 ## [0.14.1] — 2026-05-22
 
 User hit a confusing failure: Groq Whisper rejected a video as

@@ -179,8 +179,24 @@ class GroqBackend:
         finally:
             self._cleanup_uploads(uploads, audio, tmp_recompress)
 
+        # v0.14.2: drop Whisper hallucinations on trailing silence
+        # ("Продолжение следует..." spanning 30s, "Subscribe to my
+        # channel" filler on tail-of-credits, etc.). Filter runs on
+        # the reassembled timeline so it sees the full picture.
+        from skills.neurolearn.utils.hallucination_filter import filter_hallucinations
+        merged_segments, dropped = filter_hallucinations(merged_segments)
+        if dropped:
+            sys.stderr.write(
+                f"[neurolearn] Dropped {len(dropped)} hallucinated "
+                f"segment(s) (silence-fill / known-filler).\n"
+            )
+
+        # Re-derive joined text from filtered segments so the .txt
+        # output stays consistent with the .srt.
+        filtered_text = " ".join(s.text for s in merged_segments if s.text).strip()
+
         return TranscriptionResult(
-            text=" ".join(t for t in merged_text_parts if t).strip(),
+            text=filtered_text or " ".join(t for t in merged_text_parts if t).strip(),
             segments=merged_segments,
             language_detected=detected_lang,
             backend_name=self.name,
