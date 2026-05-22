@@ -1,0 +1,15 @@
+$ neurolearn transcribe https://youtu.be/<video> --backend groq
+
+. Downloading audio...
+[neurolearn] Audio file is 442.5 MB - over Groq's 24 MB upload limit.
+[neurolearn] Re-encoding to Opus 24 kbps mono (lossless for Whisper)...
+[neurolearn] Recompressed to 41.5 MB.
+[neurolearn] Splitting into 2 chunks at silence boundaries.
+[neurolearn] Detected 1102 silence intervals.
+[neurolearn] Uploading chunk 1/2 (20.7 MB, offset 0.0s)...
+[neurolearn] Uploading chunk 2/2 (20.8 MB, offset 7110.7s)...
+[neurolearn] Dropped 7 hallucinated segment(s) (silence-fill).
+[OK] groq | language=Russian | duration=14254.2s (3h57m34s)
+
+  -> Video.txt   (529 KB, plain text transcript)
+  -> Video.srt   (546 KB, timed subtitles)
