@@ -1,6 +1,6 @@
 [project]
 name = "neurolearn"
-version = "0.14.2"
+version = "0.15.0"
 description = "NEUROLEARN — learn from videos. Transcribe / analyze / research / subscribe to YouTube, Instagram, TikTok and local media via 8 interchangeable backends (Whisper local / subtitles / Gemini / Groq / OpenAI / Deepgram / AssemblyAI / custom)."
 readme = "README.md"
 # Upper bound `<3.14` is required by `scenedetect` 0.7 (no wheels for Python 3.14
@@ -17,6 +17,13 @@ dependencies = [
     "tomli-w>=1.0",
     "python-dotenv>=1.0",
     "yt-dlp>=2024.10.0",
+    # v0.15.0: PO Token (Proof of Origin) plugin auto-registers with yt-dlp
+    # at import time. Without it, YouTube increasingly returns "Sign in to
+    # confirm you're not a bot" even on first request from a fresh IP.
+    # The plugin generates the per-session token YouTube expects from a
+    # real browser. Needs Node.js 16+ at runtime; if Node is missing the
+    # plugin logs a warning and yt-dlp degrades to no-PO-Token (graceful).
+    "bgutil-ytdlp-pot-provider>=1.3",
     "youtube-transcript-api>=0.6.2",
     # Cloud SDKs (small, install all by default)
     "google-genai>=1.0.0",                 # 0.x had unstable API; we target the stable Client/files/models pattern

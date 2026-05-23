@@ -15,7 +15,16 @@ from skills.neurolearn.config import CONFIG_DIR
 
 
 class DownloadError(Exception):
-    """Raised on download failure with a friendly hint."""
+    """Raised on download failure with a friendly hint.
+
+    v0.15.0: also carries the raw stderr so the anti-block cascade can
+    classify the failure. Old callers still work — the `stderr` attribute
+    is just an empty string when not set.
+    """
+
+    def __init__(self, message: str, *, stderr: str = ""):
+        super().__init__(message)
+        self.stderr = stderr
 
 
 _URL_RE = re.compile(r"^https?://", re.IGNORECASE)
@@ -166,19 +175,15 @@ def _diagnose_ytdlp_error(stderr: str) -> str:
     return "Download failed. See full stderr above."
 
 
-def download_audio(
+def _download_audio_once(
     url: str,
     output_dir: Path,
     *,
-    cookies_file: str = "",
-    timeout_seconds: int = 600,
+    cookies_file: str,
+    timeout_seconds: int,
 ) -> Path:
-    """Download audio from URL via yt-dlp. Returns path to the audio file.
-
-    `cookies_file` (Netscape cookies.txt) is the ONLY supported way to pass
-    auth. The skill never uses `--cookies-from-browser` — see project memory
-    file `feedback_cookies_strict_file_only.md`.
-    """
+    """One audio-download attempt. Raises DownloadError(stderr=...) on
+    yt-dlp failure so the cascade can classify the error."""
     if shutil.which("yt-dlp") is None:
         raise DownloadError("yt-dlp not found in PATH. Install via `uv sync` or `pip install yt-dlp`.")
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -194,40 +199,89 @@ def download_audio(
             cmd, capture_output=True, text=True, timeout=timeout_seconds, check=False,
         )
     except subprocess.TimeoutExpired:
-        raise DownloadError(f"Download exceeded {timeout_seconds}s. Check connection or pass --cookies-file.")
+        raise DownloadError(
+            f"Download exceeded {timeout_seconds}s. Check connection.",
+            stderr="timed out",
+        )
 
     if result.returncode != 0:
+        # Preserve the legacy diagnosis hint in the message so callers
+        # who don't yet use the cascade still get useful output. Also
+        # attach raw stderr so the cascade can classify cleanly.
         hint = _diagnose_ytdlp_error(result.stderr or "")
-        raise DownloadError(f"{hint}\n\n--- stderr ---\n{result.stderr}")
+        raise DownloadError(
+            f"{hint}\n\n--- stderr ---\n{result.stderr}",
+            stderr=result.stderr or "",
+        )
 
-    # Find downloaded file
     candidates = sorted(output_dir.glob("audio_*"), key=lambda p: p.stat().st_mtime, reverse=True)
     if not candidates:
         raise DownloadError("yt-dlp exited successfully but no audio file was found.")
     return candidates[0]
 
 
-def download_video(
+def download_audio(
     url: str,
     output_dir: Path,
     *,
+    cfg=None,                  # v0.15.0: optional Config — enables anti-block cascade
     cookies_file: str = "",
-    timeout_seconds: int = 1200,
+    timeout_seconds: int = 600,
 ) -> Path:
-    """Download mp4 (audio+video) from URL via yt-dlp. Returns path to the mp4 file.
+    """Download audio from URL via yt-dlp. Returns path to the audio file.
 
-    Used by visual mode (--with-visuals) — Gemini multimodal needs both video frames
-    and audio. `cookies_file` is the only supported auth mechanism; see
-    `download_audio` for the rationale.
+    `cookies_file` (Netscape cookies.txt) is the only supported way to
+    pass auth. The skill never uses `--cookies-from-browser` — see
+    project memory file `feedback_cookies_strict_file_only.md`.
+
+    v0.15.0 behaviour:
+      - When `cfg` is provided, runs through the anti-block cascade
+        (`utils.anti_block_cascade.run_cascade`): tries anonymous →
+        cookies → fails with a platform-aware fix instruction. Per-
+        platform cookies and user-volume preference come from `cfg`.
+      - When `cfg` is None, falls back to a single attempt with the
+        explicit `cookies_file` argument (back-compat for legacy
+        callers and tests).
     """
+    if cfg is None:
+        return _download_audio_once(
+            url, output_dir,
+            cookies_file=cookies_file,
+            timeout_seconds=timeout_seconds,
+        )
+
+    # Cascade path — let anti_block_cascade pick the right cookies
+    # per attempt; ignore the cookies_file kwarg unless caller is
+    # explicitly overriding (rare in production).
+    from skills.neurolearn.utils.anti_block_cascade import run_cascade
+
+    def _do_attempt(attempt):
+        # Caller's explicit cookies_file overrides cfg-derived ones
+        # for this single attempt (e.g. --cookies-file CLI flag).
+        ck = cookies_file or attempt.cookies_file
+        return _download_audio_once(
+            url, output_dir,
+            cookies_file=ck,
+            timeout_seconds=timeout_seconds,
+        )
+
+    return run_cascade(url=url, cfg=cfg, do_attempt=_do_attempt)
+
+
+def _download_video_once(
+    url: str,
+    output_dir: Path,
+    *,
+    cookies_file: str,
+    timeout_seconds: int,
+) -> Path:
+    """One video-download attempt. Same shape as `_download_audio_once`."""
     if shutil.which("yt-dlp") is None:
         raise DownloadError("yt-dlp not found in PATH.")
     output_dir.mkdir(parents=True, exist_ok=True)
     template = str(output_dir / "video_%(id)s.%(ext)s")
     cmd = [
         "yt-dlp",
-        # Single combined mp4 file (audio+video). Prefer 720p to keep size manageable
-        # for Gemini File API uploads (max 2 GB, but smaller is faster).
         "-f", "bestvideo[ext=mp4][height<=720]+bestaudio[ext=m4a]/best[ext=mp4][height<=720]/best",
         "--merge-output-format", "mp4",
         "--geo-bypass",
@@ -243,19 +297,57 @@ def download_video(
             cmd, capture_output=True, text=True, timeout=timeout_seconds, check=False,
         )
     except subprocess.TimeoutExpired:
-        raise DownloadError(f"Video download exceeded {timeout_seconds}s.")
+        raise DownloadError(
+            f"Video download exceeded {timeout_seconds}s.",
+            stderr="timed out",
+        )
 
     if result.returncode != 0:
         hint = _diagnose_ytdlp_error(result.stderr or "")
-        raise DownloadError(f"yt-dlp failed downloading mp4: {hint}\n{result.stderr}")
+        raise DownloadError(
+            f"yt-dlp failed downloading mp4: {hint}\n{result.stderr}",
+            stderr=result.stderr or "",
+        )
 
-    # Find the resulting mp4 — yt-dlp may have produced .mp4 directly or merged from parts
     for f in output_dir.glob("video_*.mp4"):
         return f
-    # Fallback: any mp4 in the dir
     for f in output_dir.glob("*.mp4"):
         return f
     raise DownloadError(f"yt-dlp finished but no mp4 found in {output_dir}")
+
+
+def download_video(
+    url: str,
+    output_dir: Path,
+    *,
+    cfg=None,                  # v0.15.0: optional Config — enables anti-block cascade
+    cookies_file: str = "",
+    timeout_seconds: int = 1200,
+) -> Path:
+    """Download mp4 (audio+video) from URL via yt-dlp. Returns path to mp4.
+
+    Same v0.15.0 cascade semantics as `download_audio`: pass `cfg` to
+    opt into the anti-block cascade. Used by visual mode
+    (--with-visuals) — Gemini multimodal needs both frames and audio.
+    """
+    if cfg is None:
+        return _download_video_once(
+            url, output_dir,
+            cookies_file=cookies_file,
+            timeout_seconds=timeout_seconds,
+        )
+
+    from skills.neurolearn.utils.anti_block_cascade import run_cascade
+
+    def _do_attempt(attempt):
+        ck = cookies_file or attempt.cookies_file
+        return _download_video_once(
+            url, output_dir,
+            cookies_file=ck,
+            timeout_seconds=timeout_seconds,
+        )
+
+    return run_cascade(url=url, cfg=cfg, do_attempt=_do_attempt)
 
 
 # ---------------------------------------------------------------------------

@@ -13,6 +13,10 @@ from skills.neurolearn.utils.console import make_console
 
 from skills.neurolearn import __version__
 from skills.neurolearn.backends.base import BackendError, BackendNotConfigured
+from skills.neurolearn.utils.anti_block_cascade import (
+    PlatformBlockError,
+    PlatformPermanentError,
+)
 from skills.neurolearn.backends.factory import build_backend
 from skills.neurolearn.config import (
     CONFIG_PATH,
@@ -240,6 +244,18 @@ def transcribe_cmd(audio_or_url: str | None, **opts) -> None:
     except BackendNotConfigured as e:
         console.print(f"[red]Backend not configured:[/red] {e}")
         sys.exit(3)
+    # v0.15.0: anti-block cascade signals. Exit code 8 is the contract
+    # for "platform blocked us; fix your auth setup". Distinct from
+    # exit code 4 (generic transcription error) so Claude in chat (or
+    # CI scripts) can branch on it and surface the right action.
+    except PlatformBlockError as e:
+        console.print(f"[red]✗ Blocked by platform:[/red]")
+        console.print(str(e))
+        sys.exit(e.exit_code)
+    except PlatformPermanentError as e:
+        console.print(f"[red]✗ Resource unavailable:[/red]")
+        console.print(str(e))
+        sys.exit(4)
     except BackendError as e:
         console.print(f"[red]Transcription error:[/red] {e}")
         sys.exit(4)
@@ -364,9 +380,9 @@ def transcribe_cmd(audio_or_url: str | None, **opts) -> None:
             with tempfile.TemporaryDirectory(prefix="yt-visual-") as visual_tmp:
                 post_stage.update("Downloading video for visual analysis...")
                 try:
+                    # v0.15.0: pass cfg to opt into the anti-block cascade.
                     video_path = download_video(
-                        target.url, Path(visual_tmp),
-                        cookies_file=cfg.cookies_file,
+                        target.url, Path(visual_tmp), cfg=cfg,
                     )
                 except Exception as e:
                     console.print(f"[yellow]⚠ Visual mode disabled — mp4 download failed:[/yellow] {e}",
@@ -965,6 +981,23 @@ def _run_batch_pipeline(
                 error_text=str(e),
                 hint=_diagnose_failure_hint(stage, str(e)),
             ))
+        except PlatformBlockError as e:
+            # v0.15.0: anti-block cascade exhausted. Batch keeps going
+            # (other videos may succeed on different platforms), but
+            # the failure record now carries the platform-aware fix
+            # instruction so users can self-serve the resolution from
+            # errors.log.
+            return ("failed", BatchFailure(
+                index=i, url=target.url, stage="block",
+                error_text=str(e),
+                hint=str(e),   # already platform-specific fix instruction
+            ))
+        except PlatformPermanentError as e:
+            return ("failed", BatchFailure(
+                index=i, url=target.url, stage="unavailable",
+                error_text=str(e),
+                hint=str(e),
+            ))
         except DownloadError as e:
             # yt-dlp / ffmpeg / network errors during the download stage.
             # Convert to BatchFailure so the batch keeps going through the
@@ -1000,10 +1033,8 @@ def _run_batch_pipeline(
             from skills.neurolearn.utils.downloader import download_video
             with tempfile.TemporaryDirectory(prefix=f"yt-visual-{i}-") as v_tmp:
                 try:
-                    v_path = download_video(
-                        target.url, Path(v_tmp),
-                        cookies_file=cfg.cookies_file,
-                    )
+                    # v0.15.0: cfg → anti-block cascade
+                    v_path = download_video(target.url, Path(v_tmp), cfg=cfg)
                 except Exception as e:
                     console.print(
                         f"[yellow]⚠ Video {i}: visual mode disabled — {e}[/yellow]",
@@ -1724,6 +1755,68 @@ def _build_doctor_payload() -> dict:
     ready_for_basic_use = has_offline_fallback  # whisper-local always works
     ready_for_fast_use = has_fast_audio
 
+    # v0.15.0: anti-block readiness signals.
+    # Node.js gates the bgutil-ytdlp-pot-provider plugin's ability to
+    # actually generate PO Tokens. The Python plugin shim auto-loads
+    # via yt-dlp's plugin discovery; the Node helper is what produces
+    # the cryptographic token YouTube wants.
+    import shutil as _shutil
+    import importlib.util as _ilu
+    node_available = bool(_shutil.which("node"))
+    try:
+        po_token_plugin_installed = bool(_ilu.find_spec("yt_dlp_plugins"))
+    except Exception:
+        po_token_plugin_installed = False
+
+    cookies_section = {
+        "youtube": {
+            "registered": bool(cfg.youtube_cookies_file or cfg.cookies_file),
+            "path": cfg.youtube_cookies_file or cfg.cookies_file or "",
+        },
+        "instagram": {
+            "registered": bool(cfg.instagram_cookies_file),
+            "path": cfg.instagram_cookies_file or "",
+        },
+        "tiktok": {
+            "registered": bool(cfg.tiktok_cookies_file),
+            "path": cfg.tiktok_cookies_file or "",
+        },
+    }
+
+    anti_block = {
+        "node_available": node_available,
+        "po_token_plugin_installed": po_token_plugin_installed,
+        "po_token_can_generate": node_available and po_token_plugin_installed,
+        "cookies": cookies_section,
+        "selected_platforms": list(cfg.selected_platforms),
+        "research_volume": {
+            "youtube": cfg.youtube_research_volume or "not_asked",
+            "instagram": cfg.instagram_research_volume or "not_asked",
+            "tiktok": cfg.tiktok_research_volume or "not_asked",
+        },
+    }
+
+    # Nudge: if user said they'd do heavy YouTube research but never
+    # registered cookies, that's the most common path to blocks.
+    if cfg.youtube_research_volume == "heavy" and not cookies_section["youtube"]["registered"]:
+        recommended_setup.append({
+            "step": "register-youtube-cookies-for-heavy-research",
+            "why": "You picked heavy YouTube research volume but no cookies are "
+                   "registered. Anonymous YouTube requests get rate-limited after "
+                   "5-10 fetches.",
+            "command": "neurolearn config set-cookies --from-file <path-to-cookies.txt>",
+        })
+
+    if not node_available:
+        recommended_setup.append({
+            "step": "install-nodejs-for-po-token",
+            "why": "Node.js 16+ is missing. The PO Token plugin needs it to "
+                   "generate YouTube's anti-bot tokens. Cookies alone may still "
+                   "be enough for light usage, but heavy research is more reliable "
+                   "with PO Token enabled.",
+            "command": "brew install node  # (macOS) — also apt/choco/winget",
+        })
+
     return {
         "version": __version__,
         "config_file": {
@@ -1747,6 +1840,8 @@ def _build_doctor_payload() -> dict:
         },
         "keys": keys_section,
         "platform": platform,
+        # v0.15.0: anti-block cascade visibility for Claude in chat
+        "anti_block": anti_block,
         "ready": {
             "ready_for_basic_use": ready_for_basic_use,
             "ready_for_fast_use": ready_for_fast_use,
@@ -1817,6 +1912,35 @@ def doctor_cmd(as_json: bool) -> None:
     offline_marker = "[green]✓[/green]" if rd["has_offline_fallback"] else "[red]✗[/red]"
     console.print(f"  {fast_marker} fast cloud audio backend configured")
     console.print(f"  {offline_marker} offline (whisper-local) fallback available")
+
+    # v0.15.0: anti-block status
+    ab = payload.get("anti_block", {})
+    if ab:
+        console.print("\n[bold]Anti-block (v0.15.0):[/bold]")
+        node = ab.get("node_available")
+        plugin = ab.get("po_token_plugin_installed")
+        can_gen = ab.get("po_token_can_generate")
+        node_msg = "available" if node else "not on PATH (PO Token plugin cannot run helper)"
+        console.print(
+            f"  {'[green]✓[/green]' if node else '[red]✗[/red]'} Node.js: {node_msg}"
+        )
+        console.print(
+            f"  {'[green]✓[/green]' if plugin else '[red]✗[/red]'} PO Token plugin: "
+            f"{'installed' if plugin else 'not installed'}"
+        )
+        console.print(
+            f"  {'[green]✓[/green]' if can_gen else '[yellow]~[/yellow]'} PO Token generation: "
+            f"{'active (heavy YouTube research should not get blocked)' if can_gen else 'degraded (rely on cookies)'}"
+        )
+        for plat in ("youtube", "instagram", "tiktok"):
+            entry = ab["cookies"][plat]
+            volume = ab["research_volume"][plat]
+            mark = "[green]✓[/green]" if entry["registered"] else "[dim]·[/dim]"
+            console.print(
+                f"  {mark} {plat} cookies: "
+                f"{'registered' if entry['registered'] else 'not registered'}  "
+                f"[dim](volume: {volume})[/dim]"
+            )
 
     if rd["recommended_setup"]:
         console.print("\n[bold yellow]Recommended setup:[/bold yellow]")
@@ -2048,8 +2172,16 @@ def config_set_key(
 
 
 @config.command("set-cookies")
-@click.argument("path", type=click.Path(exists=True, dir_okay=False))
-def config_set_cookies(path: str) -> None:
+@click.argument("path", type=click.Path(exists=True, dir_okay=False), required=False)
+@click.option(
+    "--from-file", "from_file",
+    type=click.Path(exists=True, dir_okay=False),
+    default=None,
+    help="Path to a Netscape cookies.txt — alias for the positional form, "
+         "kept for consistency with `set-key --from-file`. Driven from "
+         "Claude Code chat so the path never enters the conversation.",
+)
+def config_set_cookies(path: str | None, from_file: str | None) -> None:
     """Register a Netscape cookies.txt for YouTube sign-in-required downloads.
 
     Use this when YouTube rejects anonymous requests for a video (age
@@ -2059,10 +2191,22 @@ def config_set_cookies(path: str) -> None:
     `~/.neurolearn/youtube-cookies.txt` with mode 0600 and the path
     is saved in config.toml.
 
+    Two equivalent forms:
+
+      neurolearn config set-cookies ~/Downloads/yt-cookies.txt
+      neurolearn config set-cookies --from-file ~/Downloads/yt-cookies.txt
+
     For Instagram / TikTok cookies use `neurolearn subscribes cookies set <platform> <path>`.
     """
     from pathlib import Path as _P
-    src = _P(path).expanduser().resolve()
+    chosen = from_file or path
+    if not chosen:
+        console.print(
+            "[red]✗[/red] Pass a cookies.txt path: "
+            "`set-cookies <path>` or `set-cookies --from-file <path>`."
+        )
+        sys.exit(2)
+    src = _P(chosen).expanduser().resolve()
     dest = ENV_PATH.parent / "youtube-cookies.txt"
     dest.write_bytes(src.read_bytes())
     if os.name != "nt":
@@ -2072,6 +2216,11 @@ def config_set_cookies(path: str) -> None:
             pass
     cfg = load_config(CONFIG_PATH) if CONFIG_PATH.exists() else Config()
     cfg.cookies_file = str(dest)
+    # v0.15.0: also populate youtube_cookies_file so the cascade's
+    # per-platform lookup finds it under the newer slot name. Legacy
+    # cookies_file slot is preserved for back-compat with older subtitles
+    # backend code that reads cfg.cookies_file directly.
+    cfg.youtube_cookies_file = str(dest)
     save_config(cfg, CONFIG_PATH)
     console.print(
         f"[green]✓[/green] cookies registered: [bold]{dest}[/bold] (mode 0600)\n"

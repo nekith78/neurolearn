@@ -1,26 +1,45 @@
 # Troubleshooting
 
-## "Sign in to confirm you're not a bot" (yt-dlp 403)
+## Anti-bot block — exit code 8 (v0.15.0+)
 
-YouTube periodically updates its anti-bot defences, breaking yt-dlp for 1–3
-months at a time. **This is not a bug in this tool.** Fix:
+YouTube / Instagram / TikTok periodically tighten their anti-bot defences.
+When that happens neurolearn's cascade catches it, runs a fallback attempt
+with cookies (if registered), and on second failure exits with **code 8**
+plus a platform-specific fix instruction. This is distinct from exit code
+4 (generic transcribe failure) — Claude in chat (and CI scripts) can
+branch on it.
 
-1. **Pull the latest yt-dlp:**
-   ```bash
-   neurolearn update-deps
-   ```
-2. **Register a cookies file:**
-   - Install the "Get cookies.txt LOCALLY" extension in any browser (Chrome / Firefox / Edge / Brave — same Netscape format).
-   - Open `youtube.com` (logged in) → click the extension → Export.
-   - Then:
+If you see "Sign in to confirm you're not a bot" (YouTube), "Please wait
+a few minutes" (Instagram), or HTTP 403 from TikTok:
+
+1. **Register cookies for that platform:**
+   - Install the "Get cookies.txt LOCALLY" extension in any browser.
+   - Open the platform site (logged in) → click the extension → Export.
+   - YouTube:
      ```bash
-     neurolearn config set-cookies ~/Downloads/youtube_cookies.txt
+     neurolearn config set-cookies --from-file ~/Downloads/yt-cookies.txt
      ```
-   After that `transcribe` / `batch` pick up the cookies automatically. You can
-   also pass them per-call: `neurolearn transcribe <URL> --cookies-file ~/path/file.txt`.
-3. **Still broken?** Open an issue — fixes usually land within a few days.
+   - Instagram:
+     ```bash
+     neurolearn subscribes cookies set instagram --from-file ~/Downloads/ig-cookies.txt
+     ```
+   - TikTok:
+     ```bash
+     neurolearn subscribes cookies set tiktok --from-file ~/Downloads/tt-cookies.txt
+     ```
+2. **Verify the cascade is healthy:**
+   ```bash
+   neurolearn doctor
+   ```
+   Look for the "Anti-block (v0.15.0)" section — Node.js + PO Token plugin
+   + per-platform cookies all green = ready.
+3. **Still broken after cookies?**
+   - Update yt-dlp: `neurolearn update-deps`
+   - Make sure Node.js 16+ is on PATH (`brew install node` / `apt install nodejs`)
+   - For very heavy research, get a residential proxy — see [UNLIMITED_RESEARCH.md](UNLIMITED_RESEARCH.md)
 
 For step-by-step screenshots see [cookies-walkthrough.md](cookies-walkthrough.md).
+For the deep "why this happens + every layer" guide see [UNLIMITED_RESEARCH.md](UNLIMITED_RESEARCH.md).
 
 ### Why not `--cookies-from-browser`?
 

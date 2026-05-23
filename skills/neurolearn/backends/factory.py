@@ -207,9 +207,8 @@ def run_smart(
         import tempfile
         notify("Downloading audio...")
         with tempfile.TemporaryDirectory(prefix="yt-smart-fb-") as tmp:
-            audio_path = download_audio(
-                src, Path(tmp), cookies_file=cfg.cookies_file,
-            )
+            # v0.15.0: pass cfg to opt into the anti-block cascade.
+            audio_path = download_audio(src, Path(tmp), cfg=cfg)
             notify(f"Transcribing via {fb_name}...")
             return fb.transcribe(audio_path, language=language)
     notify(f"Transcribing via {fb_name}...")

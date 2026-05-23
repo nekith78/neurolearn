@@ -85,10 +85,9 @@ def run_pipeline(
     maybe_auto_update_ytdlp(cfg.yt_dlp_auto_update)
     with _audio_workdir(keep_audio=cfg.keep_audio, persist_to=keep_audio_to) as tmp:
         notify("Downloading audio...")
-        audio_path = download_audio(
-            target.url, tmp,
-            cookies_file=cfg.cookies_file,
-        )
+        # v0.15.0: pass cfg to opt into the anti-block cascade (per-
+        # platform cookies + volume-aware attempt plan).
+        audio_path = download_audio(target.url, tmp, cfg=cfg)
         notify(f"Transcribing via {backend_name}...")
         return _transcribe_one(
             backend_name, audio_path, cfg, language=cfg.language, on_stage=notify,

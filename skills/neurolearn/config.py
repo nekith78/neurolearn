@@ -238,6 +238,30 @@ class Config:
     # configured stack.
     onboarding_complete: bool = False
 
+    # === v0.15.0: platform-aware anti-block cascade ===
+    # Which online platforms the user actually plans to fetch from. The
+    # wizard asks at install time (multi-select) and the value drives:
+    #   - whether the wizard walks the user through cookies registration
+    #     for that platform during step 5
+    #   - per-platform stop-with-instruction text when the cascade fails
+    #     (no point telling a "local files only" user how to get IG cookies)
+    # Empty list = wizard not yet run / migrating from pre-v0.15 install
+    # (treat as ["youtube"] for backwards compat — pre-v0.15 users were
+    # implicitly assumed to be on YouTube).
+    selected_platforms: list[str] = field(default_factory=list)
+
+    # === v0.15.0: per-platform research volume ===
+    # "light"  — < 20 videos / week — cascade tries anonymous first to
+    #            preserve cookie session lifetime
+    # "heavy"  — 20+ videos, channels, batch'es — cascade starts with
+    #            cookies upfront (anonymous would burn time on guaranteed
+    #            blocks for high-volume use)
+    # "none"   — wizard determined user won't research this platform
+    # Empty string = not yet asked (treated as "light" at runtime).
+    youtube_research_volume: str = ""
+    instagram_research_volume: str = ""
+    tiktok_research_volume: str = ""
+
 
 DEFAULT_CONFIG = Config()
 
@@ -313,6 +337,13 @@ def _to_toml_dict(cfg: Config) -> dict:
         "youtube": {
             "cookies_file": d["youtube_cookies_file"],
         },
+        # v0.15.0: platform-aware anti-block cascade settings
+        "research": {
+            "selected_platforms": d["selected_platforms"],
+            "youtube_volume": d["youtube_research_volume"],
+            "instagram_volume": d["instagram_research_volume"],
+            "tiktok_volume": d["tiktok_research_volume"],
+        },
     }
 
 
@@ -365,6 +396,14 @@ def _from_toml_dict(d: dict) -> Config:
         instagram_cookies_file=ig.get("cookies_file", ""),
         tiktok_cookies_file=tt.get("cookies_file", ""),
         youtube_cookies_file=d.get("youtube", {}).get("cookies_file", ""),
+        # v0.15.0: anti-block cascade settings. Pre-v0.15 configs lack
+        # the [research] section entirely; defaults preserve runtime
+        # behavior (empty list → cascade treats as "first-block migration"
+        # path; empty volume strings → cascade defaults to "light").
+        selected_platforms=d.get("research", {}).get("selected_platforms", []),
+        youtube_research_volume=d.get("research", {}).get("youtube_volume", ""),
+        instagram_research_volume=d.get("research", {}).get("instagram_volume", ""),
+        tiktok_research_volume=d.get("research", {}).get("tiktok_volume", ""),
     )
 
 

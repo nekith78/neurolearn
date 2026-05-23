@@ -353,20 +353,32 @@ def cookies_group() -> None:
 @click.argument("path",
                 type=click.Path(exists=True, dir_okay=False),
                 required=False)
-def cookies_set_cmd(platform: str | None, path: str | None) -> None:
+@click.option(
+    "--from-file", "from_file",
+    type=click.Path(exists=True, dir_okay=False),
+    default=None,
+    help="Path to cookies.txt — alias for the positional form, kept for "
+         "consistency with `set-key --from-file`. Use this from Claude Code "
+         "chat so the file path stays out of conversation logs.",
+)
+def cookies_set_cmd(platform: str | None, path: str | None, from_file: str | None) -> None:
     """Register a cookies.txt for PLATFORM (instagram / tiktok / youtube).
 
-    Run without arguments to enter the interactive wizard (TTY only):
-      neurolearn subscribes cookies set
-    Scripted invocation works as before:
-      neurolearn subscribes cookies set instagram ~/Downloads/ig.txt
-      neurolearn subscribes cookies set youtube   ~/Downloads/yt.txt
+    Three equivalent forms:
+
+      neurolearn subscribes cookies set                  # interactive wizard
+      neurolearn subscribes cookies set instagram ~/ig.txt
+      neurolearn subscribes cookies set instagram --from-file ~/ig.txt
     """
     from skills.neurolearn.subscribes.cookies_onboarding import (
         set_cookies_file, wizard,
     )
 
-    if path is None:
+    # v0.15.0: --from-file takes precedence; if neither is set, fall
+    # through to the interactive wizard (existing behavior).
+    chosen_path = from_file or path
+
+    if chosen_path is None:
         # Either missing platform too (full wizard) or only path missing
         # (still walk the wizard — it'll re-prompt for the path).
         if not wizard(platform):
@@ -374,7 +386,7 @@ def cookies_set_cmd(platform: str | None, path: str | None) -> None:
         return
 
     try:
-        dest = set_cookies_file(platform, path)
+        dest = set_cookies_file(platform, chosen_path)
     except ValueError as e:
         _console.print(f"[red]{e}[/red]")
         sys.exit(2)

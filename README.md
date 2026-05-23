@@ -130,6 +130,7 @@ writes the summary. The skill produces transcripts; analysis is the LLM's job.
 | 🤖 **[Claude Code integration](docs/CLAUDE_CODE.md)** | Plugin install, slash commands, switching backends from chat, secure key handoff, visual mode in Claude Code. |
 | 💻 **[Install details](docs/INSTALL.md)** | Per-OS install, optional extras, first-run wizard, HF_TOKEN warning. |
 | 🩹 **[Troubleshooting](docs/TROUBLESHOOTING.md)** | yt-dlp 403, missing API keys, CUDA errors, missing ffmpeg, distil model on Mac, long-video timeouts. |
+| 🚀 **[Unlimited research](docs/UNLIMITED_RESEARCH.md)** | The 3-layer anti-block stack (cookies + PO Token plugin + residential proxy). What to do when YouTube starts rate-limiting your IP. |
 | 🏗️ **[Architecture](docs/ARCHITECTURE.md)** | For developers: Transcriber Protocol, smart cascade internals, adding a backend, cross-OS specifics. |
 | 📜 **[Changelog](CHANGELOG.md)** | Version-by-version detail. |
 | 🤖 **[Agent reference](docs/agent-reference.md)** | Full CLI surface, exit codes, state semantics — for LLM agents driving the skill. |

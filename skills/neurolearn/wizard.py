@@ -93,16 +93,18 @@ _TIER_OPTIONS_GROQ: dict[str, str] = {
 # ---------------------------------------------------------------------------
 
 def run_wizard() -> None:
-    """Run the interactive 3-stage setup wizard.
+    """Run the interactive 4-stage setup wizard.
 
     Stages:
       1. Audio backend (always asked)
-      2. Vision backend (only asked if any cloud backend was chosen for audio
-         or if user opted into smart-cascade)
-      3. Analyze backend (always asked)
-      4. Tier per provider (when a cloud backend was chosen)
-      5. Paid-tier model overrides (only if tier != "free")
-      6. API keys for all chosen backends
+      2. Vision backend
+      3. Analyze backend
+      4. Online video sources — which platforms (YouTube / Instagram /
+         TikTok / local-only), per-platform cookies file, per-platform
+         research volume. Drives the v0.15.0 anti-block cascade.
+      5. Tier per provider (when a cloud backend was chosen)
+      6. Paid-tier model overrides (only if tier != "free")
+      7. API keys for all chosen backends
     """
     # v0.12.2: hard-fail on non-TTY stdin. The wizard uses rich.Prompt.ask
     # which hangs/EOFs on a closed stdin (e.g. when Claude Code invokes
@@ -141,7 +143,7 @@ def run_wizard() -> None:
 
     # === Stage 1: audio backend ===
     audio_backend = _ask_choice(
-        console, "\n[bold]Step 1 / 3:[/bold] Audio transcription backend?",
+        console, "\n[bold]Step 1 / 4:[/bold] Audio transcription backend?",
         _AUDIO_CHOICES, default_idx=1,
     )
     cfg.default_backend = audio_backend  # type: ignore[assignment]
@@ -161,7 +163,7 @@ def run_wizard() -> None:
     # === Stage 2: vision backend ===
     vision_backend = _ask_choice(
         console,
-        "\n[bold]Step 2 / 3:[/bold] Vision backend for `--with-visuals` (keyframe descriptions)?",
+        "\n[bold]Step 2 / 4:[/bold] Vision backend for `--with-visuals` (keyframe descriptions)?",
         _VISION_CHOICES, default_idx=1,
     )
     cfg.vision_backend = vision_backend
@@ -169,12 +171,15 @@ def run_wizard() -> None:
     # === Stage 3: analyze backend ===
     analyze_backend = _ask_choice(
         console,
-        "\n[bold]Step 3 / 3:[/bold] LLM for transcript analysis (`analyze`, `--then-analyze`)?",
+        "\n[bold]Step 3 / 4:[/bold] LLM for transcript analysis (`analyze`, `--then-analyze`)?",
         _ANALYZE_CHOICES, default_idx=1,
     )
     cfg.analyze_backend = analyze_backend if analyze_backend != "skip" else None
 
-    # === Stage 4 + 5: tier-aware paid-model overrides ===
+    # === Stage 4 (v0.15.0): platform-aware anti-block setup ===
+    _ask_research_platforms_and_cookies(console, cfg)
+
+    # === Stage 5 + 6: tier-aware paid-model overrides ===
     chosen_providers = _collect_providers(audio_backend, vision_backend, analyze_backend)
     if "gemini" in chosen_providers:
         _ask_gemini_tier_and_models(console, cfg, vision_backend, analyze_backend)
@@ -196,6 +201,10 @@ def run_wizard() -> None:
     )
     console.print(f"  vision:   [bold]{vision_backend}[/bold]")
     console.print(f"  analyze:  [bold]{analyze_backend}[/bold]")
+    if cfg.selected_platforms:
+        console.print(
+            f"  sources:  [bold]{', '.join(cfg.selected_platforms)}[/bold]"
+        )
     console.print(
         "\nChange anytime:    [cyan]neurolearn config wizard[/cyan]\n"
         "Per-call override: [cyan]neurolearn <URL> --backend gemini[/cyan]"
@@ -313,6 +322,109 @@ def _ask_groq_tier_and_models(
             default="llama-3.3-70b-versatile",
             suggestions="llama-3.3-70b-versatile, llama-4-maverick-17b-128e-instruct, deepseek-r1-distill-llama-70b",
         )
+
+
+def _ask_research_platforms_and_cookies(console, cfg) -> None:
+    """v0.15.0 Step 4: figure out which platforms the user will fetch
+    videos from, walk them through cookies registration for each, and
+    capture per-platform research volume.
+
+    This isn't optional gating — we never block the wizard if the user
+    skips cookies. We just make sure that when their first request gets
+    blocked by YouTube / Instagram / TikTok, the cascade has the right
+    auth available OR the right per-platform fix instruction is shown.
+    """
+    console.print("\n[bold]Step 4 / 4:[/bold] Online video sources")
+    console.print(
+        "  [dim]Which platforms will you fetch from? Cookies make transcription\n"
+        "  much more reliable: YouTube rate-limits anonymous requests aggressively,\n"
+        "  Instagram/TikTok need a logged-in session beyond a single public post.[/dim]"
+    )
+    console.print(
+        "    1) YouTube\n"
+        "    2) Instagram (posts / reels / IGTV)\n"
+        "    3) TikTok\n"
+        "    4) Local files only (skip cookies setup)"
+    )
+    picked = Prompt.ask(
+        "Platforms (comma-separated, default 1)",
+        default="1",
+    )
+    selected_keys = {p.strip() for p in picked.split(",") if p.strip()}
+    if "4" in selected_keys:
+        cfg.selected_platforms = []
+        console.print("  [dim]No cookies registered — fully-online research isn't expected.[/dim]")
+        return
+
+    name_map = {"1": "youtube", "2": "instagram", "3": "tiktok"}
+    platforms = [name_map[k] for k in ("1", "2", "3") if k in selected_keys]
+    if not platforms:
+        # Defensive fallback — user entered something we couldn't parse
+        platforms = ["youtube"]
+    cfg.selected_platforms = platforms
+
+    for platform in platforms:
+        console.print(f"\n  [bold cyan]{platform}[/bold cyan]")
+        path_prompt = (
+            f"    Path to {platform} cookies.txt "
+            f"(Enter = skip — register later via "
+            f"{'config set-cookies --from-file' if platform == 'youtube' else f'subscribes cookies set {platform} --from-file'})"
+        )
+        cookies_path = Prompt.ask(path_prompt, default="").strip()
+        if cookies_path:
+            try:
+                _register_platform_cookies(platform, cookies_path, cfg, console)
+            except Exception as e:
+                console.print(
+                    f"    [yellow]⚠ Could not register cookies ({e}). "
+                    f"Skipping — run set-cookies manually later.[/yellow]"
+                )
+
+        # Volume — drives whether cascade tries anonymous first or
+        # goes straight to cookies. Light is the safe default.
+        console.print(
+            f"    [dim]How much {platform} content per week?\n"
+            f"      1) light — < 20 videos\n"
+            f"      2) heavy — 20+ videos / channels / batch'es[/dim]"
+        )
+        volume_choice = Prompt.ask("    Volume", choices=["1", "2"], default="1")
+        volume = "light" if volume_choice == "1" else "heavy"
+        if platform == "youtube":
+            cfg.youtube_research_volume = volume
+        elif platform == "instagram":
+            cfg.instagram_research_volume = volume
+        elif platform == "tiktok":
+            cfg.tiktok_research_volume = volume
+
+    console.print()
+
+
+def _register_platform_cookies(platform: str, raw_path: str, cfg, console) -> None:
+    """Copy a cookies.txt into ~/.neurolearn/, set 0600, populate cfg.
+
+    Mirrors what `config set-cookies` and `subscribes cookies set` do —
+    extracted so the wizard can run the same logic in-process without
+    spawning subprocesses."""
+    from pathlib import Path as _P
+    import os as _os
+    src = _P(raw_path).expanduser().resolve()
+    if not src.is_file():
+        raise FileNotFoundError(f"{src} not found")
+    dest = ENV_PATH.parent / f"{platform}-cookies.txt"
+    dest.write_bytes(src.read_bytes())
+    if _os.name != "nt":
+        try:
+            _os.chmod(dest, 0o600)
+        except OSError:
+            pass
+    if platform == "youtube":
+        cfg.cookies_file = str(dest)            # legacy slot (subtitles backend)
+        cfg.youtube_cookies_file = str(dest)
+    elif platform == "instagram":
+        cfg.instagram_cookies_file = str(dest)
+    elif platform == "tiktok":
+        cfg.tiktok_cookies_file = str(dest)
+    console.print(f"    [green]✓[/green] cookies saved → [bold]{dest}[/bold] (mode 0600)")
 
 
 def _ask_model_override(label: str, *, default: str, suggestions: str) -> str:

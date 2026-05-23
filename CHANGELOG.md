@@ -3,6 +3,119 @@
 All notable changes to neurolearn will be documented here.
 The format is loosely based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.15.0] — 2026-05-22
+
+User running research across multiple projects hit YouTube IP blocks
+(*"Sign in to confirm you're not a bot"*) with no fallback path. The
+existing cookies feature was already in the codebase but the wizard
+never asked about it, so most users never registered them. Same story
+for Instagram and TikTok — cookies slots existed, never surfaced.
+
+v0.15.0 introduces a 3-layer **anti-block cascade** that works
+across YouTube, Instagram, and TikTok transparently. Same philosophy
+as the smart audio cascade: figure out at runtime what's available,
+escalate automatically, fail loudly with a platform-specific fix
+instruction when escalation is exhausted.
+
+### Three layers
+
+1. **Cookies** (user-registered) — logged-in session gets ~10× the
+   rate limit of anonymous requests. Wizard now asks during step 4.
+2. **PO Token plugin** (`bgutil-ytdlp-pot-provider`, auto-installed)
+   — generates the cryptographic anti-bot token YouTube wants from
+   real browser sessions. Auto-registers with yt-dlp at import.
+   Needs Node.js 16+ on PATH; degrades gracefully without it.
+3. **Residential proxy** (user-supplied, optional) — IP-level escape
+   hatch for very heavy research. Not wired into a CLI flag yet but
+   `HTTPS_PROXY=` env var works today. Documented in the new
+   `docs/UNLIMITED_RESEARCH.md`.
+
+### Cascade behavior
+
+  ```
+  Attempt 1: anonymous   (if user picked "light" volume)
+          or with cookies (if "heavy" volume + cookies registered)
+     ↓ blocked
+  Attempt 2: with cookies (if attempt 1 was anonymous + cookies registered)
+     ↓ blocked OR no cookies were available
+  Fail: exit code 8 + platform-specific fix instruction
+  ```
+
+  Maximum 2 attempts. Most calls = 1 attempt.
+
+### Wizard step 4 — platforms + cookies + volume
+
+`config wizard` (now 4 stages instead of 3) asks at install time:
+
+  - Multi-select: YouTube / Instagram / TikTok / local-only
+  - For each picked platform: path to cookies.txt (skippable)
+  - For each picked platform: "light" (< 20 videos/week) or "heavy"
+    (20+) — drives whether the cascade starts anonymous (preserves
+    cookie lifetime) or goes straight to cookies (avoids the doomed
+    anonymous attempt for heavy users).
+
+Pre-v0.15.0 users keep their existing config; the cascade defaults
+to "light" volume + uses whatever cookies are already registered.
+
+### Platform-aware error classification
+
+New `utils/platform_errors.py` distinguishes:
+
+  - **Anti-bot / rate-limit blocks** — retryable with cookies; cascade escalates.
+  - **Login-required resources** — private accounts, members-only — cookies of an authorized user help.
+  - **Truly unavailable** — deleted, geo-blocked, extractor broken — no retry, distinct error path so the cascade doesn't waste cycles.
+
+Per-platform error patterns (YouTube / Instagram / TikTok) + generic
+fallback patterns. New `fix_instruction()` generates the exact
+platform-specific multi-line message printed on exit code 8.
+
+### New exit code 8
+
+`transcribe` / `batch` now exit with code 8 (was code 4) when blocked
+by a platform. CI / Claude in chat can branch on this to surface
+the right one-shot action instead of treating it as a generic
+transcription failure.
+
+Batch keeps going on per-video block (records `BatchFailure(stage="block")`
+with the fix instruction in `errors.log`); only single `transcribe`
+exits the process with code 8.
+
+### Cookies via `--from-file <path>`
+
+Both `config set-cookies` and `subscribes cookies set` now accept
+`--from-file <path>` as an alias for the positional form. Consistent
+with `set-key --from-file` (v0.13.0). Driven from Claude Code chat
+so the file path stays out of conversation logs.
+
+### Doctor surfaces the cascade
+
+`neurolearn doctor` (and `doctor --json`) now show:
+
+  - Node.js availability
+  - PO Token plugin installation
+  - Per-platform cookies registration + volume preference
+  - Recommended setup hints (e.g. "you picked heavy YouTube but no cookies registered")
+
+The JSON payload exposes `anti_block.*` so Claude in chat can read
+the current cascade state and walk the user through the right fix.
+
+### Files
+
+  - `skills/neurolearn/utils/platform_errors.py` — new
+  - `skills/neurolearn/utils/anti_block_cascade.py` — new
+  - `skills/neurolearn/utils/downloader.py` — `download_audio` / `download_video` opt into cascade via new `cfg` arg
+  - `skills/neurolearn/config.py` — `selected_platforms`, per-platform `*_research_volume`
+  - `skills/neurolearn/wizard.py` — step 4 (platform multi-select + cookies + volume)
+  - `skills/neurolearn/transcribe.py` — exit code 8, doctor anti-block section, `--from-file` alias
+  - `skills/neurolearn/subscribes/cli.py` — `--from-file` alias
+  - `pyproject.toml` — `bgutil-ytdlp-pot-provider>=1.3` as regular dep
+  - `tests/test_platform_errors.py` — 29 cases
+  - `tests/test_anti_block_cascade.py` — 18 cases
+  - `docs/UNLIMITED_RESEARCH.md` — new — 3-layer guide
+  - `docs/TROUBLESHOOTING.md` — rewritten yt-dlp 403 section
+
+Tests: **1279 passed**, 3 skipped.
+
 ## [0.14.2] — 2026-05-22
 
 Verification of v0.14.1 on a real 4-hour video surfaced a separate
