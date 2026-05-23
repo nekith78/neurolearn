@@ -26,7 +26,7 @@ from the terminal **and** from a Claude Code chat.
 
 - **8 backends, one interface** — `subtitles` · `whisper-local` · `gemini` · `groq` · `openai` · `deepgram` · `assemblyai` · `custom`. Switch with a single flag.
 - **Smart cascade by default** — tries YouTube subtitles first, falls back to Groq Whisper, then local Whisper. You never pick wrong.
-- **Handles videos of any length** — Opus 24k recompression + adaptive silence-aligned chunking lets the free-tier Groq path transcribe 4-hour videos transparently (v0.14.1).
+- **Handles videos of any length** — Opus 24k recompression + adaptive silence-aligned chunking lets the free-tier Groq path transcribe 4-hour videos transparently (v0.14.1). Silence-edge trim + word-variety hallucination filter prevent Whisper from inventing text on silent intros/outros, validated across music / tech-talk / interview / news / tutorial formats with zero false positives (v0.15.1).
 - **Batch / channels / playlists / search** — `neurolearn batch --search "topic" --since 2025-01-01` writes one `combined.md` ready for Claude to read.
 - **Research + subscribes** — discover videos by topic across YouTube, IG, TikTok; subscribe to channels with RSS-backed incremental updates.
 - **Visual mode** — keyframes + per-moment vision-LLM annotations. Inside Claude Code, neurolearn writes a manifest and Claude reads the frames natively — no extra API call.

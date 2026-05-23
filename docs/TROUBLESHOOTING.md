@@ -145,6 +145,32 @@ Gemini Files API accepts files up to ~2 GB and videos up to ~1 hour reliably.
 For videos > 1 hour use `whisper-local` or `assemblyai`, or use Groq (which
 auto-chunks).
 
+## Transcript looks slightly short / missing first or last line
+
+If your transcript starts a bit later than expected or skips a final
+phrase, the v0.15.1 hallucination filter probably caught a phantom
+segment Whisper invented on a silent intro/outro. Look in stderr for:
+
+```
+[neurolearn] Dropped N hallucinated segment(s) (silence-fill / known-filler).
+```
+
+The filter is conservative — it only drops segments where ALL of:
+
+- duration ≥ 5 s,
+- < 2 chars per second,
+- ≤ 2 distinct word stems (so repetitions like "Python Python" qualify
+  but a 6-word lyric does not),
+
+or the segment matches a known Whisper-filler blocklist phrase
+(`Продолжение следует`, `Subscribe to my channel`, `(music)`, etc.),
+or the segment text is empty.
+
+If you suspect a real segment got dropped, capture the raw Whisper
+output by re-running with a monkeypatch (see
+`qa-out/v0.15.0-content-types-compare/run_compare.py` for an example
+that records both kept and dropped segments).
+
 ## Long videos look like they "hang"
 
 The progress UI shows the active stage, but yt-dlp + ffmpeg + a 2-hour Groq

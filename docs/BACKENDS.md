@@ -50,6 +50,43 @@ Effective single-call capacity per tier:
 Above those, the chunker kicks in transparently. You never have to think
 about it.
 
+## Groq audio hallucination handling (v0.15.1)
+
+Whisper has a well-documented failure mode: on silent or musical
+intros/outros, the model fills the gap with text it has seen in
+training data (Russian YouTube outros like "Продолжение следует...",
+song lyrics from intros it recognises, theme-related word salad like
+"Python Python" on a Python tutorial's intro music). The chunker
+preserves end-to-end timestamps correctly, so any phantom text shows
+up in the .srt at the wrong place.
+
+We mitigate this in **three layers**, all transparent — no flags, no
+config:
+
+1. **Silence-edge trim (input-side).** Before sending each chunk to
+   Groq, ffmpeg trims leading and trailing silence (> 1.5 s). The
+   leading-trim amount is added back to every segment timestamp on
+   reassembly so the final timeline still matches the original audio.
+   Whisper sees only audio that contains speech, so it has no silent
+   gap to invent text on.
+2. **Word-variety + density filter (output-side).** Segments with
+   `chars_per_second < 2` AND `≤ 2 distinct word stems` are dropped
+   as silence-fill artifacts. Real speech with mistimed bounds
+   (e.g. a song lyric stretched across an instrumental intro) is
+   preserved because it has 5+ distinct stems despite the low cps.
+3. **Blocklist.** Whole-segment-match against documented Whisper
+   fillers: `Продолжение следует`, `Subscribe to my channel`,
+   `(music)`, `(applause)`, etc.
+
+Validated across 5 content formats (music / tech-talk / interview /
+news / tutorial) in EN+RU: **0 false positives**, catches all
+invented phantoms. We don't depend on Groq's `verbose_json`
+confidence fields (`no_speech_prob`, `avg_logprob`, etc.) — empirical
+probing showed those aren't discriminative on Groq's deployment.
+
+If you DO need to debug what was dropped, look for the
+`[neurolearn] Dropped N hallucinated segment(s)` line in stderr.
+
 ## Hardware guide
 
 Pick a backend based on your hardware:
