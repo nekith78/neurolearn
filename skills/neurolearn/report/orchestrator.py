@@ -160,6 +160,72 @@ def _load_manifest(batch_dir: Path) -> dict[str, Any]:
     return json.loads(mf.read_text(encoding="utf-8"))
 
 
+def _try_synthesize_single_video_manifest(transcribe_dir: Path) -> Path | None:
+    """v0.15.2: when `report` is pointed at a single-video transcribe
+    output (no manifest.json), build a minimal 1-video manifest on the
+    fly. Returns the discovered .txt path so the caller can log it, or
+    None when no transcript is found.
+
+    A transcribe output dir typically has:
+      <title>_<videoid>.txt
+      <title>_<videoid>.srt
+      <title>_<videoid>.visual.md     (if --with-visuals ran)
+
+    The synthesized manifest mirrors the schema batch produces but
+    populated from these files. Lets the user PDF a single video
+    without re-running it through `batch`.
+    """
+    txt_files = sorted(transcribe_dir.glob("*.txt"))
+    txt_files = [
+        p for p in txt_files
+        if not p.name.endswith(".visual.md") and "errors" not in p.name.lower()
+    ]
+    if not txt_files:
+        return None
+
+    txt_path = txt_files[0]
+    srt_path = txt_path.with_suffix(".srt")
+    stem = txt_path.stem
+    # Extract video_id from <title>_<11char-id> trailing chunk if present
+    video_id = ""
+    if "_" in stem and len(stem.rsplit("_", 1)[-1]) == 11:
+        video_id = stem.rsplit("_", 1)[-1]
+
+    duration_sec = 0
+    if srt_path.exists():
+        # Parse last SRT segment's end-time as a duration estimate
+        import re
+        text = srt_path.read_text(encoding="utf-8", errors="ignore")
+        ts_re = re.compile(r"(\d+):(\d+):(\d+),(\d+)\s+-->\s+(\d+):(\d+):(\d+),(\d+)")
+        matches = ts_re.findall(text)
+        if matches:
+            h, m, s, ms = map(int, matches[-1][4:])
+            duration_sec = h * 3600 + m * 60 + s + ms / 1000
+
+    manifest = {
+        "batch_name": transcribe_dir.name,
+        "created_at": "",
+        "source": "single-transcribe",
+        "total": 1, "ok": 1, "failed": 0,
+        "backend": "unknown",
+        "language": "auto",
+        "videos": [{
+            "index": 0,
+            "url": f"https://www.youtube.com/watch?v={video_id}" if video_id else "",
+            "video_id": video_id,
+            "title": stem,
+            "status": "ok",
+            "txt_path": txt_path.name,
+            "srt_path": srt_path.name if srt_path.exists() else "",
+            "duration_seconds": duration_sec,
+        }],
+    }
+
+    mf_path = transcribe_dir / "manifest.json"
+    mf_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+    return txt_path
+
+
 def _pick_video(manifest: dict[str, Any], video_index: int) -> dict[str, Any]:
     videos = manifest.get("videos") or []
     if not videos:

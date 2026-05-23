@@ -3,6 +3,64 @@
 All notable changes to neurolearn will be documented here.
 The format is loosely based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.15.2] — 2026-05-24
+
+Cleanup release for the four real issues surfaced by the v0.15.2
+benchmark run on a 3:30 reference video (see `docs/BENCHMARKS.md`):
+
+### Fixed
+
+1. **Vision pipeline crashed with `GroqTokenUsage.cached_tokens`
+   AttributeError** (`pipeline_v02.py`). The pipeline assumed all
+   vision backends expose a cached-tokens counter. Groq doesn't —
+   it has no prompt cache. Fix: `getattr(usage, "cached_tokens", 0)`.
+   Shipped in 450bc94, included here for completeness.
+
+2. **`report` now accepts single-video transcribe output directories.**
+   Previously `report` only accepted batch dirs (with `manifest.json`).
+   Users running `transcribe URL` then `report .` got `exit 3 — No
+   manifest.json`. Fix: when no manifest is found, synthesize a
+   minimal 1-video manifest on the fly from the `.txt` + `.srt` files
+   present in the dir. `_try_synthesize_single_video_manifest()` in
+   `report/orchestrator.py`.
+
+3. **`research` no longer silently exhausts the Gemini free-tier
+   quota** (`research/pipeline.py`). When user's `default_backend` is
+   `gemini` and they run `research --limit N`, the previous behavior
+   was to call gemini for every video, exhausting the 20 req/day free
+   limit on call #1 and leaving the entire batch as `failed`. New
+   behavior: auto-switch this batch to `smart`, which cascades to
+   `fallback_backend` (typically `groq`, 14 400 req/day free) on
+   gemini quota exhaustion. The user's persistent config isn't
+   touched — only this one batch. A stderr line surfaces the
+   auto-switch.
+
+4. **`report` shows a clearer message when the outliner returns 0
+   sections** instead of just `✓ Report rendered (0 sections)`. New
+   wording explains the outliner found no sectional structure
+   (common on short videos < 5 min) and notes the PDF still has
+   title + metadata.
+
+### Not fixed (documented as workarounds in docs/BENCHMARKS.md)
+
+5. **`subtitles` backend can still IP-block even with cookies
+   registered.** This is a `youtube-transcript-api` limitation — it
+   talks to a different endpoint than yt-dlp and doesn't share our
+   cookies file. Workaround: smart cascade auto-falls-back to `groq`
+   on subtitles miss. A proper fix means routing subtitles through
+   yt-dlp directly — bigger change deferred.
+
+### Files
+
+- `skills/neurolearn/report/orchestrator.py` — `_try_synthesize_single_video_manifest()`
+- `skills/neurolearn/transcribe.py` — synthesis fallback in `report` cmd
+  + new clearer 0-sections message
+- `skills/neurolearn/research/pipeline.py` — auto-switch to smart when
+  default_backend=gemini for batch context
+
+Tests: **1281 passed**, 3 skipped (no new tests — fixes are runtime UX,
+not algorithmic).
+
 ## [0.15.1] — 2026-05-23
 
 User regression-tested v0.14.2's hallucination filter across 5

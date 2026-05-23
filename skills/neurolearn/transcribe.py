@@ -2992,11 +2992,25 @@ def report_cmd(
 
     batch_dir = Path(batch_dir).resolve()
     if not (batch_dir / "manifest.json").exists():
+        # v0.15.2: single-video transcribe outputs don't have manifest.json
+        # (only `batch` produces one). When the user points `report` at a
+        # transcribe output dir, synthesize a minimal 1-video manifest on
+        # the fly so the report renderer can proceed. Saves the user from
+        # having to re-run as `batch <single-URL>` just to get a PDF.
+        from skills.neurolearn.report.orchestrator import _try_synthesize_single_video_manifest
+        synthesized = _try_synthesize_single_video_manifest(batch_dir)
+        if not synthesized:
+            console.print(
+                f"[red]No manifest.json in {batch_dir} and no single-video "
+                f"transcript to synthesize one from.[/red] "
+                "Pass a batch_dir produced by transcribe/batch, or a directory "
+                "containing a .txt transcript file."
+            )
+            sys.exit(3)
         console.print(
-            f"[red]No manifest.json in {batch_dir}.[/red] "
-            "Pass a batch_dir produced by transcribe/batch."
+            f"[dim]Synthesized a single-video manifest from "
+            f"{synthesized.name}.[/dim]"
         )
-        sys.exit(3)
 
     # 4. Resolve --prompt / --prompt-file (user filter, optional).
     #    Mutex was validated in step 1; here just materialize the value.
@@ -3095,11 +3109,24 @@ def report_cmd(
         sys.exit(4)
 
     # 7. Success message.
-    console.print(
-        f"\n[green]✓[/green] Report rendered "
-        f"({result.section_count} sections"
-        f"{', hierarchical' if result.used_hierarchical else ''})"
-    )
+    if result.section_count == 0:
+        # v0.15.2: explain why a 0-section PDF happened. Outliner returns
+        # zero sections when the transcript is short enough that the LLM
+        # decided there's no sectional structure to extract — common on
+        # < 5-min videos. The PDF still renders (title + metadata) but
+        # users shouldn't expect detailed content.
+        console.print(
+            f"\n[yellow]⚠[/yellow] Report rendered with [bold]0 sections[/bold] — "
+            f"the outliner LLM found no sectional structure in the transcript. "
+            f"Common on short videos (< 5 min) or transcripts with one continuous "
+            f"thought. The PDF still has title + metadata but no body sections."
+        )
+    else:
+        console.print(
+            f"\n[green]✓[/green] Report rendered "
+            f"({result.section_count} sections"
+            f"{', hierarchical' if result.used_hierarchical else ''})"
+        )
     console.print(f"  [bold]{result.pdf_path}[/bold]")
     if result.html_path:
         console.print(f"  HTML: {result.html_path}")

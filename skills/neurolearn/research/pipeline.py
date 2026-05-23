@@ -161,6 +161,25 @@ def run_research(
         "searched_at": datetime.now(timezone.utc).isoformat(),
         "candidates_before_checkpoint": len(candidates),
     }
+    # v0.15.2: research scales to 20+ videos in one shot. If user's
+    # default_backend is `gemini` (free tier 20 RPD), a single
+    # `research --limit 20` exhausts the entire daily quota on the
+    # first call. Silently auto-bump to `smart` so the cascade can
+    # fall through to groq (14 400 RPD free) — same behavior the
+    # `smart` preset provides for `transcribe`. User can still
+    # override with `--backend` if they really want gemini.
+    cfg_for_batch = cfg
+    if cfg.default_backend == "gemini" and cfg.fallback_backend != "gemini":
+        import sys as _sys
+        _sys.stderr.write(
+            f"[neurolearn] research with default_backend=gemini would exhaust "
+            f"the free 20 req/day quota fast. Auto-switching this batch to "
+            f"`smart` so it cascades to {cfg.fallback_backend} on quota "
+            f"exhaustion.\n"
+        )
+        from dataclasses import replace
+        cfg_for_batch = replace(cfg, default_backend="smart")
+
     opts = {
         "output_dir": output_dir,
         "batch_name": batch_name,
@@ -169,7 +188,7 @@ def run_research(
         "research_meta": research_meta,
         **batch_opts,
     }
-    batch_dir = _run_batch_pipeline(targets=targets, cfg=cfg, opts=opts)
+    batch_dir = _run_batch_pipeline(targets=targets, cfg=cfg_for_batch, opts=opts)
 
     # 8. Analyze (unless --no-analyze)
     analyze_attempted = False
