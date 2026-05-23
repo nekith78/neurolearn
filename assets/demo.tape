@@ -1,8 +1,11 @@
 # neurolearn demo tape — README hero GIF.
 #
 # Regenerate with:
-#   brew install vhs      # one-time
-#   vhs assets/demo.tape  # produces assets/demo.gif (deterministic)
+#   brew install vhs                          # one-time
+#   vhs assets/demo.tape                      # produces assets/demo-dark.gif
+#   # Light variant for README <picture> theme-adaptive block:
+#   sed 's|Catppuccin Mocha|Catppuccin Latte|; s|demo-dark|demo-light|' \
+#     assets/demo.tape | vhs -
 #
 # No network calls. Uses the bundled qa-out/v0101-smoke batch and a
 # pre-recorded demo log so the GIF is reproducible from a clean checkout.
@@ -21,7 +24,7 @@
 #     a pre-recorded log cat'd for the actual output proof. Real-time
 #     network transcribe is impossible to record deterministically.
 
-Output assets/demo.gif
+Output assets/demo-dark.gif
 
 Set FontSize 14
 Set Width 1100

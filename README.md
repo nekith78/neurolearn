@@ -4,12 +4,16 @@
 
 **Learn from videos. Universal transcription + analysis for YouTube, Instagram, TikTok, and local files.**
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Claude Code Plugin](https://img.shields.io/badge/Claude_Code-plugin-7C3AED.svg)](docs/CLAUDE_CODE.md)
-[![Python 3.11+](https://img.shields.io/badge/Python-3.11+-3776AB.svg)](https://www.python.org/downloads/)
-[![Tests](https://img.shields.io/badge/tests-1212_passing-brightgreen.svg)](#)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](LICENSE)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11+-3776AB?style=flat-square)](https://www.python.org/downloads/)
+[![Claude Code Plugin](https://img.shields.io/badge/Claude_Code-plugin-7C3AED?style=flat-square)](docs/CLAUDE_CODE.md)
+[![Tests](https://img.shields.io/github/actions/workflow/status/nekith78/neurolearn/test.yml?branch=main&style=flat-square&label=tests)](https://github.com/nekith78/neurolearn/actions/workflows/test.yml)
+[![Latest release](https://img.shields.io/github/v/release/nekith78/neurolearn?style=flat-square&color=success)](https://github.com/nekith78/neurolearn/releases)
 
-![neurolearn demo](assets/demo.gif)
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/demo-dark.gif">
+  <img src="assets/demo-light.gif" alt="neurolearn demo — 60-second tour of the CLI">
+</picture>
 
 </div>
 
@@ -25,9 +29,9 @@ from the terminal **and** from a Claude Code chat.
 ## Highlights
 
 - **8 backends, one interface** — `subtitles` · `whisper-local` · `gemini` · `groq` · `openai` · `deepgram` · `assemblyai` · `custom`. Switch with a single flag.
-- **Smart cascade by default** — tries YouTube subtitles first, falls back to Groq Whisper, then local Whisper. You never pick wrong.
-- **Handles videos of any length** — Opus 24k recompression + adaptive silence-aligned chunking lets the free-tier Groq path transcribe 4-hour videos transparently (v0.14.1). Silence-edge trim + word-variety hallucination filter prevent Whisper from inventing text on silent intros/outros, validated across music / tech-talk / interview / news / tutorial formats with zero false positives (v0.15.1).
-- **Batch / channels / playlists / search** — `neurolearn batch --search "topic" --since 2025-01-01` writes one `combined.md` ready for Claude to read.
+- **Smart cascade by default** — tries YouTube subtitles first, falls back to Groq Whisper, then local Whisper.
+- **Any-length videos, transparently** — Opus 24k recompression + adaptive silence-aligned chunking handles 4-hour videos on Groq's free tier. Silence-edge trim + word-variety hallucination filter prevent Whisper from inventing text on silent intros/outros — validated across music / tech-talk / interview / news / tutorial formats with zero false positives.
+- **Fast** — 1 hour of audio → 3.2 minutes wall time on Groq (~19× realtime). See [benchmarks](docs/BENCHMARKS.md).
 - **Research + subscribes** — discover videos by topic across YouTube, IG, TikTok; subscribe to channels with RSS-backed incremental updates.
 - **Visual mode** — keyframes + per-moment vision-LLM annotations. Inside Claude Code, neurolearn writes a manifest and Claude reads the frames natively — no extra API call.
 - **PDF reports** — `neurolearn report --latest` renders structured PDFs (tutorial / vlog / generic layouts) from any batch.
@@ -35,15 +39,10 @@ from the terminal **and** from a Claude Code chat.
 
 ## Why it exists
 
-The killer use case: **comprehensive research that combines Claude's web
-research with neurolearn-fetched video transcripts**. Claude is excellent at
-researching written sources (docs, papers, articles, web pages). But a huge
-share of the most current and most candid take on any technical or business
-topic lives in **spoken form** — podcasts, conference talks, interviews,
-long-form YouTube discussions. Experts say things in interviews they never
-write down.
+> [!TIP]
+> **The killer use case: comprehensive research that combines Claude's web research with neurolearn-fetched video transcripts.** Claude reads web sources; neurolearn fetches what was only *said out loud* in podcasts, conference talks, interviews, and long-form YouTube. Together they cover both the documented and the candid layer of any topic.
 
-Neither side alone gives you the full picture. Together they do:
+A concrete prompt that triggers the pattern:
 
 ```
 "Research the current state of agentic AI safety. Use both
@@ -59,6 +58,31 @@ Other patterns: daily channel digests, long-form video → structured PDF,
 multi-language research without speaking the languages, offline / private
 transcription. See **[docs/USE_CASES.md](docs/USE_CASES.md)** for full
 walkthroughs.
+
+## How smart cascade works
+
+The default `--backend smart` flow — no flags needed:
+
+```mermaid
+flowchart LR
+    URL([Video URL]) --> YT{YouTube?}
+    YT -->|yes| SUB[Try YouTube subtitles<br/>~3s, free, no API key]
+    YT -->|no| DL
+    SUB -->|hit| OUT([Transcript])
+    SUB -->|miss| DL[Download audio]
+    DL --> RECOMP[Opus 24k mono recompress<br/>v0.14.1]
+    RECOMP --> SIZE{Fits Groq<br/>tier limit?}
+    SIZE -->|yes| TRIM[Silence-edge trim<br/>v0.15.1]
+    SIZE -->|no| CHUNK[Split at silence boundaries<br/>track per-chunk offset]
+    CHUNK --> TRIM
+    TRIM --> GROQ[Groq Whisper<br/>large-v3-turbo]
+    GROQ --> FILTER[Hallucination filter<br/>density + word-variety + blocklist]
+    FILTER --> OUT
+    GROQ -.fails.-> LOCAL[whisper-local fallback]
+    LOCAL --> OUT
+```
+
+End-to-end timestamps are preserved across chunking + silence-trim, so the final `.srt` matches the original video's timeline.
 
 ## Install
 
@@ -84,6 +108,9 @@ neurolearn config wizard
 
 For other paths (manual clone, skill folder, pip), system requirements,
 ffmpeg setup, and optional extras → see **[docs/INSTALL.md](docs/INSTALL.md)**.
+
+> [!IMPORTANT]
+> **Cookies are file-only.** YouTube/Instagram/TikTok cookies are registered via `neurolearn config set-cookies --from-file <path>` (or `subscribes cookies set <platform> --from-file <path>`). We deliberately do **not** support `--cookies-from-browser` — that yt-dlp flag pulls *every* cookie from your browser store into process memory. Heavy research without registered cookies WILL hit IP blocks. See [docs/UNLIMITED_RESEARCH.md](docs/UNLIMITED_RESEARCH.md).
 
 ## Quick start
 
@@ -125,12 +152,13 @@ writes the summary. The skill produces transcripts; analysis is the LLM's job.
 | | |
 |---|---|
 | 💡 **[Use cases](docs/USE_CASES.md)** | The flagship Claude+neurolearn research pattern, plus 7 supporting workflows: channel digests, long-form → PDF, multi-language research, offline transcription, dataset building, claim verification, quote mining. |
+| ⏱ **[Benchmarks](docs/BENCHMARKS.md)** | Wall-clock times for every feature on a 3:30 reference video, normalized to per-hour-of-audio rates. |
 | 📖 **[Usage](docs/USAGE.md)** | Every command, every flag, with examples. `transcribe` · `batch` · `analyze` · `research` · `subscribes` · `report` · `history` · `triggers` · `config` |
-| ⚙️ **[Backends](docs/BACKENDS.md)** | The 8 transcription backends compared. Hardware guide. Whisper model comparison. Groq size handling. Privacy table. |
+| ⚙️ **[Backends](docs/BACKENDS.md)** | The 8 transcription backends compared. Hardware guide. Whisper model comparison. Groq size + hallucination handling. Privacy table. |
 | 🤖 **[Claude Code integration](docs/CLAUDE_CODE.md)** | Plugin install, slash commands, switching backends from chat, secure key handoff, visual mode in Claude Code. |
 | 💻 **[Install details](docs/INSTALL.md)** | Per-OS install, optional extras, first-run wizard, HF_TOKEN warning. |
+| 🚀 **[Unlimited research](docs/UNLIMITED_RESEARCH.md)** | 3-layer anti-block stack: cookies → PO Token plugin → residential proxy. When YouTube rate-limits your IP. |
 | 🩹 **[Troubleshooting](docs/TROUBLESHOOTING.md)** | yt-dlp 403, missing API keys, CUDA errors, missing ffmpeg, distil model on Mac, long-video timeouts. |
-| 🚀 **[Unlimited research](docs/UNLIMITED_RESEARCH.md)** | The 3-layer anti-block stack (cookies + PO Token plugin + residential proxy). What to do when YouTube starts rate-limiting your IP. |
 | 🏗️ **[Architecture](docs/ARCHITECTURE.md)** | For developers: Transcriber Protocol, smart cascade internals, adding a backend, cross-OS specifics. |
 | 📜 **[Changelog](CHANGELOG.md)** | Version-by-version detail. |
 | 🤖 **[Agent reference](docs/agent-reference.md)** | Full CLI surface, exit codes, state semantics — for LLM agents driving the skill. |

@@ -371,11 +371,16 @@ def apply_v02_stages(
                 tracker = getattr(result, "budget", None) or BudgetTracker()
                 model_name = getattr(backend, "model", "gemini-2.5-flash")
                 for usage in last_usage:
+                    # v0.15.2: GroqTokenUsage doesn't expose `cached_tokens`
+                    # (Groq doesn't offer prompt caching the way Gemini did
+                    # pre-v0.12.0). Fall back to 0 when the attribute is
+                    # missing so the vision pipeline doesn't AttributeError
+                    # when the backend is Groq.
                     tracker.record(
                         "vision_gemini", model_name,
                         prompt_tokens=usage.prompt_tokens,
                         output_tokens=usage.output_tokens,
-                        cached_tokens=usage.cached_tokens,
+                        cached_tokens=getattr(usage, "cached_tokens", 0),
                     )
                 # Attach to the result so the writer can serialize it.
                 try:
