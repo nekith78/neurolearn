@@ -36,6 +36,22 @@ def test_real_long_sentence_is_not_hallucination():
     assert is_hallucination(seg) is False
 
 
+def test_v0_15_1_low_cps_with_word_variety_is_kept():
+    """v0.15.1 word-variety fix: a real lyric that Whisper stretched
+    across an instrumental intro has low cps BUT high word variety.
+    The Rick Astley music-intro case: 'We're no strangers to love'
+    spanning 21.88s = 1.19 cps. v0.14.2 dropped this; v0.15.1 keeps
+    it because the 6 distinct word stems mean it's real speech with
+    mistimed bounds, not a Whisper invention."""
+    seg = Segment(
+        start=0.0, end=21.88,
+        text="We're no strangers to love",
+    )
+    # 6 distinct stems: were / no / stra / to / love (with stripping)
+    # — all above the ≤2 threshold for "looks repetitive"
+    assert is_hallucination(seg) is False
+
+
 def test_real_fast_short_phrase_is_not_hallucination():
     """Short phrases below the density-check threshold pass through —
     even if cps would be low, we don't apply the filter to short
@@ -57,10 +73,19 @@ def test_boundary_density_just_above_threshold():
     assert is_hallucination(seg) is False
 
 
-def test_boundary_density_just_below_threshold():
-    """5.0s × 9 chars = 1.8 cps — below 2.0, dropped."""
-    seg = Segment(start=0.0, end=5.0, text="abcdefghi")
+def test_boundary_density_just_below_threshold_with_repetition():
+    """5.0s × 9 chars = 1.8 cps + only 1 distinct stem ('xxxx xxxx') — dropped."""
+    seg = Segment(start=0.0, end=5.0, text="abcd abcd")
     assert is_hallucination(seg) is True
+
+
+def test_v0_15_1_boundary_density_with_word_variety_kept():
+    """5.0s × 14 chars = 2.8 cps (above threshold) OR low cps + variety:
+    new v0.15.1 logic requires BOTH low cps AND low variety to drop.
+    A short fragment with several distinct words survives even at low cps."""
+    # 5s, 9 chars but 3 distinct stems → keep
+    seg = Segment(start=0.0, end=5.0, text="and yes ok")
+    assert is_hallucination(seg) is False
 
 
 def test_empty_segment_is_hallucination():

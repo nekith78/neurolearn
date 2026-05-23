@@ -312,3 +312,128 @@ def cleanup_chunks(chunks: list[tuple[Path, float]], original: Path) -> None:
                 path.unlink()
         except OSError:
             pass
+
+
+# ---------------------------------------------------------------------------
+# v0.15.1 — silence edge trimming
+# ---------------------------------------------------------------------------
+#
+# Whisper hallucinates aggressively on silent/musical leading and trailing
+# audio. The most common failure modes we've seen:
+#   * "Продолжение следует..." spanning 30s of trailing credits silence
+#   * "Subscribe to my channel" / "Thanks for watching" on outro
+#   * Song lyrics that Whisper "knows" from training data, generated to
+#     fill an instrumental intro
+#   * Theme-related word salad ("Python Python", "Python Skynet sky net")
+#     on instrumental intros of topic-specific tutorials
+#
+# Pre-trimming the silent edges removes the *trigger* — there's nothing
+# silent for the model to fill in with invented text. This is the input-
+# side fix recommended by the OpenAI/whisper community
+# (github.com/openai/whisper/discussions/2378) and used by WhisperX.
+#
+# Critical: when trimming leading silence we MUST track how much was
+# removed, so the caller can add that offset back to every Whisper
+# segment timestamp on reassembly. Otherwise all timestamps land
+# `trim_seconds` too early in the final timeline. Trailing silence
+# trim has no timestamp impact — Whisper just stops where audio stops.
+
+
+_SILENCE_TRIM_MIN_LEADING_SECONDS = 1.5
+_SILENCE_TRIM_MIN_TRAILING_SECONDS = 1.5
+_SILENCE_TRIM_NOISE_DB = -30.0
+_SILENCE_TRIM_MIN_SILENCE_DURATION = 0.3
+
+
+def find_speech_bounds(
+    audio: Path,
+    duration: float | None = None,
+    *,
+    noise_db: float = _SILENCE_TRIM_NOISE_DB,
+) -> tuple[float, float]:
+    """Return (first_speech_start, last_speech_end) in seconds.
+
+    Both fall back to 0.0 / duration when no silence is detected at
+    the corresponding edge. We only care about leading silence > 1.5s
+    and trailing silence > 1.5s — anything shorter is normal speech
+    rhythm and trimming it would risk clipping the first/last word.
+    """
+    if duration is None:
+        duration = probe_duration(audio)
+
+    silences = detect_silences(
+        audio,
+        noise_db=noise_db,
+        min_duration=_SILENCE_TRIM_MIN_SILENCE_DURATION,
+    )
+
+    # Leading silence: only the FIRST detected silence interval, and
+    # only if it starts at (or very near) t=0.
+    leading_end = 0.0
+    for s in silences:
+        if s.start <= 0.5 and (s.end - s.start) >= _SILENCE_TRIM_MIN_LEADING_SECONDS:
+            leading_end = s.end
+        break  # only check the first silence
+
+    # Trailing silence: only the LAST detected interval, and only if
+    # it extends to (or very near) the end of the audio.
+    trailing_start = duration
+    if silences:
+        last = silences[-1]
+        if (duration - last.end) <= 0.5 and (last.end - last.start) >= _SILENCE_TRIM_MIN_TRAILING_SECONDS:
+            trailing_start = last.start
+
+    return leading_end, trailing_start
+
+
+def trim_silence_edges(
+    audio: Path,
+    out_dir: Path,
+    *,
+    duration: float | None = None,
+) -> tuple[Path, float]:
+    """Trim leading and trailing silence from `audio`. Returns
+    `(trimmed_path, leading_trim_seconds)`.
+
+    `leading_trim_seconds` is how much was cut from the start; callers
+    add this to every Whisper segment timestamp so the final timeline
+    matches the ORIGINAL audio (not the trimmed copy).
+
+    If no significant edge silence is found, returns `(audio, 0.0)` —
+    the original file is reused unchanged. No-op fast path; no
+    ffmpeg invocation when nothing to do.
+    """
+    if duration is None:
+        duration = probe_duration(audio)
+
+    leading_end, trailing_start = find_speech_bounds(audio, duration)
+
+    if leading_end == 0.0 and trailing_start == duration:
+        # Nothing to trim — fast path
+        return audio, 0.0
+
+    out_dir.mkdir(parents=True, exist_ok=True)
+    ffmpeg = _require_ffmpeg()
+    ext = audio.suffix or ".ogg"
+    trimmed = out_dir / f"{audio.stem}_trimmed{ext}"
+    cmd = [
+        ffmpeg, "-y", "-hide_banner", "-loglevel", "error",
+        "-i", str(audio),
+        "-ss", f"{leading_end:.3f}",
+        "-to", f"{trailing_start:.3f}",
+        "-c", "copy",
+        str(trimmed),
+    ]
+    proc = subprocess.run(cmd, capture_output=True, text=True)
+    if proc.returncode != 0:
+        # Fall back to original on ffmpeg failure rather than aborting
+        # the whole transcribe. Whisper will still work; we just lose
+        # the silence-trim benefit.
+        from skills.neurolearn.backends.base import BackendError
+        sys.stderr.write(
+            f"[neurolearn] silence-trim ffmpeg failed; using original audio.\n"
+            f"  stderr: {(proc.stderr or '').strip()[-200:]}\n"
+        )
+        return audio, 0.0
+
+    return trimmed, leading_end

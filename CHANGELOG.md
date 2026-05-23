@@ -3,6 +3,104 @@
 All notable changes to neurolearn will be documented here.
 The format is loosely based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.15.1] — 2026-05-23
+
+User regression-tested v0.14.2's hallucination filter across 5
+different content formats (music / tech-talk / interview / news /
+tutorial) in EN + RU. Found 1 false positive: the Rick Astley intro
+filter dropped the real lyric "We're no strangers to love" because
+Whisper stretched its timestamp across the 21.88s instrumental intro,
+giving 1.19 chars/sec — below the v0.14.2 density threshold.
+
+Then user laid down a hard requirement: *transcribe what was said,
+don't invent or modify content*. The density heuristic was technically
+right (low cps = suspicious) but happened to discard real speech
+content. That was a deal-breaker.
+
+This release replaces the single-heuristic filter with a 3-layer
+input + output mitigation stack, informed by an empirical Groq API
+probe and the OpenAI Whisper community's published mitigations.
+
+### What we tried that turned out to NOT work on Groq
+
+Research said: use Whisper's own confidence fields from `verbose_json`
+to filter low-confidence segments. Empirical probe of Groq's actual
+response (`qa-out/v0.15.1-probe/probe_groq_confidence.py`) revealed:
+
+- `no_speech_prob` is always 0 or near-zero (e.g. 2e-11) regardless
+  of whether the segment is real speech, silence, or hallucination.
+  Not discriminative.
+- `avg_logprob` returns the SAME value across batches of segments
+  (e.g. -0.13 for "Python Python" and the following real sentence
+  in the same window). Per-segment confidence is not actually
+  per-segment on Groq.
+- `compression_ratio` peaks at 2.31 across our corpus — never crosses
+  OpenAI's 2.4 hallucination threshold. Filter would never fire.
+- `temperature` always 0 (no fallback retries).
+
+So Whisper-confidence-based filtering simply doesn't work on Groq's
+deployment. Recommendation stayed for openai/faster-whisper users.
+
+### What we built instead — 3 layers
+
+**1. Silence-edge trim (input-side).**
+`utils/audio_chunker.trim_silence_edges()` — finds leading/trailing
+silence > 1.5s via ffmpeg `silencedetect`, cuts it before sending to
+Groq. Tracks `leading_trim_seconds` so the caller can offset segment
+timestamps back to the original timeline. The Groq backend now trims
+every chunk (whether chunked or not) before upload, and the merged
+segment timestamps include the trim offset.
+
+Validated on Python tutorial: "Python Skynet sky net" hallucination
+that v0.14.2 caught at the output side now never appears in Groq's
+output at all — silence-trim removed the trigger.
+
+**2. Word-variety check on density filter (output-side).**
+`hallucination_filter._distinct_word_stems()` — counts distinct word
+stems (first 4 chars, case-insensitive, punctuation-stripped). The
+density filter now requires BOTH `cps < 2` AND `distinct_stems ≤ 2`
+before dropping. Real speech with mistimed bounds (like the Rick
+Astley lyric: 6 distinct stems "were/no/stra/to/love" + grammar
+words) survives. Whisper-invented repetitive fillers ("Python Python"
+= 1 stem, "Subscribe to my channel" = 4 stems but blocklisted) still
+drop.
+
+**3. Blocklist (unchanged from v0.14.2).**
+Conservative whole-segment-match against documented Whisper fillers.
+
+### Removed
+
+`compression_ratio` / `avg_logprob` / `no_speech_prob` post-filter
+ideas — empirically don't work on Groq.
+
+### Verified
+
+Re-ran the 5-video regression with v0.15.1:
+
+| Video | v0.14.2 drops | v0.15.1 drops | Δ |
+|---|---|---|---|
+| Rick Astley | 1 FALSE POSITIVE | **0** | lyric preserved ✓ |
+| TED-Ed | 0 | 0 | — |
+| Interview RU | 3 (all empty) | 4 (all empty) | +1 caught |
+| BBC News | 0 | 0 | — |
+| Python tutorial | 3 ("Python Python" + "Python Skynet sky net" + empty) | 2 ("Python Python" + empty) | "Python Skynet sky net" prevented at input via silence-trim |
+
+Result: **0 false positives**, still catches all Whisper-invented
+phantoms, real speech with mistimed bounds is preserved.
+
+### Files
+
+- `skills/neurolearn/utils/audio_chunker.py` — new `trim_silence_edges()`
+- `skills/neurolearn/utils/hallucination_filter.py` — `_distinct_word_stems()`
+  + word-variety check folded into `is_hallucination()`
+- `skills/neurolearn/backends/groq.py` — per-chunk silence-trim with
+  `trim_offset` propagated through segment reassembly + cleanup of
+  trim tmp files
+- `tests/test_hallucination_filter.py` — new word-variety + Rick
+  Astley keep-test cases
+
+Tests: **1281 passed**, 3 skipped.
+
 ## [0.15.0] — 2026-05-22
 
 User running research across multiple projects hit YouTube IP blocks

@@ -82,6 +82,14 @@ _HALLUCINATION_PHRASES = _HALLUCINATION_PHRASES_RU | _HALLUCINATION_PHRASES_EN
 _MIN_DURATION_FOR_DENSITY_CHECK = 5.0
 _HALLUCINATION_DENSITY_CPS = 2.0
 
+# v0.15.1: word-variety threshold for the density check. Real speech
+# with low cps usually has many distinct words ("We're no strangers
+# to love" = 6 stems). Whisper hallucinations on silence are usually
+# repetitive (1-2 stems: "Python Python", "Продолжение следует").
+# So we drop low-cps segments ONLY when they're also lexically
+# repetitive — preserves real speech with mistimed timestamps.
+_HALLUCINATION_MAX_DISTINCT_STEMS = 2
+
 
 _PUNCT_STRIP = re.compile(r"[\.\,\!\?\:\;\-–—…\"\'\(\)\[\]]+")
 
@@ -94,10 +102,34 @@ def _normalize_for_blocklist(text: str) -> str:
     return text
 
 
+def _distinct_word_stems(text: str) -> int:
+    """Count distinct word stems (case-insensitive, punctuation-stripped,
+    first 4 chars of each token). Doesn't try to be a real stemmer —
+    just enough to collapse "Python" / "python" / "Python's" to one
+    bucket and "Skynet" / "sky net" to two."""
+    normalized = _normalize_for_blocklist(text)
+    if not normalized:
+        return 0
+    # First 4 chars catches common inflection (e.g. Russian endings
+    # in the cases we care about: "продолж/енot/ение/ит" all → "прод").
+    stems = {tok[:4] for tok in normalized.split() if tok}
+    return len(stems)
+
+
 def is_hallucination(seg: Segment) -> bool:
     """Return True if this segment is almost certainly a Whisper
     hallucination on silence. Conservative: when in doubt, returns
-    False so real speech is never dropped."""
+    False so real speech is never dropped.
+
+    v0.15.1 added word-variety check — see Rick Astley case study:
+    "We're no strangers to love" stretched across a 21.88s instrumental
+    intro is also low-cps (1.19), but it's REAL Whisper output of the
+    correct lyric, just with mistimed bounds. We don't want to drop
+    that. Whisper-invented hallucinations on silence are reliably
+    repetitive (Python Python / Subscribe Subscribe), so requiring
+    ≥ 3 distinct word stems before dropping preserves the
+    Rick-Astley-style cases.
+    """
     text = (seg.text or "").strip()
     if not text:
         # Empty segments — drop them (they carry no information).
@@ -113,12 +145,17 @@ def is_hallucination(seg: Segment) -> bool:
     if normalized in _HALLUCINATION_PHRASES:
         return True
 
-    # Density filter: long segments with very few characters can only
-    # be silence-fills.
+    # Density filter: long segments with very few characters AND
+    # very few distinct word stems are silence-fills. Real speech
+    # with mistimed bounds (e.g. song lyric stretched over instrumental
+    # intro) typically has many distinct words even at low cps —
+    # the variety check spares it.
     if duration >= _MIN_DURATION_FOR_DENSITY_CHECK:
         chars_per_sec = len(text) / duration
         if chars_per_sec < _HALLUCINATION_DENSITY_CPS:
-            return True
+            stems = _distinct_word_stems(text)
+            if stems <= _HALLUCINATION_MAX_DISTINCT_STEMS:
+                return True
 
     return False
 

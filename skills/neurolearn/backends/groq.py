@@ -142,18 +142,45 @@ class GroqBackend:
         detected_lang: str | None = None
         total_duration = 0.0
 
+        # v0.15.1: collect every trim-tmp we create so cleanup catches them
+        trim_tmp_paths: list[Path] = []
+
         try:
             for idx, (chunk_path, offset) in enumerate(uploads, start=1):
+                # v0.15.1: silence-trim leading + trailing edges of each
+                # chunk BEFORE upload. Whisper hallucinates on silence;
+                # removing the trigger at the input is more reliable than
+                # filtering invented text on the output. The leading-trim
+                # amount is added back to every segment timestamp so the
+                # final timeline still matches the original audio.
+                try:
+                    from skills.neurolearn.utils.audio_chunker import trim_silence_edges
+                    upload_path, trim_offset = trim_silence_edges(
+                        chunk_path, chunk_path.parent,
+                    )
+                except Exception as trim_err:
+                    sys.stderr.write(
+                        f"[neurolearn] silence-trim failed for chunk {idx} "
+                        f"({trim_err}); uploading untrimmed.\n"
+                    )
+                    upload_path, trim_offset = chunk_path, 0.0
+                if upload_path != chunk_path:
+                    trim_tmp_paths.append(upload_path)
+                    sys.stderr.write(
+                        f"[neurolearn] Trimmed {trim_offset:.1f}s of leading "
+                        f"silence from chunk {idx} before upload.\n"
+                    )
+
                 if len(uploads) > 1:
                     sys.stderr.write(
                         f"[neurolearn] Uploading chunk {idx}/{len(uploads)} "
-                        f"({chunk_path.stat().st_size / 1024 / 1024:.1f} MB, "
+                        f"({upload_path.stat().st_size / 1024 / 1024:.1f} MB, "
                         f"offset {offset:.1f}s)…\n"
                     )
                 try:
-                    with chunk_path.open("rb") as f:
+                    with upload_path.open("rb") as f:
                         resp = client.audio.transcriptions.create(
-                            file=(chunk_path.name, f.read()),
+                            file=(upload_path.name, f.read()),
                             model=self.model,
                             language=lang,
                             response_format="verbose_json",
@@ -171,13 +198,21 @@ class GroqBackend:
                     s_start = float(s.get("start", 0.0)) if isinstance(s, dict) else float(s.start)
                     s_end = float(s.get("end", 0.0)) if isinstance(s, dict) else float(s.end)
                     s_text = (s.get("text") if isinstance(s, dict) else s.text) or ""
+                    # Final timestamp = whisper_relative + chunk_start + leading_trim
+                    final_offset = offset + trim_offset
                     merged_segments.append(Segment(
-                        start=s_start + offset,
-                        end=s_end + offset,
+                        start=s_start + final_offset,
+                        end=s_end + final_offset,
                         text=s_text.strip(),
                     ))
         finally:
             self._cleanup_uploads(uploads, audio, tmp_recompress)
+            for trim_tmp in trim_tmp_paths:
+                try:
+                    if trim_tmp.exists():
+                        trim_tmp.unlink()
+                except OSError:
+                    pass
 
         # v0.14.2: drop Whisper hallucinations on trailing silence
         # ("Продолжение следует..." spanning 30s, "Subscribe to my
