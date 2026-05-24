@@ -1,6 +1,6 @@
 [project]
 name = "neurolearn"
-version = "0.15.2"
+version = "0.15.3"
 description = "NEUROLEARN — learn from videos. Transcribe / analyze / research / subscribe to YouTube, Instagram, TikTok and local media via 8 interchangeable backends (Whisper local / subtitles / Gemini / Groq / OpenAI / Deepgram / AssemblyAI / custom)."
 readme = "README.md"
 # Upper bound `<3.14` is required by `scenedetect` 0.7 (no wheels for Python 3.14
@@ -24,6 +24,16 @@ dependencies = [
     # real browser. Needs Node.js 16+ at runtime; if Node is missing the
     # plugin logs a warning and yt-dlp degrades to no-PO-Token (graceful).
     "bgutil-ytdlp-pot-provider>=1.3",
+    # v0.15.3: TLS-fingerprint impersonation for yt-dlp. YouTube increasingly
+    # distinguishes bot traffic by ClientHello fingerprint (separate from
+    # cookies and PO Token). yt-dlp's `impersonate=` extractor option uses
+    # curl_cffi to spoof real Chrome/Firefox TLS — without it you get
+    # "no impersonate target is available" warnings + 429 errors on
+    # endpoints (especially subtitles) that anti-bot the TLS layer.
+    # yt-dlp 2026.03.17 supports curl_cffi 0.5.10 OR 0.10.x-0.14.x.
+    # Pinning to 0.10-0.15 catches the modern supported range; 0.15+
+    # raises "Only curl_cffi versions X.Y are supported" at import.
+    "curl_cffi>=0.10,<0.15",
     "youtube-transcript-api>=0.6.2",
     # Cloud SDKs (small, install all by default)
     "google-genai>=1.0.0",                 # 0.x had unstable API; we target the stable Client/files/models pattern

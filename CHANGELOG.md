@@ -3,6 +3,96 @@
 All notable changes to neurolearn will be documented here.
 The format is loosely based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.15.3] — 2026-05-24
+
+Closes the last open finding from the v0.15.2 benchmark — `subtitles`
+backend silently failing with `IpBlocked` even when cookies are
+registered. The investigation surfaced **three separate causes**
+stacked on top of each other; this release addresses all three.
+
+### Investigation summary
+
+After three years of "the subtitles backend sometimes IP-blocks,
+just use smart cascade", we finally dug in:
+
+1. **Config slot mismatch.** `neurolearn config set-cookies` writes
+   the YouTube cookies path into `cfg.cookies_file` (legacy slot
+   from pre-v0.10.7 lineage). But `resolve_cookies_file("youtube")`
+   only checked `cfg.youtube_cookies_file`. So even though `doctor`
+   correctly reported the file as registered (it falls back to the
+   legacy slot for display), the subtitles backend's session
+   builder got an empty path and proceeded anonymously → IpBlocked.
+
+2. **No yt-dlp fallback path.** The subtitles backend used only
+   `youtube-transcript-api`, which talks to the timedtext endpoint
+   directly via Python requests. YouTube rate-limits this endpoint
+   aggressively — even with full auth cookies (SID, SAPISID,
+   LOGIN_INFO, etc.) — because the requests don't carry the player
+   handshake yt-dlp performs.
+
+3. **No TLS impersonation.** Even when yt-dlp could be invoked, it
+   warned "extractor specified to use impersonation for this
+   download, but no impersonate target is available" because
+   `curl_cffi` wasn't in our dep tree. YouTube increasingly
+   distinguishes bot traffic at the TLS-fingerprint level
+   (ClientHello), distinct from cookies and PO Token. Without
+   curl_cffi yt-dlp can't spoof Chrome/Firefox TLS → 429 on
+   subtitle endpoints regardless of other auth.
+
+### Why we didn't use the YouTube Data API instead
+
+YouTube Data API v3's `captions.download` endpoint requires OAuth
+**as the video owner** (or 3rd-party-contribution permission on the
+specific video). For arbitrary public videos: 403 Forbidden. So
+`youtube-transcript-api`, `yt-dlp --write-subs`, `pytube`,
+`innertube` — they all use the same internal `timedtext` endpoint.
+The difference is only in the auth layer they wrap around it.
+
+### Fixes
+
+**1. Slot fallback in `resolve_cookies_file()`**
+   `cookies_onboarding.py` now reads `cfg.youtube_cookies_file or
+   cfg.cookies_file` for the youtube platform. Existing users with
+   cookies registered via the legacy `config set-cookies` command
+   get them recognized immediately — no re-registration needed.
+
+**2. Two-tier subtitle fetch in `SubtitlesBackend`**
+   Path 1 (fast, ~3 s): youtube-transcript-api with cookies session
+   — unchanged from before, just now actually gets the cookies.
+   Path 2 (slower, ~5-8 s): yt-dlp `--write-auto-subs --write-subs`
+   using our full anti-block stack (cookies + PO Token plugin +
+   curl_cffi). Falls through automatically on Path 1 IpBlocked /
+   RequestBlocked / PoTokenRequired / YouTubeRequestFailed /
+   YouTubeDataUnparsable. Permanent errors (TranscriptsDisabled,
+   NoTranscriptFound) skip Path 2 since yt-dlp can't help either.
+
+**3. New dep: `curl_cffi>=0.10,<0.15`**
+   yt-dlp uses curl_cffi automatically for TLS-fingerprint
+   impersonation when available. The version range matches yt-dlp
+   2026.03.17's supported set (importing 0.15+ raises ImportError).
+   No code change needed — yt-dlp picks it up at import.
+
+### Files
+
+- `skills/neurolearn/subscribes/cookies_onboarding.py` — legacy-slot fallback
+- `skills/neurolearn/backends/subtitles.py` — Path 1 / Path 2 cascade,
+  new `_parse_yt_dlp_subtitle_file()` for json3/srv3 formats
+- `pyproject.toml` — `curl_cffi>=0.10,<0.15`
+- `tests/test_subtitles.py` — 4 new test cases (json3 parser, srv3
+  parser, transcript-api-blocked-falls-through-to-yt-dlp, legacy-slot
+  fallback)
+
+### Live verification
+
+On my IP at release time, YouTube is rate-limiting subtitle endpoints
+across *both* paths (429 Too Many Requests even with full TLS
+impersonation + auth cookies + PO Token). Confirms the cascade
+correctly tries Path 2 when Path 1 blocks. Smart cascade then falls
+through to groq, transcribing the video in 16.3 s. Users on `--backend
+smart` (the default) never see a failure.
+
+Tests: **1290 passed**, 2 skipped.
+
 ## [0.15.2] — 2026-05-24
 
 Cleanup release for the four real issues surfaced by the v0.15.2

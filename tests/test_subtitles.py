@@ -57,3 +57,119 @@ def test_is_configured_when_youtube_transcript_api_missing(monkeypatch):
     ok, reason = backend.is_configured()
     assert ok is False
     assert reason and "youtube-transcript-api" in reason.lower()
+
+
+# ---------------------------------------------------------------------------
+# v0.15.3: yt-dlp subtitle fallback path
+# ---------------------------------------------------------------------------
+
+def test_parse_json3_subtitle_file(tmp_path):
+    """Path 2 parser: yt-dlp's json3 subtitle format → Segments."""
+    from skills.neurolearn.backends.subtitles import _parse_yt_dlp_subtitle_file
+    import json
+    sub_file = tmp_path / "video.en.json3"
+    sub_file.write_text(json.dumps({
+        "events": [
+            {"tStartMs": 1000, "dDurationMs": 2000,
+             "segs": [{"utf8": "Hello"}, {"utf8": " world"}]},
+            {"tStartMs": 3500, "dDurationMs": 1500,
+             "segs": [{"utf8": "Second"}, {"utf8": " line"}]},
+            # Empty/jumpcut event — should be skipped
+            {"tStartMs": 5000, "dDurationMs": 500, "segs": []},
+        ],
+    }))
+
+    segments = _parse_yt_dlp_subtitle_file(sub_file)
+
+    assert len(segments) == 2
+    assert segments[0].start == 1.0
+    assert segments[0].end == 3.0
+    assert segments[0].text == "Hello world"
+    assert segments[1].start == 3.5
+    assert segments[1].end == 5.0
+    assert segments[1].text == "Second line"
+
+
+def test_parse_srv3_subtitle_file(tmp_path):
+    """Path 2 parser: yt-dlp's older srv3 (XML-like) format → Segments."""
+    from skills.neurolearn.backends.subtitles import _parse_yt_dlp_subtitle_file
+    sub_file = tmp_path / "video.en.srv3"
+    sub_file.write_text(
+        '<?xml version="1.0" encoding="utf-8"?>\n'
+        '<timedtext format="3">\n'
+        '<body>\n'
+        '<p t="0" d="2500"><s>Hello there</s></p>\n'
+        '<p t="2500" d="3000"><s>How are you</s></p>\n'
+        '</body>\n'
+        '</timedtext>\n'
+    )
+
+    segments = _parse_yt_dlp_subtitle_file(sub_file)
+
+    assert len(segments) == 2
+    assert segments[0].start == 0.0
+    assert segments[0].end == 2.5
+    assert "Hello there" in segments[0].text
+    assert segments[1].start == 2.5
+    assert segments[1].end == 5.5
+
+
+def test_transcript_api_blocked_falls_through_to_yt_dlp(tmp_path):
+    """v0.15.3 cascade: when transcript-api raises IpBlocked, the backend
+    should fall through to the yt-dlp path instead of failing outright."""
+    from skills.neurolearn.backends.subtitles import SubtitlesBackend
+
+    class _FakeIpBlocked(Exception):
+        pass
+    _FakeIpBlocked.__name__ = "IpBlocked"
+
+    fake_api = MagicMock()
+    fake_api.get_transcript.side_effect = _FakeIpBlocked("blocked by youtube")
+
+    yt_dlp_segments = [
+        # Pre-built Segments as if yt-dlp succeeded
+        # Returned by _fetch_via_yt_dlp
+    ]
+    from skills.neurolearn.utils.output_writer import Segment
+    yt_dlp_segments = [
+        Segment(start=0.0, end=2.0, text="Hello world"),
+        Segment(start=2.0, end=4.0, text="Second line"),
+    ]
+
+    with patch(
+        "skills.neurolearn.backends.subtitles._get_transcript_api",
+        return_value=fake_api,
+    ), patch.object(
+        SubtitlesBackend, "_fetch_via_yt_dlp",
+        return_value=yt_dlp_segments,
+    ):
+        b = SubtitlesBackend()
+        result = b.transcribe("https://youtu.be/abc", language="en")
+
+    assert len(result.segments) == 2
+    assert result.segments[0].text == "Hello world"
+    assert result.segments[1].text == "Second line"
+    assert result.backend_name == "subtitles"
+
+
+def test_resolve_cookies_file_falls_back_to_legacy_slot(tmp_path, monkeypatch):
+    """v0.15.3: subtitles backend resolves YouTube cookies from EITHER
+    the new `cfg.youtube_cookies_file` slot OR the legacy `cfg.cookies_file`
+    slot. The legacy slot is what `neurolearn config set-cookies` has
+    historically written to; without this fallback, every user with
+    cookies registered via that command hits IpBlocked even though
+    cookies are technically present on disk."""
+    from skills.neurolearn.config import Config, save_config, CONFIG_PATH
+    from skills.neurolearn.subscribes.cookies_onboarding import resolve_cookies_file
+
+    fake_cookie_file = tmp_path / "yt.txt"
+    fake_cookie_file.write_text("# Netscape HTTP Cookie File\n")
+
+    cfg_path = tmp_path / "config.toml"
+    cfg = Config(cookies_file=str(fake_cookie_file), youtube_cookies_file="")
+    save_config(cfg, cfg_path)
+
+    resolved = resolve_cookies_file("youtube", config_path=cfg_path)
+    assert resolved == str(fake_cookie_file), (
+        "Legacy cookies_file slot must be picked up when youtube_cookies_file is empty"
+    )

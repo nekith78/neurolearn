@@ -70,6 +70,66 @@ class _ApiAdapter:
         ]
 
 
+def _parse_yt_dlp_subtitle_file(path) -> list:
+    """Parse a yt-dlp-produced subtitle file (json3 / srv3 / srv2 / srv1)
+    into a list of Segments. The internal YouTube formats are JSON-based
+    with similar shapes; we handle the json3 family explicitly and fall
+    through to plain text parsing for older srv formats.
+
+    json3 structure:
+      {
+        "events": [
+          {"tStartMs": 12345, "dDurationMs": 2000,
+           "segs": [{"utf8": "Hello"}, {"utf8": " world"}]},
+          ...
+        ]
+      }
+    """
+    import json
+    from pathlib import Path
+    p = Path(path)
+    text = p.read_text(encoding="utf-8", errors="ignore")
+
+    segments: list = []
+    if p.suffix == ".json3":
+        data = json.loads(text)
+        for ev in data.get("events", []):
+            if not ev.get("segs"):
+                continue
+            start_ms = ev.get("tStartMs", 0)
+            dur_ms = ev.get("dDurationMs", 0) or 0
+            seg_text = "".join(s.get("utf8", "") for s in ev["segs"]).strip()
+            if not seg_text:
+                continue
+            segments.append(Segment(
+                start=start_ms / 1000.0,
+                end=(start_ms + dur_ms) / 1000.0,
+                text=seg_text,
+            ))
+    else:
+        # srv1/srv2/srv3 are XML-shaped — yt-dlp's JSON variants of the
+        # internal format. Cheap regex parse is adequate: <p t="ms"
+        # d="ms">text</p>.
+        import re
+        TS = re.compile(
+            r'<p\s+t="(\d+)"\s+d="(\d+)"[^>]*>(.*?)</p>',
+            re.DOTALL,
+        )
+        TAG_STRIP = re.compile(r"<[^>]+>")
+        for m in TS.finditer(text):
+            start_ms = int(m.group(1))
+            dur_ms = int(m.group(2))
+            txt = TAG_STRIP.sub("", m.group(3)).strip()
+            if not txt:
+                continue
+            segments.append(Segment(
+                start=start_ms / 1000.0,
+                end=(start_ms + dur_ms) / 1000.0,
+                text=txt,
+            ))
+    return segments
+
+
 def _get_transcript_api(cookies_file: str | None = None) -> _ApiAdapter:
     """Return an API adapter object. Lazy-imported so youtube-transcript-api
     is only required at call time. Patched in unit tests."""
@@ -115,25 +175,20 @@ class SubtitlesBackend:
         except Exception:
             cookies_file = None
 
-        api = _get_transcript_api(cookies_file=cookies_file)
-        languages = None if language == "auto" else [language]
-        try:
-            raw = api.get_transcript(video_id, languages=languages or ["en"])
-        except Exception as e:
-            raise BackendError(
-                f"Subtitles unavailable for this video ({type(e).__name__}). "
-                "Try another backend."
-            ) from e
+        languages = [language] if language != "auto" else ["en"]
 
-        segments: list[Segment] = []
-        for item in raw:
-            start = float(item.get("start", 0.0))
-            duration = float(item.get("duration", 0.0))
-            segments.append(Segment(
-                start=start,
-                end=start + duration,
-                text=str(item.get("text", "")).strip(),
-            ))
+        # v0.15.3: two-tier subtitle fetch. Path 1 is fast (~3 s, pure
+        # Python, no subprocess). When YouTube IP-blocks the timedtext
+        # endpoint directly — common on residential IPs and almost
+        # always on cloud/VPN IPs — fall through to Path 2: yt-dlp's
+        # subtitle extractor, which uses our full anti-block stack
+        # (cookies, PO Token plugin auto-attached). Slower (~8 s) but
+        # often works where Path 1 doesn't because yt-dlp negotiates
+        # the player handshake before fetching captions.
+        segments = self._fetch_via_transcript_api(video_id, languages, cookies_file)
+        if segments is None:
+            segments = self._fetch_via_yt_dlp(url, languages, cookies_file)
+
         if not segments:
             raise BackendError(
                 f"Subtitles for video {video_id} are empty or unavailable in the requested languages. "
@@ -147,3 +202,123 @@ class SubtitlesBackend:
             backend_name=self.name,
             duration_seconds=segments[-1].end if segments else 0.0,
         )
+
+    # ------------------------------------------------------------------
+    # v0.15.3: subtitle fetch paths
+    # ------------------------------------------------------------------
+
+    def _fetch_via_transcript_api(
+        self, video_id: str, languages: list[str], cookies_file: str | None,
+    ) -> list[Segment] | None:
+        """Path 1 — fast, pure-Python. Returns parsed segments on success,
+        None when blocked (so the caller falls through to yt-dlp).
+        Re-raises on auth-related errors that yt-dlp also can't fix."""
+        import sys
+        api = _get_transcript_api(cookies_file=cookies_file)
+        try:
+            raw = api.get_transcript(video_id, languages=languages)
+        except Exception as e:
+            cls = type(e).__name__
+            # IpBlocked / RequestBlocked / PoTokenRequired → yt-dlp may
+            # succeed where we failed because of cookies + PO Token.
+            # TranscriptsDisabled / NoTranscriptFound → no subtitles at
+            # all; yt-dlp won't help, surface BackendError directly.
+            if cls in ("IpBlocked", "RequestBlocked", "PoTokenRequired",
+                       "YouTubeRequestFailed", "YouTubeDataUnparsable"):
+                sys.stderr.write(
+                    f"[neurolearn] subtitles Path 1 (transcript-api) "
+                    f"blocked ({cls}); falling through to Path 2 (yt-dlp).\n"
+                )
+                return None
+            raise BackendError(
+                f"Subtitles unavailable for this video ({cls}). "
+                "Try another backend."
+            ) from e
+
+        segments: list[Segment] = []
+        for item in raw:
+            start = float(item.get("start", 0.0))
+            duration = float(item.get("duration", 0.0))
+            segments.append(Segment(
+                start=start,
+                end=start + duration,
+                text=str(item.get("text", "")).strip(),
+            ))
+        return segments
+
+    def _fetch_via_yt_dlp(
+        self, url: str, languages: list[str], cookies_file: str | None,
+    ) -> list[Segment]:
+        """Path 2 — yt-dlp `--write-auto-subs`. Uses our full anti-block
+        stack: registered cookies AND the auto-installed PO Token plugin
+        (bgutil-ytdlp-pot-provider). yt-dlp negotiates the player
+        handshake before fetching, which the direct timedtext API
+        bypass (transcript-api) cannot do.
+
+        Returns parsed segments. Raises BackendError on failure — the
+        caller (smart cascade) catches and falls through to fallback
+        backend (groq / whisper-local).
+        """
+        import shutil
+        import subprocess
+        import sys
+        import tempfile
+        from pathlib import Path
+
+        if shutil.which("yt-dlp") is None:
+            raise BackendError(
+                "yt-dlp not on PATH. Cannot use subtitle fallback path. "
+                "Install via `uv sync` or `pip install yt-dlp`."
+            )
+
+        with tempfile.TemporaryDirectory(prefix="neurolearn-subs-") as tmp:
+            tmp_path = Path(tmp)
+            template = str(tmp_path / "%(id)s.%(ext)s")
+            cmd = [
+                "yt-dlp",
+                "--skip-download",
+                "--write-auto-subs",
+                "--write-subs",  # try manual subs first; auto-subs as fallback
+                "--sub-lang", ",".join(languages),
+                "--sub-format", "json3/srv3/srv2/srv1/best",
+                "--no-playlist",
+                "-o", template,
+            ]
+            if cookies_file:
+                cmd += ["--cookies", cookies_file]
+            cmd.append(url)
+
+            try:
+                proc = subprocess.run(
+                    cmd, capture_output=True, text=True, timeout=60, check=False,
+                )
+            except subprocess.TimeoutExpired:
+                raise BackendError(
+                    "yt-dlp subtitle fetch timed out after 60s. "
+                    "Smart mode will switch to the fallback backend."
+                )
+
+            if proc.returncode != 0:
+                tail = (proc.stderr or "").strip().splitlines()[-3:]
+                raise BackendError(
+                    "yt-dlp subtitle fetch failed. Smart mode will switch "
+                    f"to the fallback backend.\n  Tail: {' | '.join(tail) or '(no stderr)'}"
+                )
+
+            sub_files = list(tmp_path.glob("*.json3")) \
+                + list(tmp_path.glob("*.srv3")) \
+                + list(tmp_path.glob("*.srv2")) \
+                + list(tmp_path.glob("*.srv1"))
+            if not sub_files:
+                raise BackendError(
+                    "yt-dlp returned no subtitle file. Likely the video has no "
+                    "subtitles in the requested languages. Smart mode will "
+                    "switch to the fallback backend."
+                )
+
+            sub_path = sub_files[0]
+            sys.stderr.write(
+                f"[neurolearn] subtitles Path 2 succeeded via yt-dlp "
+                f"({sub_path.name}).\n"
+            )
+            return _parse_yt_dlp_subtitle_file(sub_path)

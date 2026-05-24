@@ -157,10 +157,17 @@ def resolve_cookies_file(
         return ""
 
     cfg = load_config(config_path)
+    # v0.15.3: for YouTube, fall back to the legacy `cfg.cookies_file`
+    # slot when the newer `cfg.youtube_cookies_file` slot is empty.
+    # `neurolearn config set-cookies` historically wrote to the legacy
+    # slot only (pre-v0.10.7 lineage). Without this fallback, every
+    # user with cookies registered via the original CLI would have
+    # `subtitles` backend silently ignoring them and hitting IpBlocked
+    # — even though doctor reports cookies as registered.
     path = {
         "instagram": cfg.instagram_cookies_file,
         "tiktok": cfg.tiktok_cookies_file,
-        "youtube": cfg.youtube_cookies_file,
+        "youtube": cfg.youtube_cookies_file or cfg.cookies_file,
     }[platform]
 
     if not path:
