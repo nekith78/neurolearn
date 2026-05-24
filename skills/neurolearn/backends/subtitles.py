@@ -70,6 +70,87 @@ class _ApiAdapter:
         ]
 
 
+def _run_yt_dlp_subtitle_pass(
+    url: str,
+    languages: list[str],
+    cookies_file: str | None,
+    *,
+    write_auto: bool,
+) -> list | None:
+    """One yt-dlp invocation to fetch subtitles of a specific kind.
+
+    `write_auto=False` → `--write-subs` only (manual/uploader-provided).
+    `write_auto=True`  → `--write-auto-subs` only (machine-generated).
+
+    Returns parsed segments on success, None when yt-dlp produced no
+    subtitle file (which means: requested kind isn't available — caller
+    falls through to the next pass). Raises BackendError only on
+    hard failures (timeout, ffmpeg missing, etc.) that no second pass
+    can fix.
+    """
+    import subprocess
+    import sys
+    import tempfile
+    from pathlib import Path
+
+    kind_label = "auto-generated" if write_auto else "manual (uploader-provided)"
+
+    with tempfile.TemporaryDirectory(prefix="neurolearn-subs-") as tmp:
+        tmp_path = Path(tmp)
+        template = str(tmp_path / "%(id)s.%(ext)s")
+        cmd = [
+            "yt-dlp",
+            "--skip-download",
+            "--write-auto-subs" if write_auto else "--write-subs",
+            "--sub-lang", ",".join(languages),
+            "--sub-format", "json3/srv3/srv2/srv1/best",
+            "--no-playlist",
+            "-o", template,
+        ]
+        if cookies_file:
+            cmd += ["--cookies", cookies_file]
+        cmd.append(url)
+
+        try:
+            proc = subprocess.run(
+                cmd, capture_output=True, text=True, timeout=60, check=False,
+            )
+        except subprocess.TimeoutExpired:
+            raise BackendError(
+                f"yt-dlp subtitle fetch ({kind_label}) timed out after 60s. "
+                "Smart mode will switch to the fallback backend."
+            )
+
+        # yt-dlp can return rc != 0 even on "subtitle not available"
+        # (it sets exit when no subs match the requested filter). We
+        # treat ANY rc != 0 as "this kind isn't here, try next pass"
+        # rather than a hard error, unless we also see actual files —
+        # in which case we use them.
+        sub_files = list(tmp_path.glob("*.json3")) \
+            + list(tmp_path.glob("*.srv3")) \
+            + list(tmp_path.glob("*.srv2")) \
+            + list(tmp_path.glob("*.srv1"))
+
+        if not sub_files:
+            if proc.returncode != 0:
+                # Genuine fetch failure (IP block, network, etc.) — but
+                # let the caller try the auto pass; if that also fails,
+                # the cascade falls to groq/whisper-local.
+                tail = (proc.stderr or "").strip().splitlines()[-2:]
+                sys.stderr.write(
+                    f"[neurolearn] yt-dlp {kind_label} subs unavailable "
+                    f"({' | '.join(tail) or 'no subs'}); trying next pass.\n"
+                )
+            return None
+
+        sub_path = sub_files[0]
+        sys.stderr.write(
+            f"[neurolearn] subtitles Path 2 succeeded via yt-dlp "
+            f"({kind_label}: {sub_path.name}).\n"
+        )
+        return _parse_yt_dlp_subtitle_file(sub_path)
+
+
 def _parse_yt_dlp_subtitle_file(path) -> list:
     """Parse a yt-dlp-produced subtitle file (json3 / srv3 / srv2 / srv1)
     into a list of Segments. The internal YouTube formats are JSON-based
@@ -249,76 +330,47 @@ class SubtitlesBackend:
     def _fetch_via_yt_dlp(
         self, url: str, languages: list[str], cookies_file: str | None,
     ) -> list[Segment]:
-        """Path 2 — yt-dlp `--write-auto-subs`. Uses our full anti-block
-        stack: registered cookies AND the auto-installed PO Token plugin
-        (bgutil-ytdlp-pot-provider). yt-dlp negotiates the player
-        handshake before fetching, which the direct timedtext API
-        bypass (transcript-api) cannot do.
+        """Path 2 — yt-dlp subtitle fetch. Uses our full anti-block stack:
+        registered cookies + PO Token plugin + curl_cffi TLS impersonation.
+        yt-dlp negotiates the player handshake before fetching, which the
+        direct timedtext API call (transcript-api) cannot do.
 
-        Returns parsed segments. Raises BackendError on failure — the
-        caller (smart cascade) catches and falls through to fallback
-        backend (groq / whisper-local).
+        v0.15.4: two-pass to prefer MANUAL subtitles over auto-generated.
+        The uploader-provided captions are usually higher quality (often
+        professionally produced or community-contributed); auto-generated
+        is YouTube's own ASR, which is what we'd be trying to *replace*
+        with Whisper anyway.
+
+          Pass 1: --write-subs only (manual / uploader-provided)
+                    ↓ if file found, use it
+          Pass 2: --write-auto-subs (YouTube's machine-generated)
+                    ↓ if file found, use it
+                    ↓ else, raise BackendError → smart cascade →
+                      groq/whisper-local does real Whisper ASR.
         """
         import shutil
-        import subprocess
-        import sys
-        import tempfile
-        from pathlib import Path
-
         if shutil.which("yt-dlp") is None:
             raise BackendError(
                 "yt-dlp not on PATH. Cannot use subtitle fallback path. "
                 "Install via `uv sync` or `pip install yt-dlp`."
             )
 
-        with tempfile.TemporaryDirectory(prefix="neurolearn-subs-") as tmp:
-            tmp_path = Path(tmp)
-            template = str(tmp_path / "%(id)s.%(ext)s")
-            cmd = [
-                "yt-dlp",
-                "--skip-download",
-                "--write-auto-subs",
-                "--write-subs",  # try manual subs first; auto-subs as fallback
-                "--sub-lang", ",".join(languages),
-                "--sub-format", "json3/srv3/srv2/srv1/best",
-                "--no-playlist",
-                "-o", template,
-            ]
-            if cookies_file:
-                cmd += ["--cookies", cookies_file]
-            cmd.append(url)
+        # Pass 1: manual subtitles only
+        result = _run_yt_dlp_subtitle_pass(
+            url, languages, cookies_file, write_auto=False,
+        )
+        if result is not None:
+            return result
 
-            try:
-                proc = subprocess.run(
-                    cmd, capture_output=True, text=True, timeout=60, check=False,
-                )
-            except subprocess.TimeoutExpired:
-                raise BackendError(
-                    "yt-dlp subtitle fetch timed out after 60s. "
-                    "Smart mode will switch to the fallback backend."
-                )
+        # Pass 2: fall back to auto-generated
+        result = _run_yt_dlp_subtitle_pass(
+            url, languages, cookies_file, write_auto=True,
+        )
+        if result is not None:
+            return result
 
-            if proc.returncode != 0:
-                tail = (proc.stderr or "").strip().splitlines()[-3:]
-                raise BackendError(
-                    "yt-dlp subtitle fetch failed. Smart mode will switch "
-                    f"to the fallback backend.\n  Tail: {' | '.join(tail) or '(no stderr)'}"
-                )
-
-            sub_files = list(tmp_path.glob("*.json3")) \
-                + list(tmp_path.glob("*.srv3")) \
-                + list(tmp_path.glob("*.srv2")) \
-                + list(tmp_path.glob("*.srv1"))
-            if not sub_files:
-                raise BackendError(
-                    "yt-dlp returned no subtitle file. Likely the video has no "
-                    "subtitles in the requested languages. Smart mode will "
-                    "switch to the fallback backend."
-                )
-
-            sub_path = sub_files[0]
-            sys.stderr.write(
-                f"[neurolearn] subtitles Path 2 succeeded via yt-dlp "
-                f"({sub_path.name}).\n"
-            )
-            return _parse_yt_dlp_subtitle_file(sub_path)
+        raise BackendError(
+            "yt-dlp found no subtitles for the requested languages "
+            "(neither manual nor auto-generated). Smart mode will switch "
+            "to the fallback backend."
+        )

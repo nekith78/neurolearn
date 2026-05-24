@@ -3,6 +3,88 @@
 All notable changes to neurolearn will be documented here.
 The format is loosely based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.15.4] — 2026-05-24
+
+Two UX fixes that came out of investigating the v0.15.3 release:
+silent fallback is bad for both TTY and Claude Code chat users, and
+the Path 2 yt-dlp subtitle fetch took whichever subtitle file
+matched first rather than preferring uploader-provided (manual)
+captions over machine-generated ones.
+
+### Fix 1 — context-aware smart cascade fallback
+
+`backends/factory.py::run_smart` previously did a silent fallback to
+`whisper-local` whenever the configured fallback backend (typically
+`groq`) was missing its API key. The user got a transcript via slow
+local Whisper without knowing why — they'd assume Groq was working
+fine, miss out on the 19× realtime speed they expected, and never
+realize the key was missing.
+
+New behavior is context-aware:
+
+- **Claude Code chat** (`CLAUDE_PLUGIN_ROOT` env var set): raise
+  `BackendNotConfigured` with a structured 4-step fix instruction:
+  ```
+  groq backend not configured (GROQ_API_KEY missing).
+    Two-minute fix:
+      1. Get a key at https://console.groq.com/keys
+      2. Save it to a file (any path), e.g. ~/keys/groq.txt
+      3. Register: neurolearn config set-key groq --from-file <path>
+    Or pass `--backend whisper-local` to skip this video offline.
+  ```
+  Claude reads exit 3, recognizes the pattern (same as the v0.13.0
+  onboarding gate + v0.14.0 anti-bypass), asks the user, gets the
+  key file path back, registers it, and auto-resumes the original
+  request.
+
+- **TTY** (human at terminal): interactive prompt with three choices:
+  `Y` (configure now — get URL + register command), `n` (one-time
+  fallback to whisper-local), `c` (cancel).
+
+- **Pure non-TTY** (CI, background batch worker, no
+  `CLAUDE_PLUGIN_ROOT`): preserve the original v0.10.x silent-fallback
+  behavior. Batches of 100 videos cannot hang on a stdin prompt.
+
+### Fix 2 — yt-dlp subtitle fetch prefers manual over auto-generated
+
+`backends/subtitles.py::_fetch_via_yt_dlp` previously invoked yt-dlp
+with BOTH `--write-subs` and `--write-auto-subs`, then took whichever
+subtitle file matched `glob("*.srv3")` first. yt-dlp's filename
+convention doesn't reliably indicate which is which, so the choice
+was effectively arbitrary.
+
+The new two-pass logic explicitly prefers uploader-provided captions:
+
+```
+Pass 1: yt-dlp --write-subs ONLY (manual / uploader-provided)
+   ↓ found a file?
+        yes → use it, return
+        no  → continue
+Pass 2: yt-dlp --write-auto-subs ONLY (YouTube's machine ASR)
+   ↓ found a file?
+        yes → use it, return
+        no  → BackendError → smart cascade falls to groq/whisper-local
+```
+
+Path 1 (youtube-transcript-api) already preferred manual by library
+default (`YouTubeTranscriptApi.fetch()` calls `find_transcript()`
+which checks manual lineage first). Now both paths have consistent
+preference order.
+
+### Files
+
+- `skills/neurolearn/backends/factory.py` — new
+  `_handle_unconfigured_fallback()` helper with TTY / Claude Code
+  chat / non-TTY branching
+- `skills/neurolearn/backends/subtitles.py` — extracted
+  `_run_yt_dlp_subtitle_pass()` helper; `_fetch_via_yt_dlp()` now
+  calls it twice with `write_auto=False` then `write_auto=True`
+- `tests/test_factory.py` — 4 new tests for the context branching
+- `tests/test_subtitles.py` — 3 new tests for the manual-preference
+  cascade
+
+Tests: **1297 passed**, 2 skipped.
+
 ## [0.15.3] — 2026-05-24
 
 Closes the last open finding from the v0.15.2 benchmark — `subtitles`

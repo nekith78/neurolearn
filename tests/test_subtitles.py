@@ -152,6 +152,97 @@ def test_transcript_api_blocked_falls_through_to_yt_dlp(tmp_path):
     assert result.backend_name == "subtitles"
 
 
+def test_yt_dlp_pass_prefers_manual_subs_over_auto(tmp_path, monkeypatch):
+    """v0.15.4: when both manual and auto subs are available, Path 2's
+    two-pass yt-dlp invocation must use manual first.
+
+    We patch _run_yt_dlp_subtitle_pass to record which `write_auto`
+    flag was used. The first pass should be write_auto=False (manual);
+    the second pass should not be invoked if the first found a file.
+    """
+    from skills.neurolearn.backends.subtitles import SubtitlesBackend
+    from skills.neurolearn.utils.output_writer import Segment
+
+    manual_segments = [Segment(start=0.0, end=2.0, text="Manual line 1")]
+    calls: list[bool] = []
+
+    def fake_pass(url, languages, cookies_file, *, write_auto):
+        calls.append(write_auto)
+        # Manual pass succeeds; auto pass never runs in this scenario
+        if write_auto is False:
+            return manual_segments
+        return None
+
+    monkeypatch.setattr(
+        "skills.neurolearn.backends.subtitles._run_yt_dlp_subtitle_pass",
+        fake_pass,
+    )
+    monkeypatch.setattr(
+        "shutil.which",
+        lambda x: "/usr/bin/yt-dlp",
+    )
+
+    b = SubtitlesBackend()
+    result = b._fetch_via_yt_dlp("https://youtu.be/abc", ["en"], None)
+
+    assert calls == [False], (
+        f"Expected only manual pass (write_auto=False), got: {calls}"
+    )
+    assert result == manual_segments
+
+
+def test_yt_dlp_falls_back_to_auto_when_no_manual(tmp_path, monkeypatch):
+    """v0.15.4: if manual subs aren't available, Path 2 falls through
+    to auto-generated. Both passes are invoked, second one returns segments."""
+    from skills.neurolearn.backends.subtitles import SubtitlesBackend
+    from skills.neurolearn.utils.output_writer import Segment
+
+    auto_segments = [Segment(start=0.0, end=2.0, text="Auto-generated line")]
+    calls: list[bool] = []
+
+    def fake_pass(url, languages, cookies_file, *, write_auto):
+        calls.append(write_auto)
+        if write_auto is True:
+            return auto_segments
+        return None
+
+    monkeypatch.setattr(
+        "skills.neurolearn.backends.subtitles._run_yt_dlp_subtitle_pass",
+        fake_pass,
+    )
+    monkeypatch.setattr(
+        "shutil.which",
+        lambda x: "/usr/bin/yt-dlp",
+    )
+
+    b = SubtitlesBackend()
+    result = b._fetch_via_yt_dlp("https://youtu.be/abc", ["en"], None)
+
+    assert calls == [False, True], (
+        f"Expected manual then auto, got: {calls}"
+    )
+    assert result == auto_segments
+
+
+def test_yt_dlp_raises_when_neither_pass_has_subs(monkeypatch):
+    """If both passes find nothing, smart cascade gets BackendError to
+    fall through to groq / whisper-local."""
+    from skills.neurolearn.backends.subtitles import SubtitlesBackend
+
+    monkeypatch.setattr(
+        "skills.neurolearn.backends.subtitles._run_yt_dlp_subtitle_pass",
+        lambda *a, **k: None,
+    )
+    monkeypatch.setattr(
+        "shutil.which",
+        lambda x: "/usr/bin/yt-dlp",
+    )
+
+    b = SubtitlesBackend()
+    with pytest.raises(BackendError, match="no subtitles"):
+        b._fetch_via_yt_dlp("https://youtu.be/abc", ["en"], None)
+
+
 def test_resolve_cookies_file_falls_back_to_legacy_slot(tmp_path, monkeypatch):
     """v0.15.3: subtitles backend resolves YouTube cookies from EITHER
     the new `cfg.youtube_cookies_file` slot OR the legacy `cfg.cookies_file`

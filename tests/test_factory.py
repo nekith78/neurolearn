@@ -579,3 +579,114 @@ def test_smart_no_longer_tries_gemini_direct_url_middle_step():
     # Groq was used as the configured fallback
     fake_groq.transcribe.assert_called_once()
     assert result.backend_name == "groq"
+
+
+# ---------------------------------------------------------------------------
+# v0.15.4 — context-aware fallback UX
+# ---------------------------------------------------------------------------
+
+def test_unconfigured_fallback_raises_in_claude_code_chat(monkeypatch):
+    """When CLAUDE_PLUGIN_ROOT is set, _handle_unconfigured_fallback
+    must raise BackendNotConfigured instead of silently falling back.
+    This gives Claude a clear exit-3 signal to stop and ask the user
+    to register the missing key."""
+    from skills.neurolearn.backends.factory import _handle_unconfigured_fallback
+    from skills.neurolearn.backends.base import BackendNotConfigured
+    from skills.neurolearn.config import Config
+
+    monkeypatch.setenv("CLAUDE_PLUGIN_ROOT", "/fake/claude/plugin")
+
+    with pytest.raises(BackendNotConfigured) as exc_info:
+        _handle_unconfigured_fallback(
+            fb_name="groq", reason="GROQ_API_KEY missing",
+            cfg=Config(), notify=lambda _: None,
+        )
+
+    msg = str(exc_info.value)
+    assert "groq" in msg
+    assert "set-key" in msg
+    assert "--from-file" in msg, (
+        "must point at the secure file-handoff form for Claude Code chat"
+    )
+    assert "console.groq.com" in msg, (
+        "must include the URL where the user can register a new key"
+    )
+
+
+def test_unconfigured_fallback_silent_when_pure_non_tty(monkeypatch):
+    """In pure non-TTY context (no CLAUDE_PLUGIN_ROOT, no TTY) — like
+    CI or a background batch worker — preserve the v0.10.x silent
+    fallback behavior so batches of 100 videos don't hang on prompt."""
+    from skills.neurolearn.backends.factory import _handle_unconfigured_fallback
+    from skills.neurolearn.config import Config
+
+    monkeypatch.delenv("CLAUDE_PLUGIN_ROOT", raising=False)
+    monkeypatch.setattr("sys.stdin.isatty", lambda: False)
+
+    notify_msgs: list[str] = []
+
+    fake_local = MagicMock()
+    fake_local.name = "whisper-local"
+
+    with patch(
+        "skills.neurolearn.backends.factory.build_backend",
+        return_value=fake_local,
+    ):
+        fb_name, fb = _handle_unconfigured_fallback(
+            fb_name="groq", reason="GROQ_API_KEY missing",
+            cfg=Config(), notify=notify_msgs.append,
+        )
+
+    assert fb_name == "whisper-local"
+    assert fb is fake_local
+    # The notify message should mention the fallback so logs surface it
+    assert any("falling back to whisper-local" in m for m in notify_msgs)
+
+
+def test_unconfigured_fallback_tty_with_choice_n_falls_back(monkeypatch):
+    """TTY user picks 'n' (one-time fallback) → returns whisper-local
+    without raising."""
+    from skills.neurolearn.backends.factory import _handle_unconfigured_fallback
+    from skills.neurolearn.config import Config
+
+    monkeypatch.delenv("CLAUDE_PLUGIN_ROOT", raising=False)
+    monkeypatch.setattr("sys.stdin.isatty", lambda: True)
+
+    fake_local = MagicMock()
+    fake_local.name = "whisper-local"
+
+    with patch(
+        "rich.prompt.Prompt.ask",
+        return_value="n",
+    ), patch(
+        "skills.neurolearn.backends.factory.build_backend",
+        return_value=fake_local,
+    ):
+        fb_name, fb = _handle_unconfigured_fallback(
+            fb_name="groq", reason="GROQ_API_KEY missing",
+            cfg=Config(), notify=lambda _: None,
+        )
+
+    assert fb_name == "whisper-local"
+
+
+def test_unconfigured_fallback_tty_with_choice_y_raises(monkeypatch):
+    """TTY user picks 'y' (configure now) → raises BackendNotConfigured
+    so the run aborts cleanly and the user can register the key
+    + re-run."""
+    from skills.neurolearn.backends.factory import _handle_unconfigured_fallback
+    from skills.neurolearn.backends.base import BackendNotConfigured
+    from skills.neurolearn.config import Config
+
+    monkeypatch.delenv("CLAUDE_PLUGIN_ROOT", raising=False)
+    monkeypatch.setattr("sys.stdin.isatty", lambda: True)
+
+    with patch(
+        "rich.prompt.Prompt.ask",
+        return_value="y",
+    ):
+        with pytest.raises(BackendNotConfigured, match="re-run"):
+            _handle_unconfigured_fallback(
+                fb_name="groq", reason="GROQ_API_KEY missing",
+                cfg=Config(), notify=lambda _: None,
+            )
