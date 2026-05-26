@@ -3,6 +3,110 @@
 All notable changes to neurolearn will be documented here.
 The format is loosely based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.16.0] — 2026-05-26
+
+Two user-requested features land in this minor release: subscribes
+can now resolve channels from arbitrary video / post URLs, and
+neurolearn gets a brand-new **memory** subsystem — curated knowledge
+bases that grow over time from transcribed content with explicit
+user approval at every step.
+
+### Feature 1 — `subscribes add` accepts video / post URLs
+
+Previously: paste `https://youtube.com/watch?v=...` to subscribes →
+`URL doesn't look like a YouTube / Instagram / TikTok profile or
+channel`. You had to find the channel URL manually.
+
+Now: `subscribes add` accepts any URL we recognise. If it's a video /
+post URL, we ask yt-dlp once for the owning channel URL and recurse
+into the existing channel-resolution logic. Works across YouTube
+(`/watch`, `/shorts`, `/embed`, `/live`, `youtu.be/`), Instagram
+(`/p/`, `/reel/`, `/reels/`, `/tv/`), and TikTok (`/@user/video/`,
+short `vm.tiktok.com` and `vt.tiktok.com` redirects).
+
+### Feature 2 — `memory` command group
+
+Memory files are curated, append-only knowledge bases stored as
+plain Markdown with YAML frontmatter at `~/.neurolearn/memories/`
+(or `cfg.memories_dir` if you want them in your Obsidian vault).
+The flow:
+
+  1. `memory create <name> [--description "..."]`
+  2. `memory learn <name> <URL> [<URL> ...]` ingests transcripts.
+     For each transcript the LLM extracts candidate-new facts
+     vs. what's already in the memory. The user approves each
+     interactively (y / n / a=approve-all / q=quit) before anything
+     gets written. Use `--yes` to skip the prompts.
+  3. Approved facts are appended grouped by topic, with source URL
+     and timestamp range preserved.
+
+  Other commands: `memory list`, `memory show <name>`,
+  `memory rename <old> <new>`, `memory delete <name>`.
+
+  Description handling: if user passes `--description` at create,
+  that's used verbatim and never overwritten. If the description is
+  blank when the first `learn` completes, a 2-sentence SCOPE summary
+  is auto-generated from the accumulated facts. User control over
+  the description is preserved either way.
+
+  Renaming updates BOTH the on-disk filename and the `name:`
+  frontmatter field, so the file stays consistent.
+
+  Storage format intentionally markdown-with-YAML so it's
+  hand-editable and renders directly in Obsidian / Notion / GitHub
+  / VSCode without tooling. No proprietary format. Comments and
+  manual edits to the body survive `learn` calls.
+
+  Use case the user described: «возьми эти видео и выпиши только
+  новое относительно того что у меня уже накоплено». Smart-cascade
+  prompt asks the LLM to be conservative — when unsure if something
+  is genuinely new, skip it; never paraphrase duplicates.
+
+  End-to-end smoke verified: ran `memory learn` on the cached
+  transcript of "Context Management in Claude Code" — extracted 10
+  facts across 7 topics (Context Window / Slash Commands / Context
+  Management / MCP Servers / Sub-Agents / Skills / Claude.md File),
+  each with source-URL + timestamp range. Output is hand-editable
+  Markdown that renders cleanly in GitHub preview.
+
+### Files
+
+  skills/neurolearn/subscribes/channel_resolver.py
+    + `_looks_like_video_url()`
+    + `_channel_url_from_video()` — yt-dlp lookup
+    `resolve_channel()` now recurses through the helper when the URL
+    isn't a channel URL but matches a video/post pattern.
+
+  skills/neurolearn/memory/                     — NEW package
+    __init__.py
+    store.py        — CRUD + slug + frontmatter parse/serialize
+    learn.py        — LLM diff prompt + JSON-robust parser +
+                      interactive approval + auto-description
+    cli.py          — create/list/show/rename/delete/learn commands
+
+  skills/neurolearn/config.py
+    + `memories_dir: str = ""` field with [memory] TOML section
+
+  skills/neurolearn/transcribe.py
+    + `cli.add_command(memory_group)` at the bottom
+
+  tests/test_memory_store.py    — 16 tests
+  tests/test_memory_learn.py    — 17 tests
+
+  Total: 33 new tests + memory-file end-to-end smoke verified
+  against a real LLM call.
+
+### Not in this release (deferred to v0.16.1)
+
+`--learn-into <memory-name>` flag on `batch` / `subscribes update` /
+`research` — convenience sugar that auto-runs `memory learn` after
+the transcribes finish. The standalone `memory learn <name> <URL>
+<URL> ...` covers the same use case; the flag just removes one step.
+Saving for v0.16.1 to keep this release focused on the core
+abstraction.
+
+Tests: **1330 passed**, 2 skipped.
+
 ## [0.15.4] — 2026-05-24
 
 Two UX fixes that came out of investigating the v0.15.3 release:

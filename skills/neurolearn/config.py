@@ -262,6 +262,11 @@ class Config:
     instagram_research_volume: str = ""
     tiktok_research_volume: str = ""
 
+    # v0.16.0: where memory files live. Empty = default
+    # ~/.neurolearn/memories/. Users who keep their knowledge base
+    # in Obsidian / Notion / etc. can point this at their vault root.
+    memories_dir: str = ""
+
 
 DEFAULT_CONFIG = Config()
 
@@ -344,6 +349,10 @@ def _to_toml_dict(cfg: Config) -> dict:
             "instagram_volume": d["instagram_research_volume"],
             "tiktok_volume": d["tiktok_research_volume"],
         },
+        # v0.16.0: memory storage path override
+        "memory": {
+            "dir": d["memories_dir"],
+        },
     }
 
 
@@ -404,6 +413,8 @@ def _from_toml_dict(d: dict) -> Config:
         youtube_research_volume=d.get("research", {}).get("youtube_volume", ""),
         instagram_research_volume=d.get("research", {}).get("instagram_volume", ""),
         tiktok_research_volume=d.get("research", {}).get("tiktok_volume", ""),
+        # v0.16.0: memory storage path
+        memories_dir=d.get("memory", {}).get("dir", ""),
     )
 
 

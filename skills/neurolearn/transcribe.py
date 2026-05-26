@@ -2865,6 +2865,11 @@ from skills.neurolearn.subscribes.cli import subscribes_group
 cli.add_command(subscribes_group)
 
 
+# === v0.16.0: memory command group — curated knowledge bases ===
+from skills.neurolearn.memory.cli import memory_group
+cli.add_command(memory_group)
+
+
 # === v0.10.2: report command ===
 @cli.command(name="report")
 @click.argument("batch_dir", required=False,

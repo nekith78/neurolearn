@@ -34,6 +34,33 @@ _TT_PROFILE_RE = re.compile(
     re.IGNORECASE,
 )
 
+# v0.16.0: video / post URL detectors. When the user passes one of these
+# to `subscribes add`, we resolve the underlying channel via yt-dlp
+# instead of refusing. Lets you grab a channel just by pasting any
+# random video from it.
+_YT_VIDEO_RE = re.compile(
+    r"^(?:https?://)?(?:www\.|m\.)?"
+    r"(?:youtube\.com/(?:watch\?v=|shorts/|embed/|live/)|youtu\.be/)",
+    re.IGNORECASE,
+)
+_IG_POST_RE = re.compile(
+    r"^(?:https?://)?(?:www\.)?instagram\.com/(?:p|reel|reels|tv)/",
+    re.IGNORECASE,
+)
+_TT_VIDEO_RE = re.compile(
+    r"^(?:https?://)?(?:www\.|vm\.|vt\.)?tiktok\.com/(?:@[\w\-.]+/video/|\w+/?)",
+    re.IGNORECASE,
+)
+
+
+def _looks_like_video_url(url: str) -> bool:
+    """True when URL is a single video / post URL (not a channel page)."""
+    return bool(
+        _YT_VIDEO_RE.match(url)
+        or _IG_POST_RE.match(url)
+        or _TT_VIDEO_RE.match(url)
+    )
+
 
 @dataclass
 class ResolvedChannel:
@@ -58,11 +85,33 @@ def detect_platform(url: str) -> str | None:
 
 
 def resolve_channel(url: str) -> ResolvedChannel:
-    """Route to the platform-specific resolver. Raises ValueError if unrecognized."""
+    """Route to the platform-specific resolver. Raises ValueError if unrecognized.
+
+    v0.16.0: when `url` is a single video / post URL (not a channel
+    URL), we ask yt-dlp for the underlying channel URL once and then
+    recurse with the resolved channel URL. So users can paste any
+    YouTube video (`youtube.com/watch?v=...` / `youtu.be/...` /
+    `youtube.com/shorts/...`), IG post / reel, or TikTok video and
+    we'll grab the channel from it instead of refusing.
+    """
     platform = detect_platform(url)
+    if platform is None and _looks_like_video_url(url):
+        channel_url = _channel_url_from_video(url)
+        if not channel_url:
+            raise ValueError(
+                f"Could not extract a channel from this video URL: {url}\n"
+                f"Try pasting the channel URL directly (e.g. youtube.com/@handle)."
+            )
+        platform = detect_platform(channel_url)
+        if platform is None:
+            raise ValueError(
+                f"yt-dlp returned a channel URL we couldn't classify: {channel_url}"
+            )
+        url = channel_url  # recurse via the channel URL we just discovered
     if platform is None:
         raise ValueError(
-            f"URL doesn't look like a YouTube / Instagram / TikTok profile or channel: {url}"
+            f"URL doesn't look like a YouTube / Instagram / TikTok profile, "
+            f"channel, or video: {url}"
         )
     if platform == "youtube":
         return _resolve_youtube(url)
@@ -71,6 +120,29 @@ def resolve_channel(url: str) -> ResolvedChannel:
     if platform == "tiktok":
         return _resolve_tiktok(url)
     raise ValueError(f"unsupported platform: {platform}")  # unreachable
+
+
+def _channel_url_from_video(video_url: str) -> str | None:
+    """Use yt-dlp to look up which channel owns a given video URL.
+    Returns the canonical channel URL or None when nothing was found.
+
+    yt-dlp's flat extractor sets several channel-pointer fields with
+    different reliability across platforms:
+      - YouTube: `channel_url` (always present) or `uploader_url`
+      - Instagram: `channel_url` or `uploader_url` (= profile URL)
+      - TikTok: `uploader_url` (`@handle` form)
+    """
+    info = _extract_flat(video_url)
+    for key in ("channel_url", "uploader_url", "channel"):
+        val = info.get(key)
+        if val and isinstance(val, str) and val.startswith("http"):
+            return val.rstrip("/")
+    # TikTok sometimes only gives `uploader` (handle without URL) — build it
+    uploader = info.get("uploader") or info.get("channel")
+    if uploader and "tiktok" in video_url.lower():
+        u = uploader if uploader.startswith("@") else f"@{uploader}"
+        return f"https://www.tiktok.com/{u}"
+    return None
 
 
 def _resolve_youtube(url: str) -> ResolvedChannel:
