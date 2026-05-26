@@ -3,6 +3,87 @@
 All notable changes to neurolearn will be documented here.
 The format is loosely based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.16.1] — 2026-05-26
+
+`--learn-into <memory_name>` flag added to `batch`, `research`, and
+`subscribes update`. After transcribe finishes, the named memory file
+ingests the batch via the standard learn flow (LLM diff against
+existing facts + interactive approval or `--yes` for auto-approve).
+Reduces a two-step workflow (transcribe → memory learn) to one
+command, which matters most from Claude Code chat: Claude no longer
+has to remember to chain a second tool call after batch.
+
+### What the flag does
+
+```bash
+neurolearn batch URL1 URL2 --learn-into claude-tips
+neurolearn subscribes update --group ai --days 7 --learn-into ai-news
+neurolearn research "agentic safety" --days 90 --learn-into safety-research
+```
+
+For each, after the transcribe pipeline writes `combined.md` +
+`videos/*.txt`, the post-hook calls
+`memory.cli.run_learn_into_batch()` which:
+
+1. Builds a `TranscriptInput` per `videos/*.txt` (with URL recovered
+   from `manifest.json` when present).
+2. Calls `memory.learn.learn()` with the existing cfg's
+   `analyze_backend`.
+3. With `--yes`, auto-approves all candidates; otherwise interactive
+   TTY prompt or skip-with-hint in non-TTY (Claude Code subprocess).
+
+### Bug surfaced + fixed alongside
+
+Live end-to-end test exposed a silent failure mode in the v0.16.0
+diff prompt: free-tier Groq llama-3.3-70b has a **12 000 TPM rate
+limit**. The previous prompt used `transcript[:20000]` + `body[:8000]`
+which together with scaffolding totalled ~15 000 tokens on technical
+English transcripts → HTTP 413 → `run_analysis` silently swallowed
+the exception and returned `""` → parser saw 0 candidates → user got
+a confusing "0 candidates proposed" message with no clue why.
+
+Two fixes:
+
+- Tightened size budget in `_build_diff_prompt`: transcript chunk
+  20000 → 9700 chars, memory body 8000 → 1600 chars. Calibrated to
+  ~0.72 tokens/char on technical English (Groq tokenizer is dense),
+  staying under ~8700 tokens total with headroom for the 12k TPM cap.
+- `extract_candidates()` now prints an explicit stderr hint when the
+  LLM returns empty: surfaces the most likely cause (rate limit /
+  missing key / provider transient).
+
+### Live verification (qa-out/v0.16.1-live/)
+
+Two-stage demo against real subscribed channels:
+
+- **Stage A**: `subscribes update --group test-coding --days 3 --learn-into claude-coding`
+  Pulled 5 fresh videos from the @claude channel (Code with Claude
+  conference talks), transcribed in 313 s, ran learn — produced
+  5 facts + auto-generated 458-char description about Cloud Managed
+  Agents / Agent SDK / Managed Agents / Agent Development.
+
+- **Stage B**: feed the older "Context Management in Claude Code"
+  transcript into the SAME memory. The LLM correctly identified
+  8 NEW facts across 5 topics (Context Window, Slash Commands,
+  MCP Servers, Skills, Sub-Agents) — none of which overlap with
+  Stage A's "Managed Agents" topics. Confirmed the dedup logic
+  works against accumulated memory.
+
+### Files
+
+- `skills/neurolearn/memory/cli.py` — new public
+  `run_learn_into_batch(batch_dir, memory_name, cfg, auto_yes)`
+  helper + manifest-aware URL recovery
+- `skills/neurolearn/transcribe.py` — `--learn-into` option on
+  `batch_cmd` and `research_cmd`; post-transcribe hook
+- `skills/neurolearn/subscribes/cli.py` — same on `update_cmd`
+- `skills/neurolearn/memory/learn.py` — tightened size budget,
+  added "LLM returned empty response" hint with cause hypothesis
+
+Tests: **1330 passed**, 2 skipped (no new tests — flag wiring is
+straightforward; existing `test_memory_learn.py` covers the
+extraction/approval/diff logic that `--learn-into` reuses).
+
 ## [0.16.0] — 2026-05-26
 
 Two user-requested features land in this minor release: subscribes

@@ -1441,6 +1441,12 @@ def _run_batch_pipeline(
 @click.option("--yes", "yes_compat", is_flag=True, default=False, hidden=True,
               help="Accepted for symmetry with `research`. `batch` has no "
                    "TTY checkpoint to skip.")
+@click.option(
+    "--learn-into", "learn_into_memory", default="", metavar="MEMORY_NAME",
+    help="After transcribe, ingest the batch into the named memory file "
+         "(creates it if missing). Approval is interactive in TTY context; "
+         "non-TTY skips with a hint. v0.16.1+.",
+)
 def batch_cmd(
     inputs: tuple[str, ...],
     from_file: Path | None,
@@ -1642,6 +1648,20 @@ def batch_cmd(
             "[dim]→ --then-analyze skipped: no backend selected "
             "(skip / non-TTY).[/dim]\n"
             f"[dim]  combined.md is ready: {batch_dir / 'combined.md'}[/dim]"
+        )
+
+    # v0.16.1: optional `--learn-into <memory_name>` post-hook.
+    # After all transcripts are written + (optional) analyze pass, feed
+    # the batch into a memory file. Interactive approval in TTY, skips
+    # with a clear hint in non-TTY (Claude Code subprocess, CI).
+    learn_into_memory = (opts.get("learn_into_memory") or "").strip()
+    if learn_into_memory and batch_dir is not None and batch_dir.exists():
+        from skills.neurolearn.memory.cli import run_learn_into_batch
+        run_learn_into_batch(
+            batch_dir=batch_dir,
+            memory_name=learn_into_memory,
+            cfg=cfg,
+            auto_yes=bool(opts.get("yes_compat")),
         )
 
 
@@ -2751,6 +2771,11 @@ def analyze_cmd(
 @click.option("--min-duration", "min_duration_opt", type=int, default=None)
 @click.option("--max-duration", "max_duration_opt", type=int, default=None)
 @click.option("--workers", "workers_opt", type=int, default=1, show_default=True)
+@click.option(
+    "--learn-into", "learn_into_memory", default="", metavar="MEMORY_NAME",
+    help="After transcribe + analyze, ingest the batch into the named "
+         "memory file. Creates the memory if missing. v0.16.1+.",
+)
 def research_cmd(
     query, prompt_inline, prompt_file, languages_csv, query_lang_opt,
     translate_backend_opt,
@@ -2823,7 +2848,7 @@ def research_cmd(
     batch_opts.setdefault("fail_fast", False)
 
     try:
-        run_research(
+        research_batch_dir = run_research(
             query=query,
             queries_by_language=None,
             languages=languages,
@@ -2845,6 +2870,16 @@ def research_cmd(
             api_keys=api_keys,
             batch_opts=batch_opts,
         )
+        # v0.16.1: --learn-into hook
+        learn_into_memory = (batch_passthrough.get("learn_into_memory") or "").strip()
+        if learn_into_memory and research_batch_dir is not None:
+            from skills.neurolearn.memory.cli import run_learn_into_batch
+            run_learn_into_batch(
+                batch_dir=research_batch_dir,
+                memory_name=learn_into_memory,
+                cfg=load_config(CONFIG_PATH),
+                auto_yes=bool(yes),
+            )
     except ValueError as e:
         console.print(f"[red]{e}[/red]")
         sys.exit(2)

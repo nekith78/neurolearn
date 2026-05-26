@@ -223,6 +223,118 @@ def memory_learn_cmd(
 
 
 # ---------------------------------------------------------------------------
+# Public API: called by batch / research / subscribes update with --learn-into
+# ---------------------------------------------------------------------------
+
+def run_learn_into_batch(
+    *,
+    batch_dir: Path,
+    memory_name: str,
+    cfg,
+    auto_yes: bool = False,
+) -> None:
+    """Hook called from batch / research / subscribes update after they
+    finish writing combined.md + videos/*.txt. Builds TranscriptInput
+    from each transcribed video and runs the standard learn flow.
+
+    Silently skips when batch_dir doesn't exist (transcribe failed) or
+    has no usable transcripts.
+    """
+    from skills.neurolearn.memory.learn import learn, TranscriptInput
+
+    if batch_dir is None or not batch_dir.exists():
+        _console.print(
+            f"[dim]--learn-into skipped: no batch dir produced.[/dim]"
+        )
+        return
+
+    # Prefer per-video transcripts so the LLM sees one transcript at a
+    # time (gives cleaner per-video facts). combined.md works but loses
+    # per-video boundaries.
+    transcripts: list[TranscriptInput] = []
+    videos_dir = batch_dir / "videos"
+    if videos_dir.exists():
+        for txt in sorted(videos_dir.glob("*.txt")):
+            # Recover URL from manifest.json if possible
+            url = _video_url_from_manifest(batch_dir, txt.stem) or txt.stem
+            transcripts.append(TranscriptInput(
+                url=url,
+                title=txt.stem,
+                text=txt.read_text(encoding="utf-8"),
+            ))
+
+    if not transcripts:
+        # Fall back to combined.md (single batch-level transcript)
+        combined = batch_dir / "combined.md"
+        if combined.exists():
+            transcripts.append(TranscriptInput(
+                url=str(batch_dir),
+                title=batch_dir.name,
+                text=combined.read_text(encoding="utf-8"),
+            ))
+
+    if not transcripts:
+        _console.print(
+            f"[yellow]--learn-into {memory_name!r}: no transcripts found in "
+            f"{batch_dir} — skipping.[/yellow]"
+        )
+        return
+
+    _console.print(
+        f"\n[bold]→ --learn-into {memory_name}[/bold]: "
+        f"ingesting {len(transcripts)} transcript(s) "
+        f"({'auto-approving via --yes' if auto_yes else 'interactive approval'})..."
+    )
+
+    try:
+        summary = learn(
+            memory_name=memory_name,
+            transcripts=transcripts,
+            analyze_backend=cfg.analyze_backend or "groq",
+            cfg=cfg,
+            auto_yes=auto_yes,
+        )
+    except Exception as e:
+        _console.print(
+            f"[red]--learn-into failed:[/red] {type(e).__name__}: {e}\n"
+            f"[dim]Transcripts are still in {batch_dir}; "
+            f"run `neurolearn memory learn {memory_name} {batch_dir}` manually.[/dim]"
+        )
+        return
+
+    _console.print(
+        f"[green]✓ memory {memory_name}[/green]: "
+        f"{summary['candidates_approved']}/{summary['candidates_proposed']} "
+        f"approved (total sources: {summary['sources_total']})"
+    )
+
+
+def _video_url_from_manifest(batch_dir: Path, video_stem: str) -> str | None:
+    """Look up the URL for a video file via manifest.json. The stem
+    typically encodes the video_id at the end (e.g. `01_Title_aBcDe`),
+    and the manifest has the full URL per entry."""
+    mf = batch_dir / "manifest.json"
+    if not mf.exists():
+        return None
+    try:
+        import json
+        data = json.loads(mf.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+    # Match by video_id suffix in the filename
+    for video in data.get("videos", []):
+        vid = video.get("video_id") or ""
+        if vid and vid in video_stem:
+            return video.get("url")
+    # Or by title match
+    for video in data.get("videos", []):
+        title = video.get("title") or ""
+        if title and title.replace(" ", "_") in video_stem:
+            return video.get("url")
+    return None
+
+
+# ---------------------------------------------------------------------------
 # helpers
 # ---------------------------------------------------------------------------
 

@@ -37,7 +37,19 @@ class TranscriptInput:
 
 def _build_diff_prompt(memory: MemoryFile, transcript: TranscriptInput) -> str:
     """LLM prompt for extracting NEW facts from a transcript relative
-    to what's already in memory."""
+    to what's already in memory.
+
+    Size budget calibration (v0.16.1): Groq free-tier llama-3.3-70b has
+    a 12 000 TPM rate limit. Empirical tokens-per-char on technical
+    English transcripts ≈ 0.72 t/c (Groq tokenizer is dense). To stay
+    safely under 10 000 tokens per call:
+      - scaffold:        ~600 tokens (fixed)
+      - memory body:     up to ~1100 tokens (~1600 chars cap)
+      - transcript:      up to ~7000 tokens (~9700 chars cap)
+      - = ~8700 tokens total budget → fits 12k TPM with headroom
+    Paid Groq tier (50k TPM) can handle 5× more — controllable via
+    cfg.groq_tier in a future iteration.
+    """
     existing = memory.body.strip() or "(empty — this is the first ingestion)"
     description = memory.description.strip() or (
         "(no description yet — infer from accumulated content)"
@@ -48,13 +60,13 @@ def _build_diff_prompt(memory: MemoryFile, transcript: TranscriptInput) -> str:
 {description}
 
 ## Already in this memory
-{existing[:8000]}
+{existing[:1600]}
 
 ## New transcript to consider
 Title: {transcript.title}
 URL: {transcript.url}
 
-{transcript.text[:20000]}
+{transcript.text[:9700]}
 
 ## Your task
 
@@ -111,6 +123,20 @@ def extract_candidates(
         backend=analyze_backend,
         api_key=api_key,
     )
+    if not raw_response:
+        # run_analysis swallows exceptions (rate limits, network, etc.)
+        # and returns "" on failure. Surface a visible hint so the
+        # learn() caller doesn't show a confusing "0 candidates" with
+        # no explanation. Most common cause on free tier Groq is the
+        # 12k TPM cap (especially on long transcripts).
+        sys.stderr.write(
+            f"[neurolearn] memory learn: LLM returned empty response for "
+            f"{transcript.url[:60]!r}. Likely causes:\n"
+            f"  - Rate limit on free tier (Groq llama-3.3-70b: 12k TPM)\n"
+            f"  - Invalid / missing {analyze_backend.upper()}_API_KEY\n"
+            f"  - Provider transient error\n"
+            f"  Re-running with shorter transcripts or a higher tier may help.\n"
+        )
     return _parse_candidates(raw_response)
 
 

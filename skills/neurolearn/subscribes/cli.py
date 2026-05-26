@@ -222,11 +222,15 @@ def _default_editor() -> str:
               default=None)
 @click.option("--language", default=None)
 @click.option("--workers", "workers_opt", type=int, default=1)
+@click.option(
+    "--learn-into", "learn_into_memory", default="", metavar="MEMORY_NAME",
+    help="After transcribe, ingest into the named memory file. v0.16.1+.",
+)
 def update_cmd(
     group, platform, days, since, until, match, filter_text, no_rss, yes,
     no_analyze, prompt_inline, prompt_file, analyze_backend_opt,
     filter_backend_opt, ollama_model_opt, ollama_host_opt, no_stdout_opt,
-    output_dir_opt, **batch_passthrough,
+    output_dir_opt, learn_into_memory, **batch_passthrough,
 ) -> None:
     """Run subscribes update — fetch latest, filter, transcribe, analyze."""
     from datetime import date as _date
@@ -291,7 +295,7 @@ def update_cmd(
         run_subscribes_update, SubscribesError,
     )
     try:
-        run_subscribes_update(
+        batch_dir_result = run_subscribes_update(
             subscribes_path=SUBSCRIBES_PATH,
             group=group, platform=platform,
             days=days, since=since_d, until=until_d,
@@ -313,6 +317,15 @@ def update_cmd(
                 cfg.tiktok_cookies_file if cfg else ""
             ),
         )
+        # v0.16.1: --learn-into hook after a successful subscribes update
+        if learn_into_memory and batch_dir_result is not None:
+            from skills.neurolearn.memory.cli import run_learn_into_batch
+            run_learn_into_batch(
+                batch_dir=batch_dir_result,
+                memory_name=learn_into_memory,
+                cfg=cfg or load_config(CONFIG_PATH),
+                auto_yes=bool(yes),
+            )
     except SubscribesError as e:
         _console.print(f"[red]{e}[/red]")
         sys.exit(2)
