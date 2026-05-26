@@ -8,9 +8,16 @@ Mounted on the top-level CLI from transcribe.py as `memory`:
     neurolearn memory rename <old> <new>
     neurolearn memory delete <name>
     neurolearn memory learn <name> <URL_or_path> [<URL_or_path> ...]
+    neurolearn memory append-facts <name> --from-file <approved.json>
+
+v0.16.2: `memory learn` inside Claude Code (`CLAUDE_PLUGIN_ROOT` set) no
+longer calls Groq — it writes a briefing for Claude in chat, then the
+user runs `memory append-facts` to persist Claude-approved candidates.
+Override with `--no-claude-extract` to force the Groq path.
 """
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 
@@ -160,15 +167,22 @@ def memory_delete_cmd(name: str, yes: bool) -> None:
     "--backend",
     default="",
     help="LLM backend for the diff extraction. Defaults to your "
-         "configured analyze_backend.",
+         "configured analyze_backend. Ignored in Claude-extract mode.",
 )
 @click.option(
     "--yes", "auto_yes", is_flag=True,
     help="Approve all candidates without prompting. Use with caution — "
          "the LLM occasionally proposes weak duplicates.",
 )
+@click.option(
+    "--claude-extract/--no-claude-extract", "claude_extract", default=None,
+    help="When set, write a briefing for Claude in chat to do the diff "
+         "natively and skip the external LLM call. Auto-on when "
+         "$CLAUDE_PLUGIN_ROOT is set (inside Claude Code).",
+)
 def memory_learn_cmd(
     name: str, sources: tuple[str, ...], backend: str, auto_yes: bool,
+    claude_extract: bool | None,
 ) -> None:
     """Ingest one or more transcripts into a memory.
 
@@ -211,7 +225,23 @@ def memory_learn_cmd(
         analyze_backend=chosen_backend,
         cfg=cfg,
         auto_yes=auto_yes,
+        claude_extract=claude_extract,
     )
+
+    if summary.get("mode") == "claude_code_extract_only":
+        _console.print(
+            f"\n[bold cyan]→ Claude-extract mode[/bold cyan] for memory "
+            f"[bold]{name}[/bold]:\n"
+            f"  transcripts assembled: {summary['transcripts_processed']}\n"
+            f"  briefing:              {summary['briefing_path']}\n\n"
+            f"[yellow]Next:[/yellow] Claude reads the briefing in chat, "
+            f"proposes candidates, gets your y/n on each, writes "
+            f"{summary['approved_json_path']!r}, then either Claude or "
+            f"you run:\n"
+            f"  [cyan]neurolearn memory append-facts {name} "
+            f"--from-file {summary['approved_json_path']}[/cyan]"
+        )
+        return
 
     _console.print(
         f"\n[green]✓ Learn complete[/green] for memory [bold]{name}[/bold]:\n"
@@ -219,6 +249,57 @@ def memory_learn_cmd(
         f"  candidates proposed:   {summary['candidates_proposed']}\n"
         f"  candidates approved:   {summary['candidates_approved']}\n"
         f"  total sources:         {summary['sources_total']}"
+    )
+
+
+@memory_group.command(name="append-facts")
+@click.argument("name")
+@click.option(
+    "--from-file", "from_file", required=True,
+    type=click.Path(exists=True, dir_okay=False),
+    help="Path to a Claude-produced approved.json with a 'candidates' list.",
+)
+@click.option(
+    "--no-auto-description", "no_auto_description", is_flag=True,
+    help="Skip the automatic description generation even if the memory "
+         "has no description yet. Useful in non-interactive scripts.",
+)
+def memory_append_facts_cmd(
+    name: str, from_file: str, no_auto_description: bool,
+) -> None:
+    """Append Claude-approved facts to a memory (no LLM call).
+
+    The companion command to `memory learn` in Claude-extract mode:
+    Claude in chat builds the candidates JSON after user approval, then
+    this command persists them to disk. Pure write — no provider API
+    call, no diff, no inference.
+    """
+    from skills.neurolearn.memory.learn import append_approved_from_file
+
+    cfg = load_config(CONFIG_PATH) if CONFIG_PATH.exists() else None
+    approved_path = Path(from_file).expanduser().resolve()
+
+    try:
+        summary = append_approved_from_file(
+            memory_name=name,
+            approved_path=approved_path,
+            cfg=cfg,
+            autogenerate_description=not no_auto_description,
+            analyze_backend=(cfg.analyze_backend if cfg else None),
+        )
+    except FileNotFoundError as e:
+        _console.print(f"[red]{e}[/red]")
+        sys.exit(3)
+    except ValueError as e:
+        _console.print(f"[red]{e}[/red]")
+        sys.exit(2)
+
+    _console.print(
+        f"\n[green]✓ Appended[/green] to memory [bold]{name}[/bold]:\n"
+        f"  candidates in file:   {summary['candidates_in_file']}\n"
+        f"  facts appended:       {summary['facts_appended']}\n"
+        f"  new sources counted:  {summary['sources_added']}\n"
+        f"  total sources:        {summary['sources_total']}"
     )
 
 
@@ -232,6 +313,7 @@ def run_learn_into_batch(
     memory_name: str,
     cfg,
     auto_yes: bool = False,
+    claude_extract: bool | None = None,
 ) -> None:
     """Hook called from batch / research / subscribes update after they
     finish writing combined.md + videos/*.txt. Builds TranscriptInput
@@ -239,6 +321,12 @@ def run_learn_into_batch(
 
     Silently skips when batch_dir doesn't exist (transcribe failed) or
     has no usable transcripts.
+
+    v0.16.2: when `claude_extract is None` we honor the
+    CLAUDE_PLUGIN_ROOT env var auto-detect inside learn(); when True/False
+    we force that mode. In Claude-extract mode the briefing is written
+    INSIDE batch_dir (so it ships alongside the transcripts) rather than
+    in the default `~/.neurolearn/memories/.pending/` location.
     """
     from skills.neurolearn.memory.learn import learn, TranscriptInput
 
@@ -280,11 +368,25 @@ def run_learn_into_batch(
         )
         return
 
-    _console.print(
-        f"\n[bold]→ --learn-into {memory_name}[/bold]: "
-        f"ingesting {len(transcripts)} transcript(s) "
-        f"({'auto-approving via --yes' if auto_yes else 'interactive approval'})..."
+    use_claude_extract = (
+        claude_extract
+        if claude_extract is not None
+        else bool(os.environ.get("CLAUDE_PLUGIN_ROOT"))
     )
+    pending_dir = (batch_dir / "learn" / memory_name) if use_claude_extract else None
+
+    if use_claude_extract:
+        _console.print(
+            f"\n[bold cyan]→ --learn-into {memory_name}[/bold cyan] "
+            f"(Claude-extract mode): writing briefing for "
+            f"{len(transcripts)} transcript(s) — no external LLM call."
+        )
+    else:
+        _console.print(
+            f"\n[bold]→ --learn-into {memory_name}[/bold]: "
+            f"ingesting {len(transcripts)} transcript(s) "
+            f"({'auto-approving via --yes' if auto_yes else 'interactive approval'})..."
+        )
 
     try:
         summary = learn(
@@ -293,12 +395,27 @@ def run_learn_into_batch(
             analyze_backend=cfg.analyze_backend or "groq",
             cfg=cfg,
             auto_yes=auto_yes,
+            claude_extract=claude_extract,
+            pending_dir=pending_dir,
         )
     except Exception as e:
         _console.print(
             f"[red]--learn-into failed:[/red] {type(e).__name__}: {e}\n"
             f"[dim]Transcripts are still in {batch_dir}; "
             f"run `neurolearn memory learn {memory_name} {batch_dir}` manually.[/dim]"
+        )
+        return
+
+    if summary.get("mode") == "claude_code_extract_only":
+        _console.print(
+            f"[green]✓ briefing ready[/green] for memory "
+            f"[bold]{memory_name}[/bold]:\n"
+            f"  briefing:      {summary['briefing_path']}\n"
+            f"  approved.json: {summary['approved_json_path']}\n\n"
+            f"[yellow]Next:[/yellow] Claude reads the briefing, asks you "
+            f"y/n on each candidate, writes approved.json, then run "
+            f"[cyan]neurolearn memory append-facts {memory_name} "
+            f"--from-file {summary['approved_json_path']}[/cyan]."
         )
         return
 

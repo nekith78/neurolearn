@@ -226,11 +226,19 @@ def _default_editor() -> str:
     "--learn-into", "learn_into_memory", default="", metavar="MEMORY_NAME",
     help="After transcribe, ingest into the named memory file. v0.16.1+.",
 )
+@click.option(
+    "--learn-claude-extract/--no-learn-claude-extract", "learn_claude_extract",
+    default=None,
+    help="With --learn-into: control the memory-diff mode. Auto-on when "
+         "$CLAUDE_PLUGIN_ROOT is set. Use --no-learn-claude-extract to "
+         "force the Groq path. v0.16.2+.",
+)
 def update_cmd(
     group, platform, days, since, until, match, filter_text, no_rss, yes,
     no_analyze, prompt_inline, prompt_file, analyze_backend_opt,
     filter_backend_opt, ollama_model_opt, ollama_host_opt, no_stdout_opt,
-    output_dir_opt, learn_into_memory, **batch_passthrough,
+    output_dir_opt, learn_into_memory, learn_claude_extract,
+    **batch_passthrough,
 ) -> None:
     """Run subscribes update — fetch latest, filter, transcribe, analyze."""
     from datetime import date as _date
@@ -325,6 +333,7 @@ def update_cmd(
                 memory_name=learn_into_memory,
                 cfg=cfg or load_config(CONFIG_PATH),
                 auto_yes=bool(yes),
+                claude_extract=learn_claude_extract,
             )
     except SubscribesError as e:
         _console.print(f"[red]{e}[/red]")

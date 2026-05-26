@@ -1447,6 +1447,15 @@ def _run_batch_pipeline(
          "(creates it if missing). Approval is interactive in TTY context; "
          "non-TTY skips with a hint. v0.16.1+.",
 )
+@click.option(
+    "--learn-claude-extract/--no-learn-claude-extract", "learn_claude_extract",
+    default=None,
+    help="With --learn-into: control the memory-diff mode. Auto-on when "
+         "$CLAUDE_PLUGIN_ROOT is set (Claude in chat does the diff "
+         "natively, no Groq call). Use --no-learn-claude-extract to "
+         "force the Groq path. v0.16.2+. (Distinct from the vision-"
+         "scoped --claude-extract flag.)",
+)
 def batch_cmd(
     inputs: tuple[str, ...],
     from_file: Path | None,
@@ -1662,6 +1671,7 @@ def batch_cmd(
             memory_name=learn_into_memory,
             cfg=cfg,
             auto_yes=bool(opts.get("yes_compat")),
+            claude_extract=opts.get("learn_claude_extract"),
         )
 
 
@@ -2776,6 +2786,13 @@ def analyze_cmd(
     help="After transcribe + analyze, ingest the batch into the named "
          "memory file. Creates the memory if missing. v0.16.1+.",
 )
+@click.option(
+    "--learn-claude-extract/--no-learn-claude-extract", "learn_claude_extract",
+    default=None,
+    help="With --learn-into: control the memory-diff mode. Auto-on when "
+         "$CLAUDE_PLUGIN_ROOT is set. Use --no-learn-claude-extract to "
+         "force the Groq path. v0.16.2+.",
+)
 def research_cmd(
     query, prompt_inline, prompt_file, languages_csv, query_lang_opt,
     translate_backend_opt,
@@ -2879,6 +2896,7 @@ def research_cmd(
                 memory_name=learn_into_memory,
                 cfg=load_config(CONFIG_PATH),
                 auto_yes=bool(yes),
+                claude_extract=batch_passthrough.get("learn_claude_extract"),
             )
     except ValueError as e:
         console.print(f"[red]{e}[/red]")

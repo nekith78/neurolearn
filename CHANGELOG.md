@@ -3,6 +3,95 @@
 All notable changes to neurolearn will be documented here.
 The format is loosely based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.16.2] — 2026-05-26
+
+Fixes an architectural violation in the v0.16.0/v0.16.1 memory feature
+and brings it in line with the existing vision extract-only pattern.
+
+### The problem
+
+Memory diff is **analysis** — picking which facts from a new transcript
+aren't already covered by the existing knowledge base. Per the project
+rule `feedback_no_anthropic_api` ("Audio через Groq, остальное Claude
+сам делает в чате"), analysis-style work must be done by Claude in chat
+when the skill runs inside Claude Code, NOT by routing to Groq.
+
+v0.16.0 and v0.16.1 unconditionally called Groq for the diff. Inside
+Claude Code that wasted user-paid Groq quota on work Claude's own
+subscription could do natively (and better — Claude reads the full
+existing memory and full transcripts without the 12k-TPM token budget
+that forced aggressive trimming in v0.16.1).
+
+### The fix: mirror the v0.12.1 vision extract-only pattern
+
+When `CLAUDE_PLUGIN_ROOT` env var is set (neurolearn is running as a
+plugin inside a Claude Code session), `memory learn` and
+`--learn-into` now write a briefing manifest and exit instead of
+calling Groq. Claude in chat reads the briefing natively, proposes
+candidates, gets user y/n on each, writes `approved.json`, and then a
+new pure-write command `memory append-facts` persists the result.
+
+```bash
+# Inside Claude Code (CLAUDE_PLUGIN_ROOT set):
+neurolearn subscribes update --group test-coding --days 3 \
+    --learn-into claude-coding
+# → writes <batch>/learn/claude-coding/briefing.md
+# → Claude in chat reads it, asks you y/n, writes approved.json
+# → Claude (or you) runs:
+neurolearn memory append-facts claude-coding \
+    --from-file <batch>/learn/claude-coding/approved.json
+```
+
+The briefing is a single Markdown file with the existing memory inlined,
+each new transcript inlined verbatim (no token-budget trimming — Claude
+has the headroom), and step-by-step instructions for the LLM in chat.
+
+### New / changed surface
+
+- **`neurolearn memory append-facts <name> --from-file <approved.json>`** —
+  brand new command. Pure write. Loads a Claude-produced JSON of the
+  form `{"candidates": [{"topic": ..., "text": ..., "source_url": ...,
+  "source_timestamp": ...}]}`, groups by `source_url`, appends to the
+  memory body via the existing `append_facts_to_body()` helper. No LLM
+  call at any point.
+- **`neurolearn memory learn ... --claude-extract / --no-claude-extract`** —
+  explicit toggle. `--claude-extract` forces briefing mode even outside
+  Claude Code (e.g. for testing). `--no-claude-extract` forces the Groq
+  path even inside Claude Code (fallback if you want it).
+- **`--learn-claude-extract / --no-learn-claude-extract`** on `batch`,
+  `research`, and `subscribes update` — same toggle, but scoped to the
+  `--learn-into` post-hook. (Distinct name from the existing
+  `--claude-extract` flag on `batch`/`transcribe`, which targets the
+  vision pipeline.)
+- Auto-detect: when `CLAUDE_PLUGIN_ROOT` is set and no `--no-...`
+  override is passed, the briefing mode kicks in by default. Same
+  detection mechanism the vision pipeline has used since v0.12.1.
+
+### Implementation
+
+- `skills/neurolearn/memory/learn.py` — new `write_learn_briefing()`,
+  new `append_approved_from_file()`, `learn()` now branches on env var
+  + explicit param.
+- `skills/neurolearn/memory/cli.py` — new `memory append-facts` Click
+  command, `memory learn` gains `--claude-extract/--no-claude-extract`,
+  `run_learn_into_batch()` accepts `claude_extract` and writes the
+  briefing INSIDE `<batch_dir>/learn/<memory>/` rather than the default
+  `~/.neurolearn/memories/.pending/` so it ships with the transcripts.
+- 16 new tests in `tests/test_memory_learn.py` (Claude-extract branch,
+  briefing manifest contents, append-facts loader, malformed-JSON
+  handling, env-var auto-detect, `--no-claude-extract` override) and
+  `tests/test_memory_cli.py` (Click wiring sanity). All 1346 tests pass.
+
+### Compatibility
+
+- v0.16.0/v0.16.1 callers that ran `memory learn` outside Claude Code
+  (plain terminal): unchanged behavior. Groq path is still the
+  fallback.
+- Inside Claude Code, the default switches from "Groq diff" to
+  "briefing for Claude". Two-step flow now, but each step is faster
+  (no Groq round-trip) and Claude sees more context than the v0.16.1
+  rate-limit-trimmed prompt.
+
 ## [0.16.1] — 2026-05-26
 
 `--learn-into <memory_name>` flag added to `batch`, `research`, and

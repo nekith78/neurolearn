@@ -1,4 +1,11 @@
-"""Tests for memory.learn — diff + approval + auto-description."""
+"""Tests for memory.learn — diff + approval + auto-description.
+
+v0.16.2 adds Claude-extract mode tests at the bottom of this file:
+when CLAUDE_PLUGIN_ROOT is set (or claude_extract=True is passed
+explicitly), learn() must NOT call any LLM — it must write a briefing
+manifest and exit. The companion command `memory append-facts` is a
+pure write that takes a Claude-produced approved.json.
+"""
 from __future__ import annotations
 
 import json
@@ -10,7 +17,9 @@ import pytest
 from skills.neurolearn.config import Config
 from skills.neurolearn.memory.learn import (
     TranscriptInput, _parse_candidates,
+    append_approved_from_file,
     approve_candidates_interactive, extract_candidates, learn,
+    write_learn_briefing,
 )
 from skills.neurolearn.memory.store import MemoryFile, read_memory, write_memory
 
@@ -298,3 +307,277 @@ def test_learn_does_not_overwrite_existing_description(cfg):
     assert m.description == "My exact words.", (
         "Existing user-supplied description must not be overwritten."
     )
+
+
+# ---------------------------------------------------------------------------
+# v0.16.2 — Claude-extract mode: NO external LLM call, writes briefing
+# ---------------------------------------------------------------------------
+
+class _BoomLLM:
+    """Sentinel object that fails the test if anything tries to call an LLM.
+
+    Used as a side_effect on run_analysis: any invocation raises and
+    immediately fails the test, proving that the Claude-extract path
+    truly bypasses external LLM calls.
+    """
+    def __call__(self, *args, **kwargs):
+        raise AssertionError(
+            "External LLM was called in Claude-extract mode — "
+            "this violates feedback_no_anthropic_api project rule."
+        )
+
+
+def test_learn_claude_extract_explicit_skips_llm(cfg, tmp_path):
+    """Passing claude_extract=True must skip all LLM calls and write
+    a briefing manifest instead, regardless of env var state."""
+    write_memory(
+        MemoryFile(name="kb", description="existing scope"),
+        cfg=cfg,
+    )
+    transcript = TranscriptInput(
+        url="https://youtu.be/x",
+        title="The Video",
+        text="Some transcript content.",
+    )
+
+    with patch(
+        "skills.neurolearn.analyze.runner.run_analysis",
+        side_effect=_BoomLLM(),
+    ):
+        summary = learn(
+            memory_name="kb",
+            transcripts=[transcript],
+            analyze_backend="groq",
+            cfg=cfg,
+            auto_yes=True,
+            claude_extract=True,
+        )
+
+    assert summary["mode"] == "claude_code_extract_only"
+    assert summary["candidates_proposed"] == 0
+    assert summary["candidates_approved"] == 0
+    briefing_path = Path(summary["briefing_path"])
+    approved_json_path = Path(summary["approved_json_path"])
+    assert briefing_path.exists(), "briefing.md must be written"
+    assert briefing_path.suffix == ".md"
+    assert approved_json_path.parent == briefing_path.parent
+
+    briefing = briefing_path.read_text(encoding="utf-8")
+    assert "Claude-extract mode" in briefing
+    assert "kb" in briefing
+    assert "The Video" in briefing
+    assert "Some transcript content." in briefing
+    assert "neurolearn memory append-facts kb" in briefing
+
+
+def test_learn_claude_extract_via_env_var(cfg, monkeypatch):
+    """When CLAUDE_PLUGIN_ROOT is set and claude_extract isn't passed
+    explicitly, learn() must default to Claude-extract mode."""
+    monkeypatch.setenv("CLAUDE_PLUGIN_ROOT", "/some/path/from/claude/code")
+    transcript = TranscriptInput(url="u", title="t", text="x")
+
+    with patch(
+        "skills.neurolearn.analyze.runner.run_analysis",
+        side_effect=_BoomLLM(),
+    ):
+        summary = learn(
+            memory_name="auto-detect",
+            transcripts=[transcript],
+            analyze_backend="groq",
+            cfg=cfg,
+            auto_yes=True,
+        )
+    assert summary["mode"] == "claude_code_extract_only"
+
+
+def test_learn_env_var_override_with_explicit_false(cfg, monkeypatch):
+    """--no-claude-extract (claude_extract=False) must force the Groq
+    path even inside Claude Code."""
+    monkeypatch.setenv("CLAUDE_PLUGIN_ROOT", "/in/claude/code")
+    transcript = TranscriptInput(url="u", title="t", text="content")
+
+    with patch(
+        "skills.neurolearn.analyze.runner.run_analysis",
+        return_value=json.dumps({"candidates": [
+            {"topic": "T", "text": "F.", "source_timestamp": None},
+        ]}),
+    ), patch(
+        "skills.neurolearn.config.get_api_key",
+        return_value="fake-key",
+    ):
+        summary = learn(
+            memory_name="forced-groq",
+            transcripts=[transcript],
+            analyze_backend="groq",
+            cfg=cfg,
+            auto_yes=True,
+            claude_extract=False,
+        )
+    assert summary["mode"] == "llm_diff"
+    assert summary["candidates_approved"] == 1
+
+
+def test_write_learn_briefing_inlines_transcripts(cfg, tmp_path):
+    """The briefing markdown should embed every transcript verbatim so
+    Claude can read each one inline (no need to open extra files)."""
+    memory = MemoryFile(name="kb", description="d", body="existing")
+    transcripts = [
+        TranscriptInput(url="https://a", title="A title", text="A text"),
+        TranscriptInput(url="https://b", title="B title", text="B text"),
+    ]
+    out = write_learn_briefing(
+        memory_name="kb",
+        memory=memory,
+        transcripts=transcripts,
+        cfg=cfg,
+        pending_dir=tmp_path / "pending",
+    )
+    md = out["briefing_path"].read_text(encoding="utf-8")
+    assert "Transcript 1: A title" in md
+    assert "A text" in md
+    assert "Transcript 2: B title" in md
+    assert "B text" in md
+    assert "existing" in md  # existing body inlined
+
+    machine = json.loads(out["transcripts_path"].read_text(encoding="utf-8"))
+    assert machine["memory_name"] == "kb"
+    assert len(machine["transcripts"]) == 2
+    assert machine["next_command"].startswith("neurolearn memory append-facts kb ")
+
+
+def test_learn_empty_transcripts_is_noop(cfg):
+    """No-op when the caller passes an empty list — must not error,
+    must not write a briefing, must not call an LLM."""
+    with patch(
+        "skills.neurolearn.analyze.runner.run_analysis",
+        side_effect=_BoomLLM(),
+    ):
+        summary = learn(
+            memory_name="never-touched",
+            transcripts=[],
+            analyze_backend="groq",
+            cfg=cfg,
+            auto_yes=True,
+            claude_extract=True,
+        )
+    assert summary["mode"] == "noop"
+
+
+# ---------------------------------------------------------------------------
+# v0.16.2 — append_approved_from_file (pure write, no LLM)
+# ---------------------------------------------------------------------------
+
+def test_append_approved_from_file_writes_facts_no_llm(cfg, tmp_path):
+    approved = {
+        "candidates": [
+            {
+                "topic": "Hooks",
+                "text": "Hooks fire on SessionStart.",
+                "source_url": "https://youtu.be/v1",
+                "source_timestamp": "01:23",
+            },
+            {
+                "topic": "Hooks",
+                "text": "PostToolUse hooks see tool output.",
+                "source_url": "https://youtu.be/v1",
+            },
+            {
+                "topic": "Skills",
+                "text": "Skills can be invoked by /<name>.",
+                "source_url": "https://youtu.be/v2",
+                "source_timestamp": None,
+            },
+        ]
+    }
+    approved_path = tmp_path / "approved.json"
+    approved_path.write_text(json.dumps(approved), encoding="utf-8")
+
+    with patch(
+        "skills.neurolearn.analyze.runner.run_analysis",
+        side_effect=_BoomLLM(),
+    ):
+        summary = append_approved_from_file(
+            memory_name="claude-tips",
+            approved_path=approved_path,
+            cfg=cfg,
+            autogenerate_description=False,
+        )
+
+    assert summary["facts_appended"] == 3
+    assert summary["sources_added"] == 2  # two distinct source URLs
+    assert summary["sources_total"] == 2
+
+    m = read_memory("claude-tips", cfg=cfg)
+    assert "Hooks fire on SessionStart." in m.body
+    assert "PostToolUse hooks see tool output." in m.body
+    assert "Skills can be invoked by /<name>." in m.body
+    assert "https://youtu.be/v1" in m.body
+    assert "https://youtu.be/v2" in m.body
+
+
+def test_append_approved_skips_empty_text(cfg, tmp_path):
+    approved = {
+        "candidates": [
+            {"topic": "Real", "text": "Good fact.", "source_url": "https://u"},
+            {"topic": "Bad", "text": "", "source_url": "https://u"},
+            {"topic": "Bad2", "source_url": "https://u"},  # no text key
+        ]
+    }
+    p = tmp_path / "approved.json"
+    p.write_text(json.dumps(approved), encoding="utf-8")
+    summary = append_approved_from_file(
+        memory_name="kb", approved_path=p, cfg=cfg,
+        autogenerate_description=False,
+    )
+    assert summary["facts_appended"] == 1
+
+
+def test_append_approved_rejects_malformed_json(cfg, tmp_path):
+    p = tmp_path / "approved.json"
+    p.write_text("not json at all", encoding="utf-8")
+    with pytest.raises(ValueError, match="not valid JSON"):
+        append_approved_from_file(
+            memory_name="kb", approved_path=p, cfg=cfg,
+            autogenerate_description=False,
+        )
+
+
+def test_append_approved_rejects_missing_candidates_key(cfg, tmp_path):
+    p = tmp_path / "approved.json"
+    p.write_text(json.dumps({"facts": []}), encoding="utf-8")
+    with pytest.raises(ValueError, match="'candidates' list"):
+        append_approved_from_file(
+            memory_name="kb", approved_path=p, cfg=cfg,
+            autogenerate_description=False,
+        )
+
+
+def test_append_approved_does_not_autogenerate_in_claude_extract_mode(
+    cfg, tmp_path, monkeypatch,
+):
+    """When CLAUDE_PLUGIN_ROOT is set, even append_approved_from_file
+    must skip the auto-description LLM call — Claude can describe the
+    memory in chat if it wants to.
+    """
+    monkeypatch.setenv("CLAUDE_PLUGIN_ROOT", "/in/cc")
+    approved = {"candidates": [
+        {"topic": "T", "text": "Fact one.", "source_url": "https://u"},
+    ]}
+    p = tmp_path / "approved.json"
+    p.write_text(json.dumps(approved), encoding="utf-8")
+
+    with patch(
+        "skills.neurolearn.analyze.runner.run_analysis",
+        side_effect=_BoomLLM(),
+    ):
+        append_approved_from_file(
+            memory_name="no-desc-yet",
+            approved_path=p,
+            cfg=cfg,
+            autogenerate_description=True,   # enabled, but env var blocks it
+            analyze_backend="groq",
+        )
+
+    m = read_memory("no-desc-yet", cfg=cfg)
+    assert m.description == ""  # blank — Claude will describe in chat
+    assert "Fact one." in m.body
