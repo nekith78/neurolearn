@@ -1058,30 +1058,37 @@ def test_cli_override_mode_beats_stored_mode(tmp_path: Path):
         run_subscribes_update(**kw)
 
 
-def test_shorts_cap_trims_to_newest_n(tmp_path: Path):
-    """Cap=3 on a window with 7 shorts → take the 3 newest only."""
+def test_pipeline_passes_cap_to_fetch_shorts(tmp_path: Path):
+    """v0.17.1: cap enforcement moved INTO _fetch_shorts. The pipeline
+    just forwards the cap and an in-window predicate and preserves the
+    fetcher's already-newest-first, already-capped output verbatim."""
     from skills.neurolearn.subscribes.pipeline import run_subscribes_update
     ch = _channel_with_mode(
         mode="shorts-only", last_id="oldvid",
         last_pub="2026-05-09T00:00:00+00:00",
     )
-    # 7 shorts spread across 7 sequential days. Newest three: s7, s6, s5.
-    shorts = [
-        _short(f"s{i}", f"2026-05-{10 + i:02d}T00:00:00+00:00")
-        for i in range(1, 8)
+    returned_shorts = [
+        _short("s7", "2026-05-17T00:00:00+00:00"),
+        _short("s6", "2026-05-16T00:00:00+00:00"),
+        _short("s5", "2026-05-15T00:00:00+00:00"),
     ]
     captured: dict = {}
+    fetch_calls: list[dict] = []
 
     def capture_targets(*, targets, **kw):
         captured["video_ids"] = [t.video_id for t in targets]
         return tmp_path / "out"
+
+    def fake_fetch_shorts(channel_url, **kwargs):
+        fetch_calls.append(kwargs)
+        return returned_shorts
 
     with patch(
         "skills.neurolearn.subscribes.pipeline.load_subscribes",
         return_value=[ch],
     ), patch(
         "skills.neurolearn.subscribes.pipeline._fetch_shorts",
-        return_value=shorts,
+        side_effect=fake_fetch_shorts,
     ), patch(
         "skills.neurolearn.subscribes.pipeline._run_batch_pipeline",
         side_effect=capture_targets,
@@ -1098,30 +1105,36 @@ def test_shorts_cap_trims_to_newest_n(tmp_path: Path):
         kw["shorts_cap"] = 3
         run_subscribes_update(**kw)
     assert captured["video_ids"] == ["s7", "s6", "s5"]
+    assert fetch_calls[0]["cap"] == 3
+    assert callable(fetch_calls[0]["in_window_fn"])
 
 
-def test_shorts_cap_zero_means_no_cap(tmp_path: Path):
-    """cap=0 is meaningful: take all shorts in the window, no trimming.
-    Ordering follows the window-filter output (which preserves fetcher order)."""
+def test_pipeline_passes_cap_zero_to_fetch_shorts(tmp_path: Path):
+    """cap=0 forwarded as-is; downstream applies no second cap."""
     from skills.neurolearn.subscribes.pipeline import run_subscribes_update
     ch = _channel_with_mode(
         mode="shorts-only", last_id="oldvid",
         last_pub="2026-05-09T00:00:00+00:00",
     )
-    shorts = [_short(f"s{i}", f"2026-05-{10 + i:02d}T00:00:00+00:00")
-              for i in range(1, 8)]
+    returned = [_short(f"s{i}", f"2026-05-{10 + i:02d}T00:00:00+00:00")
+                for i in range(7, 0, -1)]  # newest-first, 7 entries
     captured: dict = {}
+    fetch_calls: list[dict] = []
 
     def capture_targets(*, targets, **kw):
         captured["count"] = len(targets)
         return tmp_path / "out"
+
+    def fake_fetch_shorts(channel_url, **kwargs):
+        fetch_calls.append(kwargs)
+        return returned
 
     with patch(
         "skills.neurolearn.subscribes.pipeline.load_subscribes",
         return_value=[ch],
     ), patch(
         "skills.neurolearn.subscribes.pipeline._fetch_shorts",
-        return_value=shorts,
+        side_effect=fake_fetch_shorts,
     ), patch(
         "skills.neurolearn.subscribes.pipeline._run_batch_pipeline",
         side_effect=capture_targets,
@@ -1138,6 +1151,124 @@ def test_shorts_cap_zero_means_no_cap(tmp_path: Path):
         kw["shorts_cap"] = 0
         run_subscribes_update(**kw)
     assert captured["count"] == 7
+    assert fetch_calls[0]["cap"] == 0
+
+
+# --- _fetch_shorts internals: early-exit walk (v0.17.1) ---
+
+def test_fetch_shorts_stops_at_first_out_of_window():
+    """Newest-first walk: the first short out of window stops the walk —
+    subsequent IDs (older) must NOT be extracted. This is the headline
+    speedup of v0.17.1."""
+    from skills.neurolearn.subscribes import pipeline as pl
+    extracted: list[str] = []
+
+    def fake_extract(vid, *, cookies_file=None):
+        extracted.append(vid)
+        if vid == "s1":
+            return _short("s1", "2026-05-20T00:00:00+00:00")
+        return _short(vid, "2026-04-10T00:00:00+00:00")
+
+    cutoff = datetime(2026, 5, 1, tzinfo=timezone.utc)
+    with patch.object(pl, "_list_short_ids", return_value=["s1", "s2", "s3"]), \
+         patch.object(pl, "_extract_short_metadata", side_effect=fake_extract):
+        result = pl._fetch_shorts(
+            "https://www.youtube.com/@chan",
+            in_window_fn=lambda dt: dt >= cutoff,
+            cap=5,
+        )
+    assert extracted == ["s1", "s2"]  # s3 was never touched
+    assert [e.video_id for e in result] == ["s1"]
+
+
+def test_fetch_shorts_stops_at_cap_hit():
+    """Walk stops once cap entries collected — saves N-cap extracts on
+    an active shorts channel."""
+    from skills.neurolearn.subscribes import pipeline as pl
+    extracted: list[str] = []
+
+    def fake_extract(vid, *, cookies_file=None):
+        extracted.append(vid)
+        return _short(vid, "2026-05-20T00:00:00+00:00")
+
+    with patch.object(pl, "_list_short_ids",
+                      return_value=["a", "b", "c", "d", "e"]), \
+         patch.object(pl, "_extract_short_metadata", side_effect=fake_extract):
+        result = pl._fetch_shorts(
+            "https://www.youtube.com/@chan",
+            in_window_fn=lambda dt: True,
+            cap=3,
+        )
+    assert extracted == ["a", "b", "c"]  # never touched d, e
+    assert [e.video_id for e in result] == ["a", "b", "c"]
+
+
+def test_fetch_shorts_cap_zero_walks_until_window_miss():
+    """cap=0 means 'take everything in window'; walk only stops on the
+    first out-of-window entry."""
+    from skills.neurolearn.subscribes import pipeline as pl
+    sequence = {
+        "s1": "2026-05-20T00:00:00+00:00",
+        "s2": "2026-05-19T00:00:00+00:00",
+        "s3": "2026-05-18T00:00:00+00:00",
+        "s_old": "2025-01-01T00:00:00+00:00",
+        "never": "2026-05-20T00:00:00+00:00",
+    }
+    extracted: list[str] = []
+
+    def fake_extract(vid, *, cookies_file=None):
+        extracted.append(vid)
+        return _short(vid, sequence[vid])
+
+    cutoff = datetime(2026, 5, 1, tzinfo=timezone.utc)
+    with patch.object(pl, "_list_short_ids",
+                      return_value=list(sequence.keys())), \
+         patch.object(pl, "_extract_short_metadata", side_effect=fake_extract):
+        result = pl._fetch_shorts(
+            "https://www.youtube.com/@chan",
+            in_window_fn=lambda dt: dt >= cutoff,
+            cap=0,
+        )
+    assert extracted == ["s1", "s2", "s3", "s_old"]  # "never" not touched
+    assert [e.video_id for e in result] == ["s1", "s2", "s3"]
+
+
+def test_fetch_shorts_empty_id_list_returns_empty():
+    """No /shorts tab at all → no extract calls."""
+    from skills.neurolearn.subscribes import pipeline as pl
+    with patch.object(pl, "_list_short_ids", return_value=[]), \
+         patch.object(
+             pl, "_extract_short_metadata",
+             side_effect=AssertionError("must not be called with empty ids"),
+         ):
+        result = pl._fetch_shorts(
+            "https://www.youtube.com/@chan",
+            in_window_fn=lambda dt: True,
+            cap=5,
+        )
+    assert result == []
+
+
+def test_fetch_shorts_skips_per_id_download_errors():
+    """A dead short (deleted / age-gated) must not abort the walk — skip
+    and continue. Early-exit only fires on window-miss, not on errors."""
+    from skills.neurolearn.subscribes import pipeline as pl
+    from yt_dlp.utils import DownloadError
+
+    def fake_extract(vid, *, cookies_file=None):
+        if vid == "dead":
+            raise DownloadError("video unavailable")
+        return _short(vid, "2026-05-20T00:00:00+00:00")
+
+    with patch.object(pl, "_list_short_ids",
+                      return_value=["a", "dead", "c"]), \
+         patch.object(pl, "_extract_short_metadata", side_effect=fake_extract):
+        result = pl._fetch_shorts(
+            "https://www.youtube.com/@chan",
+            in_window_fn=lambda dt: True,
+            cap=5,
+        )
+    assert [e.video_id for e in result] == ["a", "c"]
 
 
 def test_ig_channel_ignores_mode_field(tmp_path: Path):

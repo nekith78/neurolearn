@@ -3,6 +3,96 @@
 All notable changes to neurolearn will be documented here.
 The format is loosely based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.17.1] — 2026-05-27
+
+`_fetch_shorts` rewritten as an early-exit walk over the channel's
+newest-first `/shorts` listing. Pure speedup, no contract change.
+
+### Why
+
+v0.17.0's `_fetch_shorts` did a bulk full-extract on `cap*4` shorts
+upfront, applied the window filter afterwards, then capped. On a
+dormant channel (the headline `auto`-fallback use case — "the channel
+is silent on RSS, does it have Shorts?") this paid for 20 per-id
+extracts just to discover that all 20 were old, costing ~13s per
+channel. Multiplied across a typical 50-subscription run with many
+dormants → ~10 minutes of dead-weight scraping.
+
+### Investigation
+
+Probed three alternatives for getting Shorts dates without per-id
+extracts:
+
+- `extract_flat` on `<channel>/shorts` — yt-dlp returns IDs but
+  YouTube does NOT expose dates on the shorts-tab response (neither
+  InnerTube API nor `ytInitialData`'s `shortsLockupViewModel`).
+  Verified empirically.
+- `extractor_args=youtubetab:approximate_date` — not supported by the
+  `youtubetab` extractor (yt-dlp source check confirms zero
+  `_configuration_arg` keys).
+- HTML scraping of single `/shorts/<id>` page — `<meta itemprop=
+  "datePublished">` works (~1.5s/short), but it's the same per-id
+  cost as yt-dlp and adds a fragile regex layer outside yt-dlp's
+  anti-block infrastructure. Rejected.
+
+Conclusion: per-id extract is unavoidable, but the **walk strategy**
+is changeable. The YouTube `/shorts` tab DOES return IDs in
+newest-first order — verified by extracting the first three from
+MrBeast/shorts and checking they came back sorted by date desc.
+
+### The fix
+
+`_fetch_shorts` now walks the flat-extracted ID list one short at a
+time and stops at the first short that fails the in-window predicate
+(newest-first order guarantees subsequent IDs are even older). Also
+stops at cap-hit.
+
+Concretely:
+
+| Scenario | v0.17.0 | v0.17.1 |
+|---|---|---|
+| Dormant channel auto-fallback (RSS empty, first short already out of window) | ~13s | **~1.5s** |
+| Active shorts channel, cap=5 | ~7.5s | ~7.5s (same) |
+| 50 dormant subscriptions, all silent on shorts too | ~10 min | **~75s** |
+
+### API change inside the pipeline
+
+- `_fetch_shorts(in_window_fn=..., cap=...)` — was `limit=...`. The
+  fetcher now needs the window predicate to do early-exit.
+- New helpers: `_list_short_ids` (flat extract) + `_extract_short_metadata`
+  (single video full extract). Split for testability.
+- `_make_in_window_predicate(ch, window)` — predicate variant of
+  `_apply_window` for callers that walk entries one at a time.
+- `_cap_shorts` removed; `_maybe_warn_cap_hit` replaces it. The cap
+  warning is now "cap reached, more may exist" rather than "found N,
+  took M" — because early-exit means we never count past the cap.
+- `_shorts_fetch_limit` removed; `_fetch_shorts` has a `max_probe=100`
+  safety upper bound on the flat-extract instead.
+
+### Risk
+
+Load-bearing assumption: YouTube returns `/shorts` tab IDs newest-first.
+If YouTube ever flips the default sort, the early-exit will misfire and
+silently under-report shorts (we'd stop at the first older-than-window
+ID, even if newer ones sit further down the list). This is documented
+in `_list_short_ids`. The failure mode is degraded recall, not a crash.
+
+### Tests
+
+1384 passed, 2 skipped (was 1379 at v0.17.0). 5 new tests covering
+the early-exit walk semantics directly against `_fetch_shorts`
+internals (mocking `_list_short_ids` + `_extract_short_metadata`):
+
+- Stops at first out-of-window short, does NOT extract subsequent.
+- Stops at cap-hit, does NOT extract beyond.
+- `cap=0` walks until window-miss with no numeric cap.
+- Empty ID list → no extract calls.
+- Per-id `DownloadError` is skipped, walk continues.
+
+Two pipeline-level tests rewritten to assert the new contract
+(pipeline forwards `cap` + predicate to `_fetch_shorts` rather than
+re-capping the result).
+
 ## [0.17.0] — 2026-05-27
 
 Shorts-aware `subscribes update` for YouTube channels.
