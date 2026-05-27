@@ -210,6 +210,20 @@ Before `git push` to `main`:
 
 ## Releasing — version bumps (v0.17.2+)
 
+**Agent responsibility — do this proactively, no reminder needed.**
+In this repo the agent commits and pushes its own work. A version bump
+is part of that flow: any change that should reach users MUST be
+bumped, because Claude Code auto-update reads `version` from
+`marketplace.json` on `main` — a functional change pushed without a
+bump lands in `main` but never reaches anyone (the client sees "version
+unchanged"). So before a release push:
+
+- **Functional change** (feature, bugfix, CLI behavior, prompts) → run
+  `bump-my-version` yourself, then push. Don't wait to be asked.
+- **Purely internal change** (dev tooling, test edits, internal docs /
+  refactor with no user-visible behavior change) → push without a bump.
+- **Unsure which** → ask.
+
 The version string lives in 5 places: `pyproject.toml`,
 `skills/neurolearn/__init__.py`, and THREE fields across
 `.claude-plugin/plugin.json` + `.claude-plugin/marketplace.json`
