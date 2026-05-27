@@ -759,8 +759,7 @@ def _run_then_analyze(
     """
     from datetime import datetime
     from skills.neurolearn.analyze.source_resolver import resolve_source
-    from skills.neurolearn.analyze.prompt_builder import build_prompt
-    from skills.neurolearn.analyze import runner as analyze_runner
+    from skills.neurolearn.analyze.chunked_runner import run_analysis_chunked
     from skills.neurolearn.analyze.output_writer import (
         analysis_filename, write_analysis,
     )
@@ -810,7 +809,6 @@ def _run_then_analyze(
         console.print("[yellow]Empty selection — analyze skipped.[/yellow]")
         return
 
-    full_prompt = build_prompt(user_prompt, chosen)
     response = ""
     used_backend = backends_to_try[0]
     for i, candidate in enumerate(backends_to_try):
@@ -820,8 +818,11 @@ def _run_then_analyze(
                 f"[yellow]{backends_to_try[i-1]} returned no response — "
                 f"trying {candidate}[/yellow]"
             )
-        response = analyze_runner.run_analysis(
-            full_prompt, backend=candidate, api_key=candidate_key,
+        # run_analysis_chunked transparently single-shots non-groq / small
+        # prompts and map-reduces large groq prompts so they don't 413.
+        response = run_analysis_chunked(
+            user_prompt, chosen, backend=candidate, api_key=candidate_key,
+            on_status=lambda m: console.print(f"[dim]{m}[/dim]"),
         )
         if response.strip():
             used_backend = candidate
@@ -2557,8 +2558,7 @@ def analyze_cmd(
     from skills.neurolearn.analyze.source_resolver import (
         resolve_source,
     )
-    from skills.neurolearn.analyze.prompt_builder import build_prompt
-    from skills.neurolearn.analyze import runner as analyze_runner
+    from skills.neurolearn.analyze.chunked_runner import run_analysis_chunked
     from skills.neurolearn.analyze.output_writer import (
         analysis_filename, write_analysis, append_analysis,
     )
@@ -2662,16 +2662,18 @@ def analyze_cmd(
             console.print("[yellow]Cancelled.[/yellow]")
             sys.exit(5)
 
-    # 5. Build the full prompt.
-    full_prompt = build_prompt(user_prompt, chosen, max_chars=max_chars)
-
-    # 6. Call LLM.
-    response = analyze_runner.run_analysis(
-        full_prompt,
+    # 5-6. Build prompt + call LLM. run_analysis_chunked single-shots
+    # non-groq / small prompts and map-reduces large groq prompts so they
+    # don't 413 (then silently fall back to another backend).
+    response = run_analysis_chunked(
+        user_prompt,
+        chosen,
         backend=backend_opt,
         api_key=api_key,
         ollama_model=ollama_model_opt or "llama3.2:3b",
         ollama_host=ollama_host_opt or "http://localhost:11434",
+        build_max_chars=max_chars,
+        on_status=lambda m: console.print(f"[dim]{m}[/dim]"),
     )
     if not response.strip():
         console.print(
