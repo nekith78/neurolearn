@@ -30,8 +30,22 @@ The wizard walks through audio backend choice (Groq / Whisper / Gemini /
 subtitles), visual backend, and analyze backend. It can also accept keys via
 file paths so they never enter the chat (see [Secure key handoff](#secure-key-handoff) below).
 
-To upgrade later: `/plugin update neurolearn` inside Claude Code, then
-`uv sync` again.
+To upgrade later: `/plugin install neurolearn@neurolearn` inside Claude Code
+(re-pulls latest from GitHub), then `uv sync` again.
+
+### Automatic updates
+
+To get new versions without re-running the install command every time, enable
+auto-update on the marketplace once:
+
+1. Run `/plugin` in Claude Code.
+2. Open **Marketplaces** → select **neurolearn**.
+3. Toggle **Enable auto-update**.
+
+After that, Claude Code checks the marketplace at startup; when a new version
+is published it updates silently and prompts you to run `/reload-plugins`. You
+still need to re-run `uv sync` once after a release if Python dependencies
+changed.
 
 ## Slash command
 
