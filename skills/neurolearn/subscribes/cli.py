@@ -263,7 +263,7 @@ def _default_editor() -> str:
 @click.option("--prompt-file", "prompt_file", default=None,
               type=click.Path(exists=True, path_type=Path))
 @click.option("--analyze-backend", "analyze_backend_opt",
-              type=click.Choice(["gemini", "claude", "openai", "ollama"]),
+              type=click.Choice(["groq", "gemini", "openai", "ollama"]),
               default=None,
               help="LLM backend for analyze. Default: ask once and remember "
                    "in config.toml (non-TTY → skip silently).")

@@ -69,6 +69,36 @@ def test_resolve_no_channel_id_raises():
             resolve_channel("https://www.youtube.com/@X")
 
 
+def test_resolve_channel_id_falls_back_to_id_field():
+    """Some channel pages leave `channel_id` null but expose the UC... id in
+    the top-level `id` field — resolve must use it instead of failing."""
+    fake = {
+        "channel_id": None,
+        "id": "UC2FrPwNcXZof5PCZRzAQGVw",
+        "channel": "Path of Exile 2 | PoE News",
+    }
+    with patch(
+        "skills.neurolearn.subscribes.channel_resolver._extract_flat",
+        return_value=fake,
+    ):
+        out = resolve_channel(
+            "https://www.youtube.com/channel/UC2FrPwNcXZof5PCZRzAQGVw"
+        )
+    assert out.channel_id == "UC2FrPwNcXZof5PCZRzAQGVw"
+
+
+def test_resolve_id_fallback_ignores_non_uc_id():
+    """A non-channel `id` (e.g. a video id) must NOT be mistaken for a
+    channel id — only UC...-shaped ids qualify for the fallback."""
+    fake = {"channel_id": None, "id": "dQw4w9WgXcQ", "channel": "x"}
+    with patch(
+        "skills.neurolearn.subscribes.channel_resolver._extract_flat",
+        return_value=fake,
+    ):
+        with pytest.raises(ValueError, match="channel_id"):
+            resolve_channel("https://www.youtube.com/@X")
+
+
 # === v0.8: platform detection + IG / TikTok resolvers ===
 
 

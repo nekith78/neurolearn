@@ -150,6 +150,16 @@ def _resolve_youtube(url: str) -> ResolvedChannel:
     handle = _extract_handle(canonical)
     info = _extract_flat(canonical)
     channel_id = info.get("channel_id")
+    # Some channel pages (observed on shorts-heavy channels whose root tab
+    # doesn't populate the usual fields) return the UC... id only in the
+    # top-level `id` field, leaving `channel_id` null. On a channel-tab
+    # extract `id` IS the canonical channel id, so fall back to it when it
+    # has the UC... shape. Without this, such channels can't be added by
+    # their /shorts or /watch URL even though the id is right there.
+    if not channel_id:
+        fallback = info.get("id")
+        if isinstance(fallback, str) and fallback.startswith("UC"):
+            channel_id = fallback
     if not channel_id:
         raise ValueError(f"could not resolve channel_id for {url}")
     return ResolvedChannel(
