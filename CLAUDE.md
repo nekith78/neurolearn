@@ -208,6 +208,42 @@ Before `git push` to `main`:
    `git-cross-os`, which runs `code-reviewer` + `security-review`
    sub-agents before push.
 
+## Releasing — version bumps (v0.17.2+)
+
+The version string lives in 5 places: `pyproject.toml`,
+`skills/neurolearn/__init__.py`, and THREE fields across
+`.claude-plugin/plugin.json` + `.claude-plugin/marketplace.json`
+(top-level + nested plugin entry). The plugin manifests drive Claude
+Code auto-update — forgetting them ships a release users can't see
+(it happened twice before v0.17.2).
+
+**NEVER hand-edit the version in any of those files.** Use
+`bump-my-version` (config in `[tool.bumpversion]`, dev dependency):
+
+```bash
+uv run bump-my-version bump patch      # 0.17.1 → 0.17.2
+uv run bump-my-version bump minor      # 0.17.1 → 0.18.0
+uv run bump-my-version bump major      # 0.17.1 → 1.0.0
+```
+
+This updates all 5 places, then auto-commits and tags (`vX.Y.Z`).
+It refuses to run on a dirty tree (`allow_dirty = false`) — stage or
+clean stray `graphify-out/` / `AGENTS.*` edits first. The full release
+flow:
+
+1. Land the feature commits.
+2. Update `CHANGELOG.md` with the new version section, commit it.
+3. `uv run bump-my-version bump <part>` — bumps + commits + tags.
+4. `git push && git push --tags`.
+5. `gh release create vX.Y.Z …` (memory rule
+   `feedback_create_github_releases`).
+
+If a `search` pattern ever stops matching (e.g. JSON layout changes),
+verify with `uv run bump-my-version bump patch --dry-run --verbose
+--allow-dirty` before trusting it — the two identical `"version"`
+fields in `marketplace.json` are anchored by their following line
+(`"plugins": [` vs `"source": {`).
+
 ## Report mode (v0.10.2)
 
 `neurolearn report <batch_dir>` produces a structured PDF from any
