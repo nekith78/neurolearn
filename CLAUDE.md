@@ -258,6 +258,13 @@ verify with `uv run bump-my-version bump patch --dry-run --verbose
 fields in `marketplace.json` are anchored by their following line
 (`"plugins": [` vs `"source": {`).
 
+**Safety net:** a `pre-push` git hook (`.githooks/pre-push` →
+`scripts/check_version_sync.py`) blocks any push where the version is
+out of sync across the manifest files. Activate once per clone with
+`git config core.hooksPath .githooks` (also in HANDOFF.md). It's
+belt-and-suspenders for hand edits that bypass `bump-my-version`;
+bypass in a real emergency with `git push --no-verify`.
+
 ## Report mode (v0.10.2)
 
 `neurolearn report <batch_dir>` produces a structured PDF from any

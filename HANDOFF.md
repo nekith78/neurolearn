@@ -78,6 +78,19 @@ uv sync --extra report           # + weasyprint / jinja2 / markdown (PDF)
 
 You can pass multiple `--extra` flags together.
 
+### Activate the version-sync git hook (once per clone)
+
+```bash
+git config core.hooksPath .githooks
+```
+
+This wires up `.githooks/pre-push`, which blocks a push when the version
+string is out of sync across `pyproject.toml`, `skills/neurolearn/__init__.py`,
+and the two `.claude-plugin/*.json` manifests — the failure that twice
+shipped a release Claude Code auto-update couldn't see. It's a safety net;
+the normal path is `uv run bump-my-version bump <part>` (see CLAUDE.md
+"Releasing"). The hook is skipped gracefully if no python is on PATH.
+
 ### Configure backends (TTY — your own terminal)
 
 ```bash

@@ -1,0 +1,24 @@
+#!/bin/sh
+# Pre-push guard: block the push if the version string is out of sync
+# across the manifest files (pyproject, __init__, plugin.json,
+# marketplace.json). See scripts/check_version_sync.py for the rationale.
+#
+# This hook is version-controlled under .githooks/. Activate it once per
+# clone with:
+#     git config core.hooksPath .githooks
+#
+# Cross-platform: works wherever git runs a POSIX sh (Git Bash on Windows
+# included). Picks python3, falling back to python; if neither exists the
+# check is skipped rather than wedging the push.
+ROOT="$(git rev-parse --show-toplevel)"
+
+if command -v python3 >/dev/null 2>&1; then
+    PY=python3
+elif command -v python >/dev/null 2>&1; then
+    PY=python
+else
+    echo "[pre-push] no python interpreter found — skipping version-sync check" >&2
+    exit 0
+fi
+
+exec "$PY" "$ROOT/scripts/check_version_sync.py"
