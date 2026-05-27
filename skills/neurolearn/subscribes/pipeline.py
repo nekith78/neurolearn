@@ -26,7 +26,7 @@ from pathlib import Path
 from skills.neurolearn.utils.console import make_console
 
 from skills.neurolearn.subscribes.store import (
-    Channel, load_subscribes,
+    Channel, load_subscribes, DEFAULT_MODE, MODES,
 )
 from skills.neurolearn.subscribes.state import (
     update_last_seen, channels_without_state,
@@ -262,6 +262,247 @@ def _fetch_via_yt_dlp(
     return out
 
 
+def _fetch_shorts(
+    channel_url: str,
+    *,
+    limit: int = 20,
+    cookies_file: str | None = None,
+) -> list[_ChannelVideo]:
+    """Fetch the channel's `/shorts` tab via yt-dlp full-extract.
+
+    Why full-extract (`extract_flat=False`):
+      yt-dlp's flat-extract on `<channel>/shorts` returns video IDs but
+      sets `duration` and `upload_date` to None — verified empirically
+      (2026-05-27). Without dates the date-window filter ("shorts in
+      the last N days") can't run, so we must pay for full info per
+      entry. `playlistend=limit` caps the network cost: for default
+      cap=5 the orchestrator passes limit=20 (cap*4 buffer for window
+      filtering), so worst case ~20 HTTP requests per channel per
+      update on `auto`/`shorts-only` mode.
+
+    Returns `_ChannelVideo` entries with `duration_sec` populated and
+    URLs in `https://www.youtube.com/shorts/<id>` form (yt-dlp emits
+    `webpage_url=watch?v=...` on full-extract, but we rewrite to the
+    canonical shorts URL so downstream batch metadata matches what
+    YouTube classifies as a Short).
+
+    Errors mirror `_fetch_via_yt_dlp` — ChannelNotFoundError bubbles
+    up so the per-channel loop can print a clear hint without aborting.
+    """
+    from yt_dlp import YoutubeDL
+    from yt_dlp.utils import DownloadError
+
+    shorts_url = channel_url.rstrip("/") + "/shorts"
+    opts = {
+        "quiet": True,
+        "no_warnings": True,
+        "extract_flat": False,
+        "skip_download": True,
+        "playlistend": max(1, int(limit)),
+        "lazy_playlist": True,
+    }
+    if cookies_file:
+        opts["cookiefile"] = cookies_file
+
+    try:
+        with YoutubeDL(opts) as ydl:
+            info = ydl.extract_info(shorts_url, download=False) or {}
+    except DownloadError as e:
+        if _looks_like_channel_not_found(str(e)):
+            raise ChannelNotFoundError(str(e)) from e
+        _console.print(
+            f"[yellow]yt-dlp /shorts fetch failed for {channel_url}: "
+            f"{e}[/yellow]"
+        )
+        return []
+
+    out: list[_ChannelVideo] = []
+    entries = info.get("entries") or []
+    for e in entries:
+        if not e or not e.get("id"):
+            continue
+        vid = e["id"]
+        ts = e.get("timestamp")
+        upload = e.get("upload_date")
+        # Prefer `timestamp` (unix seconds, second-precision) over
+        # `upload_date` (YYYYMMDD, day-precision). Day-precision is
+        # fine for the window filter but loses ordering granularity
+        # when several shorts dropped on the same day.
+        if ts is not None:
+            published = datetime.fromtimestamp(int(ts), tz=timezone.utc)
+        elif upload:
+            try:
+                d = datetime.strptime(upload, "%Y%m%d").date()
+                published = datetime.combine(
+                    d, datetime.min.time(), tzinfo=timezone.utc,
+                )
+            except ValueError:
+                # yt-dlp gave us an unparseable date — skip rather than
+                # silently date this entry to epoch, which would make
+                # every window-filter request include it.
+                continue
+        else:
+            continue
+        out.append(_ChannelVideo(
+            video_id=vid,
+            url=f"https://www.youtube.com/shorts/{vid}",
+            title=e.get("title") or "",
+            duration_sec=int(e["duration"]) if e.get("duration") else None,
+            published=published,
+        ))
+    return out
+
+
+def _fetch_youtube_videos(ch: Channel, *, no_rss: bool) -> list[_ChannelVideo]:
+    """YouTube full-video stream: RSS by default, yt-dlp on `--no-rss`.
+
+    Extracted from the old per-channel branch so the four-mode router can
+    invoke it independently from the Shorts fetcher.
+    """
+    if no_rss:
+        return _fetch_via_yt_dlp(ch.url)
+    return [
+        _ChannelVideo(
+            video_id=e.video_id, url=e.url, title=e.title,
+            duration_sec=None, published=e.published,
+        )
+        for e in fetch_rss(ch.channel_id)
+    ]
+
+
+def _apply_window(
+    entries: list[_ChannelVideo],
+    ch: Channel,
+    window,
+) -> list[_ChannelVideo]:
+    """Apply window filter; fall through to `last_seen_published` cursor when
+    no explicit window was provided. Mirrors the pre-v0.17 inline logic."""
+    if window is not None:
+        return [e for e in entries if in_window(e.published, window)]
+    cutoff = (
+        _parse_iso(ch.last_seen_published) if ch.last_seen_published else None
+    )
+    if cutoff is not None:
+        return [e for e in entries if e.published > cutoff]
+    return list(entries)
+
+
+def _cap_shorts(
+    entries: list[_ChannelVideo], ch: Channel, cap: int,
+) -> list[_ChannelVideo]:
+    """Cap a Shorts stream after window filter. `cap=0` means no cap.
+
+    Warning is printed once per channel when the cap actually fires —
+    silent capping would hide that the user is missing content.
+    """
+    if cap <= 0 or len(entries) <= cap:
+        return entries
+    sorted_entries = sorted(entries, key=lambda e: e.published, reverse=True)
+    capped = sorted_entries[:cap]
+    label = ch.handle or ch.channel_id or ch.url
+    _console.print(
+        f"[yellow][warn] {label}: {len(entries)} shorts in window, "
+        f"taking {cap} newest. Raise with --shorts-cap N or set "
+        f"shorts_max_per_update in config.toml.[/yellow]"
+    )
+    return capped
+
+
+def _dedup_by_id(
+    entries: list[_ChannelVideo],
+) -> list[_ChannelVideo]:
+    """Keep first occurrence by `video_id` (preserves input ordering).
+    Caller is expected to sort the merged stream so the entry it wants
+    to win on collision is listed first."""
+    seen: set[str] = set()
+    out: list[_ChannelVideo] = []
+    for e in entries:
+        if e.video_id in seen:
+            continue
+        seen.add(e.video_id)
+        out.append(e)
+    return out
+
+
+def _shorts_fetch_limit(cap: int) -> int:
+    """How many raw `/shorts` entries to ask yt-dlp for.
+
+    Buffer of `cap*4` (min 20) leaves room for window filtering: if the
+    user wants the 5 newest shorts in the last 3 days but the channel
+    posted 12 a week ago, we still pull enough to give the window
+    something to chew on. `cap=0` (unbounded user intent) caps at 100
+    so a forever-running shorts firehose can't lock up the update.
+    """
+    if cap <= 0:
+        return 100
+    return max(cap * 4, 20)
+
+
+def _fetch_youtube_entries(
+    ch: Channel,
+    *,
+    effective_mode: str,
+    no_rss: bool,
+    window,
+    shorts_cap: int,
+    youtube_cookies_file: str,
+) -> list[_ChannelVideo]:
+    """Route fetch+window+cap for a YouTube channel per its effective mode.
+
+    Returns the channel's contribution to the candidate list (post-window,
+    post-cap, deduped where applicable). See docs/specs/v0.17-subscribes-shorts.md
+    for the routing decision tree.
+    """
+    if effective_mode == "videos-only":
+        videos = _fetch_youtube_videos(ch, no_rss=no_rss)
+        return _apply_window(videos, ch, window)
+
+    if effective_mode == "shorts-only":
+        shorts = _fetch_shorts(
+            ch.url,
+            limit=_shorts_fetch_limit(shorts_cap),
+            cookies_file=youtube_cookies_file or None,
+        )
+        shorts = _apply_window(shorts, ch, window)
+        return _cap_shorts(shorts, ch, shorts_cap)
+
+    if effective_mode == "shorts-and-videos":
+        videos = _apply_window(
+            _fetch_youtube_videos(ch, no_rss=no_rss), ch, window,
+        )
+        shorts = _apply_window(
+            _fetch_shorts(
+                ch.url,
+                limit=_shorts_fetch_limit(shorts_cap),
+                cookies_file=youtube_cookies_file or None,
+            ),
+            ch, window,
+        )
+        shorts = _cap_shorts(shorts, ch, shorts_cap)
+        # Sort by published desc, dedup by id. Shorts come first in the
+        # concat so a colliding id (rare — same content visible on both
+        # tabs) keeps the Shorts entry (it has `duration_sec`, RSS path
+        # doesn't, and the Shorts URL is the canonical one for that ID).
+        merged = sorted(
+            shorts + videos, key=lambda e: e.published, reverse=True,
+        )
+        return _dedup_by_id(merged)
+
+    # "auto": videos first, fallback to shorts only if window has nothing.
+    videos = _apply_window(
+        _fetch_youtube_videos(ch, no_rss=no_rss), ch, window,
+    )
+    if videos:
+        return videos
+    shorts = _fetch_shorts(
+        ch.url,
+        limit=_shorts_fetch_limit(shorts_cap),
+        cookies_file=youtube_cookies_file or None,
+    )
+    shorts = _apply_window(shorts, ch, window)
+    return _cap_shorts(shorts, ch, shorts_cap)
+
+
 def run_subscribes_update(
     *,
     subscribes_path: Path,
@@ -287,6 +528,10 @@ def run_subscribes_update(
     platform: str | None = None,
     instagram_cookies_file: str = "",
     tiktok_cookies_file: str = "",
+    youtube_cookies_file: str = "",
+    # v0.17: shorts handling
+    cli_override_mode: str | None = None,
+    shorts_cap: int = 5,
 ) -> Path | None:
     """Run subscribes update. Returns Path to batch folder or None."""
 
@@ -331,10 +576,13 @@ def run_subscribes_update(
             continue
 
         # Per-platform source dispatch:
-        #   • YouTube: RSS by default (fast), yt-dlp on --no-rss (slow, gives duration)
-        #   • Instagram: yt-dlp first; on broken-extractor fallback to instaloader
-        #     (optional `[instagram]` extra). No RSS exists; anon → 401.
-        #   • TikTok: always yt-dlp scrape; cookies optional
+        #   • YouTube: routed through _fetch_youtube_entries which honors
+        #     the per-channel `mode` (auto / videos-only / shorts-only /
+        #     shorts-and-videos), the `--shorts-cap`, and the window filter.
+        #     v0.17+: includes Shorts fallback on `auto` when RSS is empty.
+        #   • Instagram: yt-dlp first; on broken-extractor fallback to
+        #     instaloader (optional `[instagram]` extra). No RSS exists.
+        #   • TikTok: always yt-dlp scrape; cookies optional.
         # `accept_missing_dates=True` for IG/TT — those platforms' flat
         # extracts don't include upload_date, so we synthesize a descending
         # stamp from now() and rely on last_seen_video_id for dedup below.
@@ -351,16 +599,19 @@ def run_subscribes_update(
                     cookies_file=tiktok_cookies_file or None,
                     accept_missing_dates=True,
                 )
-            elif no_rss:
-                entries = _fetch_via_yt_dlp(ch.url)
             else:
-                entries = [
-                    _ChannelVideo(
-                        video_id=e.video_id, url=e.url, title=e.title,
-                        duration_sec=None, published=e.published,
-                    )
-                    for e in fetch_rss(ch.channel_id)
-                ]
+                # YouTube — four-mode router (auto/videos-only/shorts-only/
+                # shorts-and-videos). The mode is resolved here so per-call
+                # CLI overrides win over the stored per-channel setting.
+                effective_mode = cli_override_mode or ch.mode or DEFAULT_MODE
+                entries = _fetch_youtube_entries(
+                    ch,
+                    effective_mode=effective_mode,
+                    no_rss=no_rss,
+                    window=window,
+                    shorts_cap=shorts_cap,
+                    youtube_cookies_file=youtube_cookies_file,
+                )
         except ChannelNotFoundError:
             # Username changed (or account deleted / privated). Surface a clear
             # hint and move to the next channel — DO NOT advance state, so on
@@ -377,24 +628,30 @@ def run_subscribes_update(
         if not entries:
             continue
 
+        # IG/TT post-fetch filtering (kept inline — YouTube already had its
+        # window applied inside `_fetch_youtube_entries`).
         # For IG/TikTok, dates are synthetic — the date window pass-through is
         # imprecise. Reliable dedup is via last_seen_video_id: yt-dlp returns
         # entries newest-first, so we stop scanning when we hit the last id
         # we processed previously. On first run (no last_seen_video_id), every
         # entry is "new".
-        if ch.platform in ("instagram", "tiktok") and ch.last_seen_video_id:
-            fresh: list[_ChannelVideo] = []
-            for e in entries:
-                if e.video_id == ch.last_seen_video_id:
-                    break
-                fresh.append(e)
-            entries = fresh
-        elif window is not None:
-            entries = [e for e in entries if in_window(e.published, window)]
-        else:
-            cutoff = _parse_iso(ch.last_seen_published) if ch.last_seen_published else None
-            if cutoff is not None:
-                entries = [e for e in entries if e.published > cutoff]
+        if ch.platform in ("instagram", "tiktok"):
+            if ch.last_seen_video_id:
+                fresh: list[_ChannelVideo] = []
+                for e in entries:
+                    if e.video_id == ch.last_seen_video_id:
+                        break
+                    fresh.append(e)
+                entries = fresh
+            elif window is not None:
+                entries = [e for e in entries if in_window(e.published, window)]
+            else:
+                cutoff = (
+                    _parse_iso(ch.last_seen_published)
+                    if ch.last_seen_published else None
+                )
+                if cutoff is not None:
+                    entries = [e for e in entries if e.published > cutoff]
 
         if not entries:
             continue

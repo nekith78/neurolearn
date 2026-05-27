@@ -66,6 +66,38 @@ def test_load_missing_file_returns_default(tmp_path: Path):
     assert cfg == DEFAULT_CONFIG
 
 
+def test_shorts_max_per_update_default():
+    """v0.17: default 5 caps per-channel Shorts pulled in `subscribes update`."""
+    assert DEFAULT_CONFIG.shorts_max_per_update == 5
+
+
+def test_shorts_max_per_update_roundtrips(tmp_path: Path):
+    cfg_path = tmp_path / "config.toml"
+    cfg = Config(shorts_max_per_update=20)
+    save_config(cfg, cfg_path)
+    assert load_config(cfg_path).shorts_max_per_update == 20
+
+
+def test_shorts_max_per_update_zero_means_no_cap(tmp_path: Path):
+    """0 is a meaningful value (unbounded) — must round-trip without coercion."""
+    cfg_path = tmp_path / "config.toml"
+    cfg = Config(shorts_max_per_update=0)
+    save_config(cfg, cfg_path)
+    assert load_config(cfg_path).shorts_max_per_update == 0
+
+
+def test_pre_v017_config_without_subscribes_section_defaults_to_5(tmp_path: Path):
+    """A config.toml written before v0.17 has no [subscribes] table — loader
+    must fall through to the default rather than crashing or zeroing the cap."""
+    cfg_path = tmp_path / "config.toml"
+    cfg_path.write_text(
+        "default_backend = \"smart\"\n"
+        "fallback_backend = \"groq\"\n",
+        encoding="utf-8",
+    )
+    assert load_config(cfg_path).shorts_max_per_update == 5
+
+
 def test_get_api_key_from_env(tmp_path: Path, monkeypatch):
     monkeypatch.setenv("GEMINI_API_KEY", "env-value")
     assert get_api_key("gemini", env_path=tmp_path / ".env") == "env-value"

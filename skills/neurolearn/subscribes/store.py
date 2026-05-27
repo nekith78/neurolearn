@@ -11,6 +11,11 @@ import tomlkit
 
 PLATFORMS = ("youtube", "instagram", "tiktok")
 
+# v0.17: content-source modes for YouTube channels. Ignored for IG/TT
+# (no separate /shorts tab there). See docs/specs/v0.17-subscribes-shorts.md.
+MODES = ("auto", "videos-only", "shorts-only", "shorts-and-videos")
+DEFAULT_MODE = "auto"
+
 
 @dataclass
 class Channel:
@@ -31,6 +36,11 @@ class Channel:
     # v0.8: which platform. Records loaded from a pre-v0.8 subscribes.toml
     # default to "youtube" for backward compat — see _from_dict.
     platform: str = "youtube"
+    # v0.17: content-source mode for YouTube channels. Pre-v0.17 entries
+    # without this field default to "auto", which falls back to /shorts
+    # when RSS is empty in the requested window. Use `subscribes set-mode`
+    # to override per channel.
+    mode: str = DEFAULT_MODE
 
 
 def load_subscribes(path: Path) -> list[Channel]:
@@ -119,7 +129,7 @@ def find_channel(path: Path, identifier: str) -> Channel | None:
 
 
 def _to_dict(c: Channel) -> dict:
-    return {
+    d = {
         "url": c.url,
         "handle": c.handle,
         "channel_id": c.channel_id,
@@ -129,6 +139,10 @@ def _to_dict(c: Channel) -> dict:
         "last_seen_published": c.last_seen_published,
         "platform": c.platform,
     }
+    # v0.17: only emit `mode` when non-default so existing files stay clean.
+    if c.mode != DEFAULT_MODE:
+        d["mode"] = c.mode
+    return d
 
 
 def _from_dict(d: dict) -> Channel:
@@ -140,6 +154,12 @@ def _from_dict(d: dict) -> Channel:
             f"Unknown platform {platform!r}. Expected one of: "
             f"{', '.join(PLATFORMS)}"
         )
+    # v0.17: pre-v0.17 entries have no `mode` key — treat as DEFAULT_MODE.
+    mode = d.get("mode") or DEFAULT_MODE
+    if mode not in MODES:
+        raise ValueError(
+            f"Unknown mode {mode!r}. Expected one of: {', '.join(MODES)}"
+        )
     return Channel(
         url=d.get("url", ""),
         handle=d.get("handle"),
@@ -149,4 +169,35 @@ def _from_dict(d: dict) -> Channel:
         last_seen_video_id=d.get("last_seen_video_id"),
         last_seen_published=d.get("last_seen_published"),
         platform=platform,
+        mode=mode,
     )
+
+
+def update_channel_mode(path: Path, identifier: str, mode: str) -> bool:
+    """Set `mode` for an existing channel by handle / url / channel_id.
+
+    Comment-preserving via tomlkit document mutation (mirrors `add_channel`).
+    Returns True when the channel was found and updated, False otherwise.
+    Raises ValueError on an unknown `mode` value.
+    """
+    if mode not in MODES:
+        raise ValueError(
+            f"Unknown mode {mode!r}. Expected one of: {', '.join(MODES)}"
+        )
+    if not path.exists():
+        return False
+    doc = tomlkit.parse(path.read_text(encoding="utf-8"))
+    arr = doc.get("channels") or []
+    for entry in arr:
+        if (entry.get("handle") == identifier
+                or entry.get("url") == identifier
+                or entry.get("channel_id") == identifier):
+            if mode == DEFAULT_MODE:
+                # Match the _to_dict convention: don't persist the default.
+                if "mode" in entry:
+                    del entry["mode"]
+            else:
+                entry["mode"] = mode
+            path.write_text(tomlkit.dumps(doc), encoding="utf-8")
+            return True
+    return False

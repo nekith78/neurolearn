@@ -3,6 +3,110 @@
 All notable changes to neurolearn will be documented here.
 The format is loosely based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.17.0] — 2026-05-27
+
+Shorts-aware `subscribes update` for YouTube channels.
+
+### Why
+
+YouTube's per-channel RSS feed deliberately omits Shorts. Pre-v0.17
+`subscribes update` only fetched RSS, so a channel that paused
+long-form uploads and pivoted to Shorts looked silent — `--days 7`
+returned nothing even when there was plenty of fresh content on the
+channel. The `--no-rss` escape hatch existed but was a one-shot
+per-call switch with no Shorts/full discrimination.
+
+### What's new
+
+A per-channel **mode** field with four values:
+
+- **`auto`** *(default for new and pre-v0.17 subscriptions)* — RSS
+  first; when RSS returns no entries in the requested window, fall
+  back to scraping the channel's `/shorts` tab. Captures Shorts only
+  for dormant channels, never touches Shorts when the channel is
+  uploading full videos.
+- **`videos-only`** — RSS only. Identical to pre-v0.17 behavior.
+- **`shorts-only`** — only the `/shorts` tab is scraped; RSS is never
+  called. For channels that publish nothing but Shorts.
+- **`shorts-and-videos`** — both streams are always pulled, deduped
+  by `video_id`, sorted newest-first. For channels that mix both.
+
+Per-call CLI overrides on `subscribes update` (mutex group):
+
+- `--shorts-only` — force `shorts-only` for this run.
+- `--include-shorts` — force `shorts-and-videos` for this run.
+- `--no-shorts` — force `videos-only` for this run.
+- `--shorts-cap N` — cap the per-channel Shorts pull (0 = no cap).
+
+New commands:
+
+- `subscribes add --mode <mode>` — set the mode on creation.
+- `subscribes set-mode <identifier> <mode>` — change the mode of an
+  existing subscription (handle / URL / channel_id).
+
+`subscribes list` now includes a **Mode** column; YouTube rows show
+the stored mode, IG/TT rows display `—` (mode is YouTube-only in
+v0.17).
+
+New config field `subscribes.shorts_max_per_update` (default `5`)
+caps how many Shorts a single channel can contribute to one update.
+The cap fires after window filtering with a stderr warning that
+quotes the found-vs-taken numbers and the override flag — silent
+capping would hide content from the user.
+
+### Behavior change for existing subscriptions
+
+**Subscriptions without an explicit `mode`** (every pre-v0.17 entry)
+now default to `auto`, which means they **will pull Shorts as a
+fallback** when their RSS feed is empty in the requested window.
+This is intentional: it closes the "channel went silent but is
+actually active on Shorts" gap that motivated v0.17. To preserve the
+pre-v0.17 behavior on a per-channel basis, set them back to
+`videos-only`:
+
+```bash
+neurolearn subscribes set-mode <handle> videos-only
+```
+
+### Implementation notes
+
+- `/shorts` fetch uses yt-dlp full-extract (not flat-extract) because
+  flat-extract drops `duration` and `upload_date` for that tab — the
+  window filter needs dates. Verified empirically 2026-05-27 against
+  MrBeast's `/shorts` tab. Network cost: bounded by `cap*4` (min 20)
+  per channel per update.
+- One `last_seen_published` cursor per channel (no split into
+  video/short pairs). The cursor advances to the newest entry from
+  whichever stream produced the candidate, consistent with the
+  pre-existing "advance after fetch, not after transcribe" rule.
+- Mode is YouTube-only in v0.17. `subscribes add --mode shorts-only`
+  on an IG/TT URL is silently coerced to `auto` with a hint.
+
+### Out of scope (tracked, not in this release)
+
+- TTY "found N shorts, take all / first M / none?" prompt when the
+  cap fires.
+- Per-channel `shorts_cap` override in `subscribes.toml`.
+- IG Reels / TikTok mode parity (there's no separate `/shorts` tab
+  there — TikTok is effectively all short-form, IG Reels are already
+  surfaced through the existing yt-dlp scrape).
+- Caching of empty-fetch attempts to skip the `/shorts` request on
+  channels that consistently return nothing.
+
+### Tests
+
+1379 passed, 2 skipped (was 1346 passed). 33 new tests across
+`tests/test_subscribes_pipeline.py`, `tests/test_subscribes_store.py`,
+`tests/test_cli_subscribes.py`, and `tests/test_config.py` covering
+all four modes, cap behavior, dedup on shared `video_id`, mutex on
+CLI flags, IG/TT mode insensitivity, and pre-v0.17 toml backward
+compatibility.
+
+### Specs and plan
+
+- [docs/specs/v0.17-subscribes-shorts.md](docs/specs/v0.17-subscribes-shorts.md)
+- [docs/plans/v0.17-subscribes-shorts.md](docs/plans/v0.17-subscribes-shorts.md)
+
 ## [0.16.2] — 2026-05-26
 
 Fixes an architectural violation in the v0.16.0/v0.16.1 memory feature

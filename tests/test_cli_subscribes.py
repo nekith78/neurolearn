@@ -532,3 +532,190 @@ def test_schedule_uninstall_prints_instructions():
     assert res.exit_code == 0
     out = res.output.lower()
     assert "launchctl" in out or "crontab" in out or "schtasks" in out
+
+
+# =============================================================================
+# v0.17: --mode / set-mode / --shorts-* / list column
+# =============================================================================
+
+def test_add_with_explicit_mode_persists(tmp_path: Path):
+    """`subscribes add --mode shorts-only` stores the mode in subscribes.toml."""
+    sub_path = tmp_path / "subscribes.toml"
+    with patch(
+        "skills.neurolearn.subscribes.cli.SUBSCRIBES_PATH",
+        new=sub_path,
+    ), patch(
+        "skills.neurolearn.subscribes.cli.resolve_channel",
+        return_value=_resolved("https://www.youtube.com/@A"),
+    ):
+        res = CliRunner().invoke(cli, [
+            "subscribes", "add", "https://www.youtube.com/@A",
+            "--mode", "shorts-only",
+        ], catch_exceptions=False)
+    assert res.exit_code == 0, res.output
+    assert 'mode = "shorts-only"' in sub_path.read_text()
+
+
+def test_add_default_mode_does_not_write_mode_key(tmp_path: Path):
+    """Implicit `auto` mode must NOT bloat subscribes.toml — matches the
+    'don't persist default' convention used for last_seen_* fields."""
+    sub_path = tmp_path / "subscribes.toml"
+    with patch(
+        "skills.neurolearn.subscribes.cli.SUBSCRIBES_PATH",
+        new=sub_path,
+    ), patch(
+        "skills.neurolearn.subscribes.cli.resolve_channel",
+        return_value=_resolved("https://www.youtube.com/@A"),
+    ):
+        res = CliRunner().invoke(cli, [
+            "subscribes", "add", "https://www.youtube.com/@A",
+        ], catch_exceptions=False)
+    assert res.exit_code == 0, res.output
+    assert "mode" not in sub_path.read_text()
+
+
+def test_add_ig_with_mode_silently_coerces_to_auto(tmp_path: Path):
+    """`--mode shorts-only` on IG/TT must NOT be written — mode is a
+    YouTube-only routing flag in v0.17, and persisting it on IG could
+    break a future cross-platform interpretation."""
+    sub_path = tmp_path / "subscribes.toml"
+    with patch(
+        "skills.neurolearn.subscribes.cli.SUBSCRIBES_PATH",
+        new=sub_path,
+    ), patch(
+        "skills.neurolearn.subscribes.cli.resolve_channel",
+        return_value=_ig_resolved("https://www.instagram.com/anthropic"),
+    ), patch(
+        "skills.neurolearn.subscribes.cookies_onboarding"
+        ".resolve_cookies_file",
+        return_value="chrome",
+    ):
+        res = CliRunner().invoke(cli, [
+            "subscribes", "add", "https://www.instagram.com/anthropic/",
+            "--mode", "shorts-only",
+        ], catch_exceptions=False)
+    assert res.exit_code == 0, res.output
+    text = sub_path.read_text()
+    assert "mode" not in text
+    assert "YouTube channels only" in res.output
+
+
+def test_set_mode_updates_existing(tmp_path: Path):
+    from skills.neurolearn.subscribes.store import Channel, add_channel
+    sub_path = tmp_path / "subscribes.toml"
+    add_channel(sub_path, Channel(
+        url="https://www.youtube.com/@A", handle="@A",
+        channel_id="UC_a", group=None, added="2026-05-12",
+    ))
+    with patch(
+        "skills.neurolearn.subscribes.cli.SUBSCRIBES_PATH",
+        new=sub_path,
+    ):
+        res = CliRunner().invoke(cli, [
+            "subscribes", "set-mode", "@A", "shorts-only",
+        ], catch_exceptions=False)
+    assert res.exit_code == 0, res.output
+    assert 'mode = "shorts-only"' in sub_path.read_text()
+
+
+def test_set_mode_unknown_channel_exits_3(tmp_path: Path):
+    sub_path = tmp_path / "subscribes.toml"
+    with patch(
+        "skills.neurolearn.subscribes.cli.SUBSCRIBES_PATH",
+        new=sub_path,
+    ):
+        res = CliRunner().invoke(cli, [
+            "subscribes", "set-mode", "@nope", "shorts-only",
+        ], catch_exceptions=False)
+    assert res.exit_code == 3
+
+
+def test_set_mode_invalid_mode_rejected_by_click():
+    """Click Choice rejects bogus modes with exit 2 before our code runs."""
+    res = CliRunner().invoke(cli, [
+        "subscribes", "set-mode", "@A", "bogus",
+    ], catch_exceptions=False)
+    assert res.exit_code != 0
+    assert "bogus" in res.output.lower() or "invalid" in res.output.lower()
+
+
+def test_list_shows_mode_column_for_youtube(tmp_path: Path):
+    """Mode column populated for YouTube rows, '—' for IG/TT."""
+    from skills.neurolearn.subscribes.store import Channel, add_channel
+    sub_path = tmp_path / "subscribes.toml"
+    add_channel(sub_path, Channel(
+        url="https://www.youtube.com/@A", handle="@A",
+        channel_id="UC_a", group=None, added="x",
+        mode="shorts-only",
+    ))
+    add_channel(sub_path, Channel(
+        url="https://www.instagram.com/ig/", handle="@ig",
+        channel_id="ig", group=None, added="x", platform="instagram",
+    ))
+    with patch(
+        "skills.neurolearn.subscribes.cli.SUBSCRIBES_PATH",
+        new=sub_path,
+    ):
+        res = CliRunner().invoke(cli, ["subscribes", "list"],
+                                 catch_exceptions=False)
+    assert res.exit_code == 0, res.output
+    assert "Mode" in res.output
+    assert "shorts-only" in res.output
+
+
+def test_update_mutex_shorts_flags(tmp_path: Path):
+    """--shorts-only and --no-shorts together → exit 2."""
+    sub_path = tmp_path / "subscribes.toml"
+    with patch(
+        "skills.neurolearn.subscribes.cli.SUBSCRIBES_PATH",
+        new=sub_path,
+    ):
+        res = CliRunner().invoke(cli, [
+            "subscribes", "update",
+            "--shorts-only", "--no-shorts",
+            "--no-analyze",
+        ], catch_exceptions=False)
+    assert res.exit_code == 2
+    assert "mutually exclusive" in res.output.lower()
+
+
+def test_update_propagates_shorts_only_to_pipeline(tmp_path: Path):
+    """`--shorts-only` arrives at run_subscribes_update as
+    cli_override_mode='shorts-only'."""
+    sub_path = tmp_path / "subscribes.toml"
+    captured: dict = {}
+
+    def capture(**kw):
+        captured.update(kw)
+        return None
+
+    with patch(
+        "skills.neurolearn.subscribes.cli.SUBSCRIBES_PATH",
+        new=sub_path,
+    ), patch(
+        "skills.neurolearn.subscribes.pipeline.run_subscribes_update",
+        side_effect=capture,
+    ):
+        res = CliRunner().invoke(cli, [
+            "subscribes", "update",
+            "--shorts-only", "--shorts-cap", "10",
+            "--no-analyze",
+        ], catch_exceptions=False)
+    assert res.exit_code == 0, res.output
+    assert captured["cli_override_mode"] == "shorts-only"
+    assert captured["shorts_cap"] == 10
+
+
+def test_update_shorts_cap_negative_rejected(tmp_path: Path):
+    sub_path = tmp_path / "subscribes.toml"
+    with patch(
+        "skills.neurolearn.subscribes.cli.SUBSCRIBES_PATH",
+        new=sub_path,
+    ):
+        res = CliRunner().invoke(cli, [
+            "subscribes", "update",
+            "--shorts-cap", "-1",
+            "--no-analyze",
+        ], catch_exceptions=False)
+    assert res.exit_code == 2
+    assert "shorts-cap" in res.output.lower()

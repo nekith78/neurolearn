@@ -267,6 +267,15 @@ class Config:
     # in Obsidian / Notion / etc. can point this at their vault root.
     memories_dir: str = ""
 
+    # v0.17.0: per-channel-per-update cap on YouTube Shorts pulled in
+    # `subscribes update`. Applied after window filtering, before passing
+    # to the candidate list. 0 = no cap (take everything in the window).
+    # Default 5 keeps Groq audio quota predictable on channels that
+    # fire-hose 20+ Shorts a week. Override per-call via --shorts-cap N.
+    # Full videos remain uncapped — this is opt-in behavior for the
+    # Shorts stream only.
+    shorts_max_per_update: int = 5
+
 
 DEFAULT_CONFIG = Config()
 
@@ -353,6 +362,10 @@ def _to_toml_dict(cfg: Config) -> dict:
         "memory": {
             "dir": d["memories_dir"],
         },
+        # v0.17.0: subscribes Shorts handling
+        "subscribes": {
+            "shorts_max_per_update": d["shorts_max_per_update"],
+        },
     }
 
 
@@ -415,6 +428,11 @@ def _from_toml_dict(d: dict) -> Config:
         tiktok_research_volume=d.get("research", {}).get("tiktok_volume", ""),
         # v0.16.0: memory storage path
         memories_dir=d.get("memory", {}).get("dir", ""),
+        # v0.17.0: subscribes Shorts cap. Defaults preserve runtime behavior
+        # for pre-v0.17 configs (missing [subscribes] section entirely).
+        shorts_max_per_update=d.get("subscribes", {}).get(
+            "shorts_max_per_update", DEFAULT_CONFIG.shorts_max_per_update,
+        ),
     )
 
 

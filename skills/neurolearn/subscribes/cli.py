@@ -14,7 +14,8 @@ from skills.neurolearn.utils.console import make_console
 from rich.table import Table
 
 from skills.neurolearn.subscribes.store import (
-    Channel, add_channel, load_subscribes, remove_channel,
+    Channel, MODES, DEFAULT_MODE, add_channel, load_subscribes,
+    remove_channel, update_channel_mode,
 )
 from skills.neurolearn.subscribes.group import filter_by_group
 from skills.neurolearn.subscribes.channel_resolver import (
@@ -40,7 +41,14 @@ def subscribes_group() -> None:
 @click.argument("channel_url", required=False)
 @click.option("--group", default=None,
               help="Optional group tag (e.g. 'ai-research').")
-def add_cmd(channel_url: str | None, group: str | None) -> None:
+@click.option("--mode", "mode_opt",
+              type=click.Choice(list(MODES)), default=DEFAULT_MODE,
+              show_default=True,
+              help="Per-channel content-source mode (YouTube only): "
+                   "auto (RSS + Shorts fallback when RSS empty), "
+                   "videos-only, shorts-only, shorts-and-videos. v0.17+.")
+def add_cmd(channel_url: str | None, group: str | None,
+            mode_opt: str) -> None:
     """Add a channel by URL. Platform is auto-detected from the URL."""
     if not channel_url:
         from skills.neurolearn.shared.prompts import prompt_url_or_die
@@ -73,6 +81,10 @@ def add_cmd(channel_url: str | None, group: str | None) -> None:
                     f"{resolved.platform}[/dim]"
                 )
 
+    # mode is YouTube-only — silently coerce IG/TT to "auto" so the
+    # toml stays clean and a future YouTube-mode flag rename doesn't
+    # silently break IG entries.
+    effective_mode = mode_opt if resolved.platform == "youtube" else DEFAULT_MODE
     channel = Channel(
         url=resolved.url,
         handle=resolved.handle,
@@ -80,13 +92,24 @@ def add_cmd(channel_url: str | None, group: str | None) -> None:
         group=group,
         added=date.today().isoformat(),
         platform=resolved.platform,
+        mode=effective_mode,
     )
     add_channel(SUBSCRIBES_PATH, channel)
+    mode_suffix = (
+        f", mode={effective_mode}"
+        if resolved.platform == "youtube" and effective_mode != DEFAULT_MODE
+        else ""
+    )
     _console.print(
         f"[green]✓[/green] Added {resolved.handle or resolved.url} "
         f"([cyan]{resolved.platform}[/cyan], "
-        f"id={resolved.channel_id}, group={group or '—'})"
+        f"id={resolved.channel_id}, group={group or '—'}{mode_suffix})"
     )
+    if resolved.platform != "youtube" and mode_opt != DEFAULT_MODE:
+        _console.print(
+            "[dim]Note: --mode applies to YouTube channels only; "
+            "stored as 'auto' for IG/TT.[/dim]"
+        )
 
 
 @subscribes_group.command(name="remove")
@@ -97,6 +120,37 @@ def remove_cmd(identifier: str) -> None:
         _console.print(f"[red]Channel not found: {identifier}[/red]")
         sys.exit(3)
     _console.print(f"[green]✓[/green] Removed {identifier}")
+
+
+@subscribes_group.command(name="set-mode")
+@click.argument("identifier")
+@click.argument("mode", type=click.Choice(list(MODES)))
+def set_mode_cmd(identifier: str, mode: str) -> None:
+    """Set the per-channel mode for an existing subscription. v0.17+.
+
+    \b
+    Modes (YouTube channels only):
+      auto              — RSS first; fall back to /shorts when RSS is
+                          empty in the requested window. Default.
+      videos-only       — RSS only, never look at /shorts.
+      shorts-only       — /shorts only, never look at full uploads.
+      shorts-and-videos — BOTH streams, deduped by video id, newest
+                          first. Use for channels that mix both.
+
+    IDENTIFIER matches the same way as `subscribes remove`: by handle,
+    URL, or channel_id.
+    """
+    try:
+        updated = update_channel_mode(SUBSCRIBES_PATH, identifier, mode)
+    except ValueError as e:
+        _console.print(f"[red]{e}[/red]")
+        sys.exit(2)
+    if not updated:
+        _console.print(f"[red]Channel not found: {identifier}[/red]")
+        sys.exit(3)
+    _console.print(
+        f"[green]✓[/green] {identifier} → mode=[cyan]{mode}[/cyan]"
+    )
 
 
 @subscribes_group.command(name="list")
@@ -142,12 +196,20 @@ def list_cmd(group: str | None, platform: str | None) -> None:
         )
         table.add_column("Handle")
         table.add_column("Group")
+        table.add_column("Mode")
         table.add_column("Channel ID / Username")
         table.add_column("Last seen")
         for c in rows:
+            # Mode only applies to YouTube channels; IG/TT rows print "—"
+            # so the user isn't misled into thinking the field is wired
+            # for those platforms in v0.17.
+            mode_cell = (
+                c.mode if plat == "youtube" else "[dim]—[/dim]"
+            )
             table.add_row(
                 c.handle or "—",
                 c.group or "—",
+                mode_cell,
                 c.channel_id or "—",
                 c.last_seen_published or "—",
             )
@@ -233,11 +295,38 @@ def _default_editor() -> str:
          "$CLAUDE_PLUGIN_ROOT is set. Use --no-learn-claude-extract to "
          "force the Groq path. v0.16.2+.",
 )
+# v0.17: shorts handling. The three boolean flags are mutex (manual check
+# below — Click has no native mutex group). --shorts-cap stacks on any of
+# them. All four are YouTube-only; IG/TT channels ignore the routing.
+@click.option(
+    "--shorts-only", "shorts_only_opt", is_flag=True, default=False,
+    help="Per-call override: fetch only Shorts from YouTube channels in "
+         "scope, ignoring stored per-channel mode. v0.17+. Mutex with "
+         "--include-shorts / --no-shorts.",
+)
+@click.option(
+    "--include-shorts", "include_shorts_opt", is_flag=True, default=False,
+    help="Per-call override: fetch BOTH full videos and Shorts (deduped, "
+         "sorted by publish date), ignoring stored per-channel mode. "
+         "v0.17+. Mutex with --shorts-only / --no-shorts.",
+)
+@click.option(
+    "--no-shorts", "no_shorts_opt", is_flag=True, default=False,
+    help="Per-call override: skip Shorts on YouTube channels in scope, "
+         "fetch only full videos via RSS. v0.17+. Mutex with --shorts-only "
+         "/ --include-shorts.",
+)
+@click.option(
+    "--shorts-cap", "shorts_cap_opt", type=int, default=None,
+    help="Per-call override: cap the per-channel-per-update Shorts pull. "
+         "0 = no cap. Default: cfg.shorts_max_per_update (5). v0.17+.",
+)
 def update_cmd(
     group, platform, days, since, until, match, filter_text, no_rss, yes,
     no_analyze, prompt_inline, prompt_file, analyze_backend_opt,
     filter_backend_opt, ollama_model_opt, ollama_host_opt, no_stdout_opt,
     output_dir_opt, learn_into_memory, learn_claude_extract,
+    shorts_only_opt, include_shorts_opt, no_shorts_opt, shorts_cap_opt,
     **batch_passthrough,
 ) -> None:
     """Run subscribes update — fetch latest, filter, transcribe, analyze."""
@@ -245,6 +334,25 @@ def update_cmd(
     from skills.neurolearn.analyze.backend_resolver import (
         resolve_analyze_backend,
     )
+
+    # v0.17: mutex among the three shorts-routing flags (Click has no
+    # native mutex group). Resolve to a single cli_override_mode string
+    # before handing off to the pipeline.
+    set_flags = sum([shorts_only_opt, include_shorts_opt, no_shorts_opt])
+    if set_flags > 1:
+        _console.print(
+            "[red]--shorts-only, --include-shorts, and --no-shorts are "
+            "mutually exclusive — pass at most one.[/red]"
+        )
+        sys.exit(2)
+    if shorts_only_opt:
+        cli_override_mode = "shorts-only"
+    elif include_shorts_opt:
+        cli_override_mode = "shorts-and-videos"
+    elif no_shorts_opt:
+        cli_override_mode = "videos-only"
+    else:
+        cli_override_mode = None
 
     # Resolve analyze backend first (flag > config > onboarding > skip).
     # `None` here means "don't analyze".
@@ -277,6 +385,17 @@ def update_cmd(
     cfg = load_config(CONFIG_PATH) if CONFIG_PATH.exists() else None
     output_dir = output_dir_opt or (cfg.output_dir if cfg else "./transcripts")
     batch_opts = {k: v for k, v in batch_passthrough.items() if v is not None}
+
+    # v0.17: resolve shorts cap — explicit flag > config > default 5.
+    if shorts_cap_opt is not None:
+        if shorts_cap_opt < 0:
+            _console.print("[red]--shorts-cap must be >= 0 (0 = no cap).[/red]")
+            sys.exit(2)
+        effective_shorts_cap = shorts_cap_opt
+    elif cfg is not None:
+        effective_shorts_cap = cfg.shorts_max_per_update
+    else:
+        effective_shorts_cap = 5
 
     # Mid-flow safety net: if --platform targets IG/TT and we're in a TTY
     # but cookies aren't set, give the user one chance to set them via the
@@ -324,6 +443,11 @@ def update_cmd(
             tiktok_cookies_file=(
                 cfg.tiktok_cookies_file if cfg else ""
             ),
+            youtube_cookies_file=(
+                cfg.youtube_cookies_file if cfg else ""
+            ),
+            cli_override_mode=cli_override_mode,
+            shorts_cap=effective_shorts_cap,
         )
         # v0.16.1: --learn-into hook after a successful subscribes update
         if learn_into_memory and batch_dir_result is not None:

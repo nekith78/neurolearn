@@ -5,11 +5,13 @@ import pytest
 
 from skills.neurolearn.subscribes.store import (
     Channel,
+    DEFAULT_MODE,
     load_subscribes,
     save_subscribes,
     add_channel,
     remove_channel,
     find_channel,
+    update_channel_mode,
 )
 
 
@@ -173,3 +175,114 @@ def test_load_with_last_seen_fields(tmp_path: Path):
     chans = load_subscribes(p)
     assert chans[0].last_seen_video_id == "vid123"
     assert chans[0].last_seen_published == "2026-05-10T14:00:00Z"
+
+
+# --- v0.17 mode field ---
+
+def test_legacy_entry_without_mode_defaults_to_auto(tmp_path: Path):
+    """Pre-v0.17 entries have no `mode` key — must load as `auto` so behavior
+    change (Shorts fallback) only fires for channels not explicitly opting out."""
+    p = tmp_path / "sub.toml"
+    p.write_text(
+        "[[channels]]\n"
+        "url = \"https://www.youtube.com/@A\"\n"
+        "handle = \"@A\"\n"
+        "channel_id = \"UC_a\"\n"
+        "added = \"2026-05-12\"\n",
+        encoding="utf-8",
+    )
+    chans = load_subscribes(p)
+    assert chans[0].mode == "auto"
+
+
+def test_default_mode_not_written_to_disk(tmp_path: Path):
+    """`auto` is implicit — don't persist it, keeps subscribes.toml uncluttered
+    and avoids spurious diffs on every save round-trip."""
+    p = tmp_path / "sub.toml"
+    save_subscribes(p, [Channel(
+        url="u", handle="@A", channel_id="UC_a", group=None, added="x",
+    )])
+    assert "mode" not in p.read_text(encoding="utf-8")
+
+
+def test_explicit_mode_persists_through_save_and_load(tmp_path: Path):
+    p = tmp_path / "sub.toml"
+    save_subscribes(p, [
+        Channel(url="u1", handle="@A", channel_id="UC_a", group=None,
+                added="x", mode="shorts-only"),
+        Channel(url="u2", handle="@B", channel_id="UC_b", group=None,
+                added="x", mode="shorts-and-videos"),
+        Channel(url="u3", handle="@C", channel_id="UC_c", group=None,
+                added="x", mode="videos-only"),
+    ])
+    loaded = load_subscribes(p)
+    assert [c.mode for c in loaded] == [
+        "shorts-only", "shorts-and-videos", "videos-only",
+    ]
+
+
+def test_unknown_mode_raises(tmp_path: Path):
+    p = tmp_path / "sub.toml"
+    p.write_text(
+        "[[channels]]\n"
+        "url = \"u\"\n"
+        "handle = \"@A\"\n"
+        "channel_id = \"UC_a\"\n"
+        "added = \"x\"\n"
+        "mode = \"made-up\"\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="Unknown mode"):
+        load_subscribes(p)
+
+
+def test_update_channel_mode_finds_and_updates(tmp_path: Path):
+    p = tmp_path / "sub.toml"
+    add_channel(p, Channel(url="u", handle="@A", channel_id="UC_a",
+                           group=None, added="x"))
+    assert update_channel_mode(p, "@A", "shorts-only") is True
+    assert load_subscribes(p)[0].mode == "shorts-only"
+
+
+def test_update_channel_mode_back_to_default_removes_key(tmp_path: Path):
+    """Switching back to `auto` should clear the toml key (round-trip parity
+    with the 'don't persist default' rule); subsequent loads still see auto."""
+    p = tmp_path / "sub.toml"
+    add_channel(p, Channel(url="u", handle="@A", channel_id="UC_a",
+                           group=None, added="x", mode="shorts-only"))
+    update_channel_mode(p, "@A", DEFAULT_MODE)
+    assert "mode" not in p.read_text(encoding="utf-8")
+    assert load_subscribes(p)[0].mode == "auto"
+
+
+def test_update_channel_mode_unknown_channel_returns_false(tmp_path: Path):
+    p = tmp_path / "sub.toml"
+    add_channel(p, Channel(url="u", handle="@A", channel_id="UC_a",
+                           group=None, added="x"))
+    assert update_channel_mode(p, "@nope", "shorts-only") is False
+
+
+def test_update_channel_mode_invalid_mode_raises(tmp_path: Path):
+    p = tmp_path / "sub.toml"
+    add_channel(p, Channel(url="u", handle="@A", channel_id="UC_a",
+                           group=None, added="x"))
+    with pytest.raises(ValueError, match="Unknown mode"):
+        update_channel_mode(p, "@A", "bogus")
+
+
+def test_update_channel_mode_preserves_comments(tmp_path: Path):
+    """`set-mode` must not nuke user comments — same constraint as `add_channel`."""
+    p = tmp_path / "sub.toml"
+    p.write_text(
+        "# my favorites\n\n"
+        "[[channels]]\n"
+        "url = \"u\"\n"
+        "handle = \"@A\"\n"
+        "channel_id = \"UC_a\"\n"
+        "added = \"x\"\n",
+        encoding="utf-8",
+    )
+    update_channel_mode(p, "@A", "shorts-only")
+    out = p.read_text(encoding="utf-8")
+    assert "# my favorites" in out
+    assert 'mode = "shorts-only"' in out

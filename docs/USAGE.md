@@ -292,6 +292,58 @@ neurolearn subscribes schedule install --every 1h --prompt "your usual prompt"
 The `subscribes` store lives at `~/.neurolearn/subscribes.toml` and is safe to
 hand-edit; CLI mutations preserve your comments via `tomlkit`.
 
+### YouTube content modes (Shorts handling) — v0.17+
+
+By default, `subscribes update` only fetches full uploads via YouTube's
+RSS feed. **YouTube RSS deliberately omits Shorts**, so channels that
+publish nothing but Shorts (or paused full uploads) look silent. v0.17
+adds a per-channel `mode` field that tells `subscribes update` which
+content streams to pull.
+
+```bash
+# Set the mode when adding a channel (YouTube only)
+neurolearn subscribes add https://www.youtube.com/@somechannel --mode shorts-only
+
+# Change the mode of an existing subscription
+neurolearn subscribes set-mode @somechannel shorts-and-videos
+neurolearn subscribes set-mode @somechannel videos-only   # back to pre-v0.17 behavior
+
+# Per-call override (mutex group; wins over stored mode for this run only)
+neurolearn subscribes update --shorts-only --days 7
+neurolearn subscribes update --include-shorts --days 7
+neurolearn subscribes update --no-shorts --days 7
+
+# Cap how many Shorts per channel per update (default 5; 0 = no cap)
+neurolearn subscribes update --shorts-cap 10 --days 7
+```
+
+The four modes:
+
+| Mode | Sources | When to use |
+|---|---|---|
+| `auto` *(default)* | RSS first; falls back to `/shorts` only when RSS has nothing in the window | Most channels — captures Shorts only when there's nothing else fresh |
+| `videos-only` | RSS only, never `/shorts` | Reproduce pre-v0.17 behavior for a channel you don't want Shorts from |
+| `shorts-only` | `/shorts` only, RSS never called | Channels that publish nothing but Shorts |
+| `shorts-and-videos` | Both streams every run, deduped by `video_id`, sorted newest-first | Channels that mix both and you want to see everything |
+
+**Behavior change:** every subscription created before v0.17 (no `mode` in
+toml) loads as `auto`, which means they **will start pulling Shorts** as
+a fallback when their RSS is empty. To preserve the old behavior for a
+specific channel:
+
+```bash
+neurolearn subscribes set-mode <handle> videos-only
+```
+
+The cap (`--shorts-cap N` flag or `subscribes.shorts_max_per_update` in
+`config.toml`) is per-channel-per-update and applies to Shorts only —
+full videos remain uncapped. When the cap fires, `subscribes update`
+prints a stderr warning naming the channel and the found-vs-taken
+numbers, so you never silently miss content.
+
+Mode is YouTube-only — IG/TT channels ignore it. `subscribes list`
+shows the column populated for YouTube rows and `—` for the others.
+
 ### Instagram & TikTok subscribes
 
 Both platforms need cookies (no anonymous access for profile listing):
