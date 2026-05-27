@@ -20,7 +20,9 @@ def test_build_backend_subtitles():
         instance.name = "subtitles"
         MockCls.return_value = instance
         b = build_backend("subtitles", cfg)
-    MockCls.assert_called_once_with()
+    # v0.19.0: factory now threads cfg.throttle (default "light") into the
+    # subtitles backend so its yt-dlp pass is rate-limit-paced.
+    MockCls.assert_called_once_with(throttle="light")
     assert b.name == "subtitles"
 
 

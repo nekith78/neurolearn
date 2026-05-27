@@ -158,6 +158,12 @@ class Config:
     # and register the file with `neurolearn config set-key …`.
     cookies_file: str = ""
     fast_path_enabled: bool = True
+    # v0.18.1: yt-dlp self-throttle tier to avoid YouTube per-IP rate-limits.
+    # One of off / light / polite / heavy (see downloader.THROTTLE_PRESETS).
+    # Default "light" — random ~5-12s before audio downloads, ~3s before the
+    # (more frequent, subtitles-first) caption fetches. Bump to "polite" /
+    # "heavy" if you still get rate-limited; "off" disables throttling.
+    throttle: str = "light"
 
     # === v0.7+ analyze defaults ===
     # User's choice for the LLM that processes transcripts in `research` /
@@ -332,6 +338,7 @@ def _to_toml_dict(cfg: Config) -> dict:
             "yt_dlp_auto_update": d["yt_dlp_auto_update"],
             "cookies_file": d["cookies_file"],
             "fast_path_enabled": d["fast_path_enabled"],
+            "throttle": d["throttle"],
         },
         "analyze": {
             "backend": d["analyze_backend"] or "",
@@ -413,6 +420,14 @@ def _from_toml_dict(d: dict) -> Config:
         # — silently drop it (we no longer support `--cookies-from-browser`).
         cookies_file=beh.get("cookies_file", DEFAULT_CONFIG.cookies_file),
         fast_path_enabled=beh.get("fast_path_enabled", DEFAULT_CONFIG.fast_path_enabled),
+        # v0.18.1: validate the throttle tier; unknown value → default "light"
+        # (never let a typo silently disable rate-limit protection).
+        throttle=(
+            beh.get("throttle", DEFAULT_CONFIG.throttle)
+            if beh.get("throttle", DEFAULT_CONFIG.throttle)
+            in ("off", "light", "polite", "heavy")
+            else DEFAULT_CONFIG.throttle
+        ),
         # Empty string in TOML means "not chosen yet" — preserve None semantics.
         analyze_backend=raw_analyze_backend if raw_analyze_backend else None,
         instagram_cookies_file=ig.get("cookies_file", ""),

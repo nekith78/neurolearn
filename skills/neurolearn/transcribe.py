@@ -1791,33 +1791,47 @@ def _build_doctor_payload() -> dict:
     # actually generate PO Tokens. The Python plugin shim auto-loads
     # via yt-dlp's plugin discovery; the Node helper is what produces
     # the cryptographic token YouTube wants.
-    import shutil as _shutil
-    import importlib.util as _ilu
-    node_available = bool(_shutil.which("node"))
-    try:
-        po_token_plugin_installed = bool(_ilu.find_spec("yt_dlp_plugins"))
-    except Exception:
-        po_token_plugin_installed = False
+    # v0.18.1: PO Token readiness via the shared probe (also used by the
+    # setup wizard) so doctor + wizard never drift.
+    from skills.neurolearn.utils.po_token import status as _pot_status
+    _pt = _pot_status()
+    node_available = _pt["node_available"]
+    node_version = _pt["node_version"]
+    node_ok = _pt["node_ok"]
+    po_token_plugin_installed = _pt["po_token_plugin_installed"]
+    pot_server_reachable = _pt["po_token_server_reachable"]
+
+    from skills.neurolearn.utils.cookies_freshness import (
+        cookies_age_days, is_cookies_stale,
+    )
+
+    def _cookies_entry(path: str) -> dict:
+        age = cookies_age_days(path)
+        return {
+            "registered": bool(path),
+            "path": path or "",
+            # v0.18.1: YouTube cookies go stale in ~3-5 days; surface age so
+            # Claude/the user knows when to re-export. Stale cookies can be
+            # worse than none (suppress formats / fail auth).
+            "age_days": round(age, 1) if age is not None else None,
+            "stale": is_cookies_stale(path),
+        }
 
     cookies_section = {
-        "youtube": {
-            "registered": bool(cfg.youtube_cookies_file or cfg.cookies_file),
-            "path": cfg.youtube_cookies_file or cfg.cookies_file or "",
-        },
-        "instagram": {
-            "registered": bool(cfg.instagram_cookies_file),
-            "path": cfg.instagram_cookies_file or "",
-        },
-        "tiktok": {
-            "registered": bool(cfg.tiktok_cookies_file),
-            "path": cfg.tiktok_cookies_file or "",
-        },
+        "youtube": _cookies_entry(cfg.youtube_cookies_file or cfg.cookies_file or ""),
+        "instagram": _cookies_entry(cfg.instagram_cookies_file or ""),
+        "tiktok": _cookies_entry(cfg.tiktok_cookies_file or ""),
     }
 
     anti_block = {
         "node_available": node_available,
+        "node_version": node_version,
+        "node_ok": node_ok,  # Node >= 20 (bgutil requirement)
         "po_token_plugin_installed": po_token_plugin_installed,
-        "po_token_can_generate": node_available and po_token_plugin_installed,
+        "po_token_server_reachable": pot_server_reachable,
+        # Honest readiness: a token only mints when the plugin shim AND a
+        # reachable provider are both present. Node presence alone is not it.
+        "po_token_can_generate": po_token_plugin_installed and pot_server_reachable,
         "cookies": cookies_section,
         "selected_platforms": list(cfg.selected_platforms),
         "research_volume": {
@@ -1838,14 +1852,36 @@ def _build_doctor_payload() -> dict:
             "command": "neurolearn config set-cookies --from-file <path-to-cookies.txt>",
         })
 
-    if not node_available:
+    if cookies_section["youtube"]["registered"] and cookies_section["youtube"]["stale"]:
         recommended_setup.append({
-            "step": "install-nodejs-for-po-token",
-            "why": "Node.js 16+ is missing. The PO Token plugin needs it to "
-                   "generate YouTube's anti-bot tokens. Cookies alone may still "
-                   "be enough for light usage, but heavy research is more reliable "
-                   "with PO Token enabled.",
-            "command": "brew install node  # (macOS) — also apt/choco/winget",
+            "step": "refresh-stale-youtube-cookies",
+            "why": f"Your YouTube cookies are "
+                   f"{cookies_section['youtube']['age_days']} days old. YouTube "
+                   f"cookies expire in ~3-5 days; stale cookies can suppress "
+                   f"formats and fail auth (worse than none). Re-export from an "
+                   f"incognito window, then close it.",
+            "command": "neurolearn config set-cookies --from-file <fresh-cookies.txt>",
+        })
+
+    if not node_ok:
+        recommended_setup.append({
+            "step": "install-nodejs-20-for-po-token",
+            "why": f"PO Token generation (bgutil) needs Node.js >= 20; detected "
+                   f"{node_version or 'none'}. Without it YouTube's anti-bot "
+                   f"tokens can't be minted and anonymous/heavy use gets "
+                   f"rate-limited sooner. Cookies alone may suffice for light use.",
+            "command": "brew install node  # macOS; or apt/choco/winget — need >= 20",
+        })
+    elif po_token_plugin_installed and not pot_server_reachable:
+        recommended_setup.append({
+            "step": "start-po-token-server",
+            "why": "Node >= 20 and the PO Token plugin are present, but no "
+                   "provider is reachable on 127.0.0.1:4416 — so tokens are NOT "
+                   "actually being minted (the plugin only registers). Start the "
+                   "bgutil HTTP server so tokens generate.",
+            "command": "docker run --name bgutil-provider -d --init -p 4416:4416 "
+                       "brainicism/bgutil-ytdlp-pot-provider   "
+                       "# cross-OS; or: npx bgutil-ytdlp-pot-provider (needs Node >= 20)",
         })
 
     return {
@@ -1949,19 +1985,32 @@ def doctor_cmd(as_json: bool) -> None:
     if ab:
         console.print("\n[bold]Anti-block (v0.15.0):[/bold]")
         node = ab.get("node_available")
+        node_ok = ab.get("node_ok")
+        node_version = ab.get("node_version")
+        server = ab.get("po_token_server_reachable")
         plugin = ab.get("po_token_plugin_installed")
         can_gen = ab.get("po_token_can_generate")
-        node_msg = "available" if node else "not on PATH (PO Token plugin cannot run helper)"
-        console.print(
-            f"  {'[green]✓[/green]' if node else '[red]✗[/red]'} Node.js: {node_msg}"
-        )
+        # Node line at parity with the JSON: show version + the >= 20 verdict
+        # (bgutil needs Node >= 20). Node presence alone is NOT readiness.
+        if node_ok:
+            node_mark, node_msg = "[green]✓[/green]", f"{node_version} (>= 20)"
+        elif node:
+            node_mark = "[yellow]~[/yellow]"
+            node_msg = f"{node_version or 'present'} — need >= 20 for PO Token"
+        else:
+            node_mark, node_msg = "[red]✗[/red]", "not on PATH"
+        console.print(f"  {node_mark} Node.js: {node_msg}")
         console.print(
             f"  {'[green]✓[/green]' if plugin else '[red]✗[/red]'} PO Token plugin: "
             f"{'installed' if plugin else 'not installed'}"
         )
         console.print(
+            f"  {'[green]✓[/green]' if server else '[yellow]~[/yellow]'} PO Token server (:4416): "
+            f"{'reachable' if server else 'not running — start: docker run … brainicism/bgutil-ytdlp-pot-provider'}"
+        )
+        console.print(
             f"  {'[green]✓[/green]' if can_gen else '[yellow]~[/yellow]'} PO Token generation: "
-            f"{'active (heavy YouTube research should not get blocked)' if can_gen else 'degraded (rely on cookies)'}"
+            f"{'active (minting YouTube anti-bot tokens)' if can_gen else 'degraded (rely on cookies + throttle)'}"
         )
         for plat in ("youtube", "instagram", "tiktok"):
             entry = ab["cookies"][plat]

@@ -180,7 +180,33 @@ def resolve_cookies_file(
             f"<new-path>[/dim]"
         )
         return ""
-    return str(Path(path).expanduser())
+    resolved = str(Path(path).expanduser())
+    # v0.18.x: warn (don't block) when YouTube cookies are stale. YouTube
+    # cookies expire in ~3-5 days and stale ones can fail auth / suppress
+    # formats (worse than none) — prompt a re-export. Scoped to YouTube;
+    # IG/TikTok cookies are longer-lived, so we don't nag those.
+    if platform == "youtube":
+        from skills.neurolearn.utils.cookies_freshness import (
+            cookies_age_days, is_cookies_stale,
+        )
+        # Warn once per (process, file): resolve_cookies_file runs per-target
+        # in batch, so without this the same nudge would print N times.
+        warned = getattr(resolve_cookies_file, "_stale_warned", None)
+        if warned is None:
+            warned = set()
+            resolve_cookies_file._stale_warned = warned  # type: ignore[attr-defined]
+        if is_cookies_stale(resolved) and resolved not in warned:
+            warned.add(resolved)
+            age = cookies_age_days(resolved) or 0.0
+            _console.print(
+                f"[yellow]⚠ youtube cookies are {age:.0f} days old — YouTube "
+                f"cookies expire in ~3-5 days; stale ones can fail or suppress "
+                f"formats.[/yellow]\n"
+                f"[dim]Re-export (incognito → log in → close the tab) and "
+                f"update:[/dim]\n"
+                f"[dim]  neurolearn subscribes cookies set youtube <new-path>[/dim]"
+            )
+    return resolved
 
 
 def set_cookies_file(

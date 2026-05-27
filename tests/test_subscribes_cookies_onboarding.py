@@ -108,6 +108,26 @@ def test_set_cookies_file_youtube_platform_stores_in_config(tmp_path: Path):
     assert resolved == str(dest)
 
 
+def test_resolve_cookies_file_stale_youtube_still_returns_path(tmp_path: Path):
+    """v0.18.x: a stale (old-mtime) YouTube cookies file still resolves —
+    the staleness warning is best-effort and must not block usage."""
+    import os
+    import time
+    from skills.neurolearn.subscribes.cookies_onboarding import (
+        resolve_cookies_file, set_cookies_file,
+    )
+    cfg_path = tmp_path / "config.toml"
+    src = _make_cookies_file(tmp_path / "yt.txt")
+    dest = set_cookies_file("youtube", str(src), config_path=cfg_path)
+    # Backdate well past the ~3-day staleness threshold.
+    old = time.time() - 6 * 86400.0
+    os.utime(dest, (old, old))
+
+    resolved = resolve_cookies_file("youtube", config_path=cfg_path)
+    assert resolved == str(dest)
+    assert Path(resolved).exists()
+
+
 def test_resolve_cookies_file_returns_path_when_set(tmp_path: Path):
     from skills.neurolearn.subscribes.cookies_onboarding import (
         resolve_cookies_file, set_cookies_file,

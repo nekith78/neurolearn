@@ -35,7 +35,7 @@ def build_backend(name: str, cfg: Config) -> Transcriber:
     Raises ValueError for unknown names.
     """
     if name == "subtitles":
-        return SubtitlesBackend()
+        return SubtitlesBackend(throttle=getattr(cfg, "throttle", "off"))
 
     if name == "whisper-local":
         info = detect_platform()

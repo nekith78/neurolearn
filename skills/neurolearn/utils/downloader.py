@@ -61,12 +61,86 @@ def extract_instagram_shortcode(s: str) -> str | None:
     return m.group(1) if m else None
 
 
+# v0.18.1: self-throttle presets to avoid YouTube per-IP rate-limits.
+# Values are yt-dlp flags. Rationale + numbers:
+# docs/research/yt-dlp-throttle-and-cookies-2026.md.
+#   - sleep-interval/max-sleep-interval = RANDOM delay (seconds) before each
+#     download — jitter beats a fixed delay (constant cadence is a bot tell).
+#     These apply to AUDIO/VIDEO downloads. The yt-dlp subtitle fallback pass
+#     gets only the lighter request-pacing subset (see throttle_subtitle_flags)
+#     — --sleep-subtitles + --sleep-requests, NOT the per-download interval.
+#     NOTE: the fast subtitles path (youtube-transcript-api, pure-Python) is a
+#     direct call and is NOT paced by these flags — only yt-dlp invocations are.
+#   - sleep-requests paces metadata/extraction requests.
+#   - fragment-retries lowered from yt-dlp's default 10 — the default hammers
+#     YouTube after a fragment failure and can itself trigger the bot wall
+#     (yt-dlp#15899). retry-sleep caps the HTTP backoff (~30s) so a blocked
+#     request waits-and-retries instead of looping fast.
+# Anonymous guest budget is ~300 videos/hr (~1 video / 12s) — "light" sits
+# just under it for typical mixed subtitle/audio runs; "polite" is the
+# maintainers' own `-t sleep` preset; "heavy" is for a warm/flagged IP.
+THROTTLE_PRESETS: dict[str, list[str]] = {
+    "off": [],
+    "light": [
+        "--sleep-requests", "0.75",
+        "--sleep-interval", "5", "--max-sleep-interval", "12",
+        "--sleep-subtitles", "3",
+        "--fragment-retries", "3",
+        "--retry-sleep", "linear=1:30:5",
+    ],
+    "polite": [
+        "--sleep-requests", "0.75",
+        "--sleep-interval", "10", "--max-sleep-interval", "20",
+        "--sleep-subtitles", "5",
+        "--fragment-retries", "3",
+        "--retry-sleep", "linear=1:30:5",
+    ],
+    "heavy": [
+        "--sleep-requests", "3",
+        "--sleep-interval", "30", "--max-sleep-interval", "90",
+        "--sleep-subtitles", "5",
+        "--fragment-retries", "2",
+        "--retry-sleep", "exp=2:120",
+        "--limit-rate", "3M",
+    ],
+}
+DEFAULT_THROTTLE = "light"
+
+
+def throttle_flags(throttle: str) -> list[str]:
+    """Map a throttle tier name to yt-dlp flags. Unknown tier → 'light'
+    (defensive: never silently disable throttling on a typo)."""
+    return list(THROTTLE_PRESETS.get(throttle, THROTTLE_PRESETS[DEFAULT_THROTTLE]))
+
+
+# Flags that only make sense for actual media downloads — dropped for the
+# (light, high-frequency) yt-dlp subtitle fallback pass.
+_SUBTITLE_DROP_FLAGS = {"--sleep-interval", "--max-sleep-interval", "--limit-rate"}
+
+
+def throttle_subtitle_flags(throttle: str) -> list[str]:
+    """Throttle subset for the yt-dlp subtitle pass: keeps request pacing
+    (--sleep-requests, --sleep-subtitles) and retry caps, drops the
+    per-download interval / rate-limit flags (no media is downloaded)."""
+    flags = throttle_flags(throttle)
+    out: list[str] = []
+    i = 0
+    while i < len(flags):
+        if flags[i] in _SUBTITLE_DROP_FLAGS:
+            i += 2  # skip the flag and its value
+            continue
+        out.append(flags[i])
+        i += 1
+    return out
+
+
 def build_ytdlp_command(
     *,
     url: str,
     output_template: str,
     cookies_file: str = "",
     audio_format: str = "m4a",
+    throttle: str = "off",
 ) -> list[str]:
     """Build yt-dlp invocation for an audio-only extraction.
 
@@ -75,6 +149,10 @@ def build_ytdlp_command(
     (lossy + 2-5 s extra ffmpeg work per video). m4a passes through
     untouched. All our cloud audio backends (Groq, Gemini, OpenAI,
     Deepgram, AssemblyAI) and ffmpeg-fed whisper-local accept m4a.
+
+    `throttle` selects a THROTTLE_PRESETS tier. Defaults to "off" here so
+    direct/legacy callers and tests are unchanged; the production download
+    path threads `cfg.throttle` (default "light").
     """
     cmd = [
         "yt-dlp",
@@ -83,6 +161,7 @@ def build_ytdlp_command(
         "--audio-quality", "0",
         "--geo-bypass",
         "--no-playlist",
+        *throttle_flags(throttle),
         "-o", output_template,
     ]
     if cookies_file:
@@ -181,6 +260,7 @@ def _download_audio_once(
     *,
     cookies_file: str,
     timeout_seconds: int,
+    throttle: str = "off",
 ) -> Path:
     """One audio-download attempt. Raises DownloadError(stderr=...) on
     yt-dlp failure so the cascade can classify the error."""
@@ -192,6 +272,7 @@ def _download_audio_once(
         url=url,
         output_template=template,
         cookies_file=cookies_file,
+        throttle=throttle,
     )
 
     try:
@@ -243,11 +324,13 @@ def download_audio(
         explicit `cookies_file` argument (back-compat for legacy
         callers and tests).
     """
+    throttle = getattr(cfg, "throttle", "off") if cfg is not None else "off"
     if cfg is None:
         return _download_audio_once(
             url, output_dir,
             cookies_file=cookies_file,
             timeout_seconds=timeout_seconds,
+            throttle=throttle,
         )
 
     # Cascade path — let anti_block_cascade pick the right cookies
@@ -263,6 +346,7 @@ def download_audio(
             url, output_dir,
             cookies_file=ck,
             timeout_seconds=timeout_seconds,
+            throttle=throttle,
         )
 
     return run_cascade(url=url, cfg=cfg, do_attempt=_do_attempt)
@@ -274,6 +358,7 @@ def _download_video_once(
     *,
     cookies_file: str,
     timeout_seconds: int,
+    throttle: str = "off",
 ) -> Path:
     """One video-download attempt. Same shape as `_download_audio_once`."""
     if shutil.which("yt-dlp") is None:
@@ -286,6 +371,7 @@ def _download_video_once(
         "--merge-output-format", "mp4",
         "--geo-bypass",
         "--no-playlist",
+        *throttle_flags(throttle),
         "-o", template,
     ]
     if cookies_file:
@@ -330,11 +416,13 @@ def download_video(
     opt into the anti-block cascade. Used by visual mode
     (--with-visuals) — Gemini multimodal needs both frames and audio.
     """
+    throttle = getattr(cfg, "throttle", "off") if cfg is not None else "off"
     if cfg is None:
         return _download_video_once(
             url, output_dir,
             cookies_file=cookies_file,
             timeout_seconds=timeout_seconds,
+            throttle=throttle,
         )
 
     from skills.neurolearn.utils.anti_block_cascade import run_cascade
@@ -345,6 +433,7 @@ def download_video(
             url, output_dir,
             cookies_file=ck,
             timeout_seconds=timeout_seconds,
+            throttle=throttle,
         )
 
     return run_cascade(url=url, cfg=cfg, do_attempt=_do_attempt)

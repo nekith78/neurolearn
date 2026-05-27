@@ -76,6 +76,7 @@ def _run_yt_dlp_subtitle_pass(
     cookies_file: str | None,
     *,
     write_auto: bool,
+    throttle: str = "off",
 ) -> list | None:
     """One yt-dlp invocation to fetch subtitles of a specific kind.
 
@@ -98,6 +99,7 @@ def _run_yt_dlp_subtitle_pass(
     with tempfile.TemporaryDirectory(prefix="neurolearn-subs-") as tmp:
         tmp_path = Path(tmp)
         template = str(tmp_path / "%(id)s.%(ext)s")
+        from skills.neurolearn.utils.downloader import throttle_subtitle_flags
         cmd = [
             "yt-dlp",
             "--skip-download",
@@ -105,6 +107,7 @@ def _run_yt_dlp_subtitle_pass(
             "--sub-lang", ",".join(languages),
             "--sub-format", "json3/srv3/srv2/srv1/best",
             "--no-playlist",
+            *throttle_subtitle_flags(throttle),
             "-o", template,
         ]
         if cookies_file:
@@ -226,6 +229,10 @@ class SubtitlesBackend:
     name: str = "subtitles"
     supports_url: bool = True
     supports_local_file: bool = False
+    # v0.19.0: self-throttle tier applied to the yt-dlp subtitle pass
+    # (request pacing only — see throttle_subtitle_flags). Set by the
+    # factory from cfg.throttle; "off" keeps legacy/direct construction unchanged.
+    throttle: str = "off"
 
     def is_configured(self) -> tuple[bool, str | None]:
         try:
@@ -357,14 +364,14 @@ class SubtitlesBackend:
 
         # Pass 1: manual subtitles only
         result = _run_yt_dlp_subtitle_pass(
-            url, languages, cookies_file, write_auto=False,
+            url, languages, cookies_file, write_auto=False, throttle=self.throttle,
         )
         if result is not None:
             return result
 
         # Pass 2: fall back to auto-generated
         result = _run_yt_dlp_subtitle_pass(
-            url, languages, cookies_file, write_auto=True,
+            url, languages, cookies_file, write_auto=True, throttle=self.throttle,
         )
         if result is not None:
             return result

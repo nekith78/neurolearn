@@ -166,7 +166,7 @@ def test_yt_dlp_pass_prefers_manual_subs_over_auto(tmp_path, monkeypatch):
     manual_segments = [Segment(start=0.0, end=2.0, text="Manual line 1")]
     calls: list[bool] = []
 
-    def fake_pass(url, languages, cookies_file, *, write_auto):
+    def fake_pass(url, languages, cookies_file, *, write_auto, throttle="off"):
         calls.append(write_auto)
         # Manual pass succeeds; auto pass never runs in this scenario
         if write_auto is False:
@@ -200,7 +200,7 @@ def test_yt_dlp_falls_back_to_auto_when_no_manual(tmp_path, monkeypatch):
     auto_segments = [Segment(start=0.0, end=2.0, text="Auto-generated line")]
     calls: list[bool] = []
 
-    def fake_pass(url, languages, cookies_file, *, write_auto):
+    def fake_pass(url, languages, cookies_file, *, write_auto, throttle="off"):
         calls.append(write_auto)
         if write_auto is True:
             return auto_segments

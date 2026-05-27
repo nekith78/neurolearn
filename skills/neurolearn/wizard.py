@@ -179,6 +179,12 @@ def run_wizard() -> None:
     # === Stage 4 (v0.15.0): platform-aware anti-block setup ===
     _ask_research_platforms_and_cookies(console, cfg)
 
+    # v0.19.0: offer to set up the PO Token provider (reduces YouTube
+    # "Sign in to confirm you're not a bot" failures). YouTube-only,
+    # optional, non-blocking.
+    if "youtube" in (cfg.selected_platforms or []):
+        _ask_po_token_setup(console)
+
     # === Stage 5 + 6: tier-aware paid-model overrides ===
     chosen_providers = _collect_providers(audio_backend, vision_backend, analyze_backend)
     if "gemini" in chosen_providers:
@@ -397,6 +403,91 @@ def _ask_research_platforms_and_cookies(console, cfg) -> None:
             cfg.tiktok_research_volume = volume
 
     console.print()
+
+
+def _ask_po_token_setup(console) -> None:
+    """v0.19.0: offer to stand up the bgutil PO Token provider.
+
+    PO Tokens cut down YouTube's "Sign in to confirm you're not a bot"
+    failures. The pip plugin ships with neurolearn but only mints tokens
+    when a provider server is running (port 4416). We detect readiness and,
+    if Docker is available, offer to start the server right here. Entirely
+    optional and non-blocking — declining just leaves tokens off (the
+    default throttle + cookies still apply).
+    """
+    import shutil as _shutil
+    import subprocess as _sp
+    import time as _time
+    from skills.neurolearn.utils import po_token as _pot
+
+    st = _pot.status()
+    if st["po_token_can_generate"]:
+        console.print(
+            "\n[green]✓ PO Token provider already running[/green] "
+            "(anti-bot tokens active)."
+        )
+        return
+
+    console.print(
+        "\n[bold]Optional: PO Token provider (recommended for YouTube)[/bold]\n"
+        "  [dim]Reduces 'Sign in to confirm you're not a bot' failures. Runs a\n"
+        "  tiny local server (port 4416) that mints YouTube's anti-bot tokens.\n"
+        "  Skipping is fine — throttling + cookies still apply.[/dim]"
+    )
+
+    docker_ok = bool(_shutil.which("docker"))
+    if docker_ok:
+        yn = Prompt.ask(
+            "Start the PO Token server now via Docker? "
+            "(one-time image download, ~1 min) [y/N]",
+            choices=["y", "n", "Y", "N", ""], default="n", show_choices=False,
+        )
+        if yn.lower() == "y":
+            console.print("  [dim]Starting (downloading image if needed)…[/dim]")
+            try:
+                _sp.run(["docker", "rm", "-f", "bgutil-provider"],
+                        capture_output=True, timeout=30)
+                res = _sp.run(_pot.DOCKER_RUN_CMD.split(),
+                              capture_output=True, text=True, timeout=300)
+                if res.returncode != 0:
+                    console.print(
+                        f"  [yellow]⚠ docker run failed: "
+                        f"{(res.stderr or '').strip()[:200]}[/yellow]"
+                    )
+                else:
+                    deadline = _time.time() + 30
+                    while _time.time() < deadline and not _pot.server_reachable():
+                        _time.sleep(2)
+                    if _pot.server_reachable():
+                        console.print(
+                            "  [green]✓ PO Token server is up on :4416[/green] "
+                            "(auto-restarts on reboot)."
+                        )
+                    else:
+                        console.print(
+                            "  [yellow]⚠ Started, but :4416 isn't responding yet. "
+                            "Check `docker logs bgutil-provider`.[/yellow]"
+                        )
+            except Exception as e:
+                console.print(f"  [yellow]⚠ Could not start it: {e}[/yellow]")
+                console.print(f"  [dim]Run manually later:[/dim]\n    {_pot.DOCKER_RUN_CMD}")
+            return
+        console.print(f"  [dim]Run later when you want it:[/dim]\n    {_pot.DOCKER_RUN_CMD}")
+        return
+
+    # No Docker — give the right manual command for their environment.
+    if st["node_ok"]:
+        console.print(
+            "  [dim]Docker not found. With your Node, run in a separate "
+            "terminal:[/dim]\n"
+            f"    {_pot.NPX_RUN_CMD}"
+        )
+    else:
+        console.print(
+            "  [dim]Docker not found and Node < 20. Install Docker (easiest) "
+            "then run:[/dim]\n"
+            f"    {_pot.DOCKER_RUN_CMD}"
+        )
 
 
 def _register_platform_cookies(platform: str, raw_path: str, cfg, console) -> None:

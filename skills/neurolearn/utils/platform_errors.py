@@ -238,6 +238,7 @@ def fix_instruction(diag: ErrorDiagnosis, *, has_cookies: bool) -> str:
     plat = diag.platform
 
     if plat == "youtube":
+        from skills.neurolearn.utils.po_token import DOCKER_RUN_CMD
         if not has_cookies:
             return (
                 "YouTube blocked the request (anti-bot / rate limit).\n"
@@ -245,17 +246,21 @@ def fix_instruction(diag: ErrorDiagnosis, *, has_cookies: bool) -> str:
                 "    1. Open youtube.com in your browser (logged in).\n"
                 "    2. Install 'Get cookies.txt LOCALLY' extension; click → Export.\n"
                 "    3. neurolearn config set-cookies --from-file <path-to-cookies.txt>\n"
-                "  For heavy research, also: make sure Node.js 16+ is installed\n"
-                "  (powers the PO Token plugin, which auto-loads at runtime)."
+                "  For fewer blocks, also start the PO Token provider (one-time):\n"
+                f"    {DOCKER_RUN_CMD}\n"
+                "    (or `npx --yes bgutil-ytdlp-pot-provider` with Node >= 20)\n"
+                "  Verify: neurolearn doctor --json → anti_block.po_token_can_generate."
             )
         # Had cookies, still blocked
         return (
             "YouTube blocked the request even with cookies registered.\n"
             "  Possible causes (in order of likelihood):\n"
             "    1. Cookies expired — re-export from your browser, re-register.\n"
-            "    2. PO Token plugin can't run — install Node.js 16+ on PATH.\n"
+            "    2. PO Token provider not running — start it (mints anti-bot tokens):\n"
+            f"       {DOCKER_RUN_CMD}\n"
             "    3. Your IP is in a YouTube-flagged range (datacenter, VPN exit).\n"
-            "       Solution: residential proxy. See docs/UNLIMITED_RESEARCH.md."
+            "       Solution: residential proxy. See "
+            "docs/research/youtube-ip-block-bypass-2026.md."
         )
 
     if plat == "instagram":
