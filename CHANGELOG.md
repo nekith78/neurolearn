@@ -3,6 +3,41 @@
 All notable changes to neurolearn will be documented here.
 The format is loosely based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.19.0] — 2026-05-28
+
+Anti-block hardening: stay under YouTube's per-IP rate limits, and make the
+PO Token path honest and easy to enable.
+
+### Added
+
+- **Self-throttle** — `config.toml` `throttle` = `off` / `light` / `polite` /
+  `heavy` (default **light**). Paces yt-dlp requests (random ~5-12s before
+  audio downloads, ~3s before subtitle fetches) to stay under YouTube's
+  ~300-videos/hr guest budget, and lowers `--fragment-retries` 10→3 (the
+  default can itself trigger the bot wall). Applies to audio/video downloads
+  and the yt-dlp subtitle pass.
+- **Honest PO Token readiness** — `doctor` now reports the Node version (and
+  the ≥ 20 requirement) and whether the bgutil **provider server (:4416) is
+  reachable**. A token only mints when the plugin AND a running provider both
+  exist — Node presence alone is not enough (the old check was misleading and
+  could report "active" when no token was generated).
+- **Setup wizard** offers to start the PO Token provider via Docker when you
+  select YouTube (optional, non-blocking).
+- **Stale-cookie detection** — `doctor` shows each cookie file's age + a
+  `stale` flag, and a runtime warning prompts a re-export when YouTube cookies
+  are older than ~3 days (they expire in ~3-5 days; stale cookies can be worse
+  than none).
+- Research write-ups: `docs/research/youtube-ip-block-bypass-2026.md`,
+  `docs/research/yt-dlp-throttle-and-cookies-2026.md`.
+
+### Changed
+
+- YouTube block messages now point at starting the PO Token provider
+  (`docker run … bgutil-ytdlp-pot-provider`) instead of the stale
+  "install Node.js 16+".
+- `docs/UNLIMITED_RESEARCH.md` rewritten for the self-throttle layer and the
+  PO Token provider-server requirement.
+
 ## [0.18.0] — 2026-05-28
 
 ### Added
