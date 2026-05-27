@@ -3,6 +3,28 @@
 All notable changes to neurolearn will be documented here.
 The format is loosely based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.18.0] — 2026-05-28
+
+### Added
+
+- **Chunked groq analyze** (`analyze/chunked_runner.py`). The analyze step
+  (`batch --then-analyze`, `subscribes update`, standalone `analyze`) now
+  map-reduces large prompts on groq instead of sending one oversized request
+  that 413s and silently falls back to another backend (gemini). Non-groq
+  backends and prompts within budget are unchanged — one call, same output. A
+  transcript larger than the per-request budget is split into sequential
+  max-size chunks; per-video summaries are recursively collapsed if they still
+  exceed the budget, then a final reduce applies the user's prompt.
+
+### Fixed
+
+- **Channel resolver** falls back to the top-level `id` field when yt-dlp
+  leaves `channel_id` null (observed on some shorts-heavy channels), so such
+  channels can be added by their `/shorts` or `/watch` URL instead of erroring.
+- **`subscribes update --analyze-backend`** choices corrected to
+  `groq/gemini/openai/ollama` (was missing `groq` and still listed the removed
+  `claude` Anthropic-API backend).
+
 ## [0.17.1] — 2026-05-27
 
 `_fetch_shorts` rewritten as an early-exit walk over the channel's
