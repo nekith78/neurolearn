@@ -3,6 +3,35 @@
 All notable changes to neurolearn will be documented here.
 The format is loosely based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.20.1] — 2026-05-28
+
+Follow-up to v0.20.0 from a code+security review of that change.
+
+### Fixed
+
+- **Auto-language could still pick a translation over the original.**
+  `list_language_codes` ranked manually-created caption tracks ahead of
+  auto-generated ones — but a creator's *manual* track is often a
+  translation (e.g. an English track on a Russian video), while the
+  auto-**generated** track is always in the spoken/original language. The
+  order is now generated-first, so `language=auto` on a Russian video with
+  a manual English track correctly selects Russian (re-introduced the very
+  bug v0.20.0 set out to fix, in a narrower case).
+
+### Security / robustness
+
+- Video IDs returned from a `/videos` or `/shorts` tab listing are now
+  validated (`[\w-]{6,20}`) before being interpolated into a `watch?v=`
+  URL — defense-in-depth against a malformed/compromised listing steering
+  the per-video extract.
+- Auto-language discovery no longer fails *silently*: when both the
+  transcript-API listing and the yt-dlp metadata fallback fail (commonly
+  expired cookies or a hard IP block), it now prints a diagnostic before
+  defaulting to English, instead of quietly degrading.
+- Documented the `/videos`/`/shorts` early-exit walk's reliance on the
+  tab's chronological "Latest" sort (known limitation if a listing is ever
+  non-monotonic).
+
 ## [0.20.0] — 2026-05-28
 
 Two correctness fixes to `subscribes`/`smart` that surfaced while testing

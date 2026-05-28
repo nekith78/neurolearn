@@ -19,6 +19,7 @@ state and the next incremental run still asked for --days.
 """
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
@@ -43,6 +44,13 @@ from skills.neurolearn.transcribe import (
 )
 from skills.neurolearn.utils.resolver import ResolvedTarget
 from skills.neurolearn.research.source import SearchCandidate
+
+
+# YouTube video IDs are 11 chars of [A-Za-z0-9_-]; we accept a lenient range
+# to survive any future widening but still reject anything with a slash, dot,
+# or query separator. Used to sanitize IDs that come back from a yt-dlp tab
+# listing before we interpolate them into a `watch?v=<id>` URL.
+_VALID_VIDEO_ID = re.compile(r"[\w-]{6,20}")
 
 
 class SubscribesError(Exception):
@@ -284,8 +292,11 @@ def _list_tab_ids(
     id individually — see `_extract_tab_metadata`.
 
     Order is load-bearing: `_fetch_tab` relies on newest-first to do its
-    early-exit walk. If YouTube ever flips the default sort, the early-exit
-    will misfire and we'll quietly under-report; it degrades, doesn't crash.
+    early-exit walk. The `/videos` and `/shorts` tabs default to a strictly
+    chronological "Latest" sort, so this holds in practice. Known limitation:
+    if a listing is ever non-monotonic (a sort flip, or a pinned older upload
+    surfacing first), the walk can stop early and under-report — it degrades,
+    it doesn't crash.
     """
     from yt_dlp import YoutubeDL
     from yt_dlp.utils import DownloadError
@@ -311,7 +322,14 @@ def _list_tab_ids(
             f"{e}[/yellow]"
         )
         return []
-    return [e["id"] for e in (info.get("entries") or []) if e and e.get("id")]
+    # Sanitize IDs from the listing before they flow into a `watch?v=<id>`
+    # URL: drop anything that isn't a plausible YouTube video ID (defends
+    # against a malformed/compromised listing steering the per-id extract).
+    return [
+        vid
+        for e in (info.get("entries") or [])
+        if e and (vid := e.get("id")) and _VALID_VIDEO_ID.fullmatch(vid)
+    ]
 
 
 def _list_short_ids(

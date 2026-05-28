@@ -290,6 +290,35 @@ def test_ytdlp_caption_langs_original_first():
     assert "en" in langs
 
 
+def test_list_language_codes_ranks_generated_before_manual():
+    """list_language_codes must rank the auto-GENERATED track (spoken/original
+    language) ahead of a manually-created one — a creator's manual English
+    track on a Russian video must NOT win over the auto Russian captions.
+    Regression for the H1 ordering bug."""
+    from unittest.mock import patch
+    from skills.neurolearn.backends import subtitles as S
+
+    class _T:
+        def __init__(self, code, generated):
+            self.language_code = code
+            self.is_generated = generated
+
+    # A Russian video: creator uploaded a MANUAL English (translation) track,
+    # YouTube auto-GENERATED the Russian (original-language) captions.
+    fake_list = [_T("en", generated=False), _T("ru", generated=True)]
+
+    class _FakeApi:
+        def __init__(self, *a, **kw): pass
+        def list(self, video_id): return fake_list
+
+    with patch(
+        "youtube_transcript_api.YouTubeTranscriptApi", _FakeApi,
+    ), patch.object(S, "_build_authenticated_session", return_value=None):
+        codes = S._ApiAdapter().list_language_codes("vid123")
+    assert codes[0] == "ru"   # generated original first, not the manual "en"
+    assert codes == ["ru", "en"]
+
+
 def test_transcribe_auto_requests_original_language_not_english():
     """language=auto must request the resolved original language, not ['en']."""
     from unittest.mock import patch

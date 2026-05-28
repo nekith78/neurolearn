@@ -102,9 +102,17 @@ class _ApiAdapter:
         ]
 
     def list_language_codes(self, video_id: str) -> list[str]:
-        """Base (non-translation) caption languages, original-first:
-        manually-created first, then auto-generated. Used to pick the
-        ORIGINAL language for `language=auto` instead of hardcoding 'en'."""
+        """Base (non-translation) caption languages, original-language first.
+        Used to pick the ORIGINAL language for `language=auto` instead of
+        hardcoding 'en'.
+
+        Ordering: auto-GENERATED tracks first, then manually-created. YouTube
+        auto-captions the spoken audio, so a generated track is in the video's
+        original language; manually-created tracks are creator uploads that are
+        frequently translations (e.g. an English track on a Russian video).
+        Ranking manual first would pick that translation and re-introduce the
+        exact bug `auto` is meant to fix. (Within a single language the
+        transcript API still prefers the manual track when we fetch it.)"""
         from youtube_transcript_api import YouTubeTranscriptApi
 
         session = _build_authenticated_session(self._cookies_file)
@@ -114,9 +122,9 @@ class _ApiAdapter:
             else YouTubeTranscriptApi()
         )
         tl = api.list(video_id)
-        manual = [t.language_code for t in tl if not t.is_generated]
         generated = [t.language_code for t in tl if t.is_generated]
-        return manual + generated
+        manual = [t.language_code for t in tl if not t.is_generated]
+        return generated + manual
 
 
 def _run_yt_dlp_subtitle_pass(
@@ -371,7 +379,16 @@ class SubtitlesBackend:
             pass
         try:
             return _ytdlp_caption_langs(url, cookies_file)
-        except Exception:
+        except Exception as e:
+            # Both discovery tiers failed (commonly: cookies/auth expired or
+            # a hard IP block). Surface it — otherwise we silently degrade to
+            # ['en'] and a non-English video quietly falls through to audio,
+            # which is the failure this resolution exists to prevent.
+            from skills.neurolearn.utils.console import make_console
+            make_console().print(
+                f"[dim]auto-language discovery failed for {video_id} "
+                f"({type(e).__name__}); defaulting to English[/dim]"
+            )
             return []
 
     def _fetch_via_transcript_api(
