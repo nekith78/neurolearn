@@ -294,11 +294,16 @@ hand-edit; CLI mutations preserve your comments via `tomlkit`.
 
 ### YouTube content modes (Shorts handling) — v0.17+
 
-By default, `subscribes update` only fetches full uploads via YouTube's
-RSS feed. **YouTube RSS deliberately omits Shorts**, so channels that
-publish nothing but Shorts (or paused full uploads) look silent. v0.17
-adds a per-channel `mode` field that tells `subscribes update` which
-content streams to pull.
+By default, `subscribes update` fetches full uploads from the channel's
+`/videos` tab. **The `/videos` tab excludes Shorts** (and livestreams),
+so channels that publish nothing but Shorts (or paused full uploads)
+look silent. v0.17 adds a per-channel `mode` field that tells
+`subscribes update` which content streams to pull.
+
+> **v0.20:** the YouTube video source switched from the RSS feed to the
+> `/videos` tab. RSS mixed in livestreams/premieres (and was empty for
+> some channels), so it could surface a stream as "the latest video".
+> The `--no-rss` flag is now a deprecated no-op.
 
 ```bash
 # Set the mode when adding a channel (YouTube only)
@@ -321,15 +326,15 @@ The four modes:
 
 | Mode | Sources | When to use |
 |---|---|---|
-| `auto` *(default)* | RSS first; falls back to `/shorts` only when RSS has nothing in the window | Most channels — captures Shorts only when there's nothing else fresh |
-| `videos-only` | RSS only, never `/shorts` | Reproduce pre-v0.17 behavior for a channel you don't want Shorts from |
-| `shorts-only` | `/shorts` only, RSS never called | Channels that publish nothing but Shorts |
+| `auto` *(default)* | `/videos` first; falls back to `/shorts` only when `/videos` has nothing in the window | Most channels — captures Shorts only when there's nothing else fresh |
+| `videos-only` | `/videos` only, never `/shorts` | A channel you don't want Shorts from |
+| `shorts-only` | `/shorts` only, `/videos` never fetched | Channels that publish nothing but Shorts |
 | `shorts-and-videos` | Both streams every run, deduped by `video_id`, sorted newest-first | Channels that mix both and you want to see everything |
 
 **Behavior change:** every subscription created before v0.17 (no `mode` in
 toml) loads as `auto`, which means they **will start pulling Shorts** as
-a fallback when their RSS is empty. To preserve the old behavior for a
-specific channel:
+a fallback when the `/videos` tab is empty. To preserve the old behavior
+for a specific channel:
 
 ```bash
 neurolearn subscribes set-mode <handle> videos-only

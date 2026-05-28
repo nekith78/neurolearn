@@ -264,3 +264,47 @@ def test_resolve_cookies_file_falls_back_to_legacy_slot(tmp_path, monkeypatch):
     assert resolved == str(fake_cookie_file), (
         "Legacy cookies_file slot must be picked up when youtube_cookies_file is empty"
     )
+
+
+# === v0.19.x: subtitle language on `auto` (Fix B) ===
+
+def test_ytdlp_caption_langs_original_first():
+    """yt-dlp metadata → caption langs original-first (not English-first)."""
+    from unittest.mock import patch
+    from skills.neurolearn.backends import subtitles as S
+
+    class _FakeYDL:
+        def __init__(self, opts): pass
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def extract_info(self, url, download=False):
+            return {
+                "language": "ru",
+                "subtitles": {},
+                "automatic_captions": {"en": [], "ru": [], "ru-orig": []},
+            }
+
+    with patch("yt_dlp.YoutubeDL", _FakeYDL):
+        langs = S._ytdlp_caption_langs("https://x/y", None)
+    assert langs[0] == "ru"        # original first, not "en"
+    assert "en" in langs
+
+
+def test_transcribe_auto_requests_original_language_not_english():
+    """language=auto must request the resolved original language, not ['en']."""
+    from unittest.mock import patch
+    from skills.neurolearn.backends.subtitles import SubtitlesBackend
+    from skills.neurolearn.utils.output_writer import Segment
+
+    be = SubtitlesBackend()
+    captured = {}
+
+    def fake_fetch(self, video_id, languages, cookies_file):
+        captured["langs"] = languages
+        return [Segment(start=0.0, end=1.0, text="привет")]
+
+    with patch.object(SubtitlesBackend, "_resolve_auto_languages", return_value=["ru"]), \
+         patch.object(SubtitlesBackend, "_fetch_via_transcript_api", fake_fetch):
+        res = be.transcribe("https://www.youtube.com/watch?v=abc123", language="auto")
+    assert captured["langs"] == ["ru"]
+    assert res.text == "привет"

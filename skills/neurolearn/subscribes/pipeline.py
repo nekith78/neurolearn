@@ -32,9 +32,6 @@ from skills.neurolearn.subscribes.state import (
     update_last_seen, channels_without_state,
 )
 from skills.neurolearn.subscribes.group import filter_by_group
-from skills.neurolearn.subscribes.rss import (
-    fetch_rss, entries_after, RssEntry,
-)
 from skills.neurolearn.shared.date_filter import (
     parse_window, in_window,
 )
@@ -262,26 +259,33 @@ def _fetch_via_yt_dlp(
     return out
 
 
-def _list_short_ids(
+def _list_tab_ids(
     channel_url: str,
     *,
+    tab: str,
     limit: int = 50,
     cookies_file: str | None = None,
 ) -> list[str]:
-    """Flat-extract the channel's `/shorts` tab — fast (~1s), gives IDs only.
+    """Flat-extract a channel tab (`videos` / `shorts`) — fast (~1s), IDs only.
 
-    Verified 2026-05-27 against MrBeast/shorts: yt-dlp's flat extract on
-    the tab URL returns IDs in YouTube's default newest-first order, but
+    Hitting the tab explicitly is load-bearing for content selection:
+    YouTube splits a channel's uploads across `/videos` (regular long-form),
+    `/streams` (live VODs / premieres) and `/shorts`. The legacy RSS feed
+    (`feeds/videos.xml`) mixed streams and premieres into the upload list —
+    and was empty for some channels — so it could surface a livestream as
+    "the latest video". Listing `/videos` directly returns regular uploads
+    only; `/shorts` returns shorts only.
+
+    Verified 2026-05-27 (shorts) / 2026-05-28 (videos): yt-dlp's flat
+    extract returns IDs in YouTube's default newest-first order, but
     `duration`, `upload_date`, and `timestamp` are all `None` — YouTube
-    does NOT expose dates in the shorts-tab response (neither the InnerTube
-    API nor `ytInitialData`'s `shortsLockupViewModel`; the only metadata
-    is id, title, thumbnails, view_count). To get dates we have to extract
-    each short individually — see `_extract_short_metadata`.
+    does NOT expose dates in the tab response (the only metadata is id,
+    title, thumbnails, view_count). To get dates we have to extract each
+    id individually — see `_extract_tab_metadata`.
 
-    Order is load-bearing: `_fetch_shorts` relies on newest-first to do
-    its early-exit walk. If YouTube ever flips the default sort, the
-    early-exit will misfire and we'll quietly under-report shorts; the
-    invariant doesn't crash, it just degrades.
+    Order is load-bearing: `_fetch_tab` relies on newest-first to do its
+    early-exit walk. If YouTube ever flips the default sort, the early-exit
+    will misfire and we'll quietly under-report; it degrades, doesn't crash.
     """
     from yt_dlp import YoutubeDL
     from yt_dlp.utils import DownloadError
@@ -295,31 +299,61 @@ def _list_short_ids(
     }
     if cookies_file:
         opts["cookiefile"] = cookies_file
-    shorts_url = channel_url.rstrip("/") + "/shorts"
+    tab_url = channel_url.rstrip("/") + "/" + tab
     try:
         with YoutubeDL(opts) as ydl:
-            info = ydl.extract_info(shorts_url, download=False) or {}
+            info = ydl.extract_info(tab_url, download=False) or {}
     except DownloadError as e:
         if _looks_like_channel_not_found(str(e)):
             raise ChannelNotFoundError(str(e)) from e
         _console.print(
-            f"[yellow]yt-dlp /shorts listing failed for {channel_url}: "
+            f"[yellow]yt-dlp /{tab} listing failed for {channel_url}: "
             f"{e}[/yellow]"
         )
         return []
     return [e["id"] for e in (info.get("entries") or []) if e and e.get("id")]
 
 
-def _extract_short_metadata(
+def _list_short_ids(
+    channel_url: str,
+    *,
+    limit: int = 50,
+    cookies_file: str | None = None,
+) -> list[str]:
+    """Newest-first IDs from the channel's `/shorts` tab. See `_list_tab_ids`."""
+    return _list_tab_ids(
+        channel_url, tab="shorts", limit=limit, cookies_file=cookies_file,
+    )
+
+
+def _list_video_ids(
+    channel_url: str,
+    *,
+    limit: int = 50,
+    cookies_file: str | None = None,
+) -> list[str]:
+    """Newest-first IDs from the channel's `/videos` tab. See `_list_tab_ids`."""
+    return _list_tab_ids(
+        channel_url, tab="videos", limit=limit, cookies_file=cookies_file,
+    )
+
+
+def _extract_tab_metadata(
     video_id: str,
     *,
+    as_short: bool,
     cookies_file: str | None = None,
 ) -> _ChannelVideo | None:
-    """Full-extract a single short by id to get published date + duration.
+    """Full-extract a single id (from a `/videos` or `/shorts` listing) to
+    get its published date + duration — the tab listing carries neither.
+
+    `as_short` only controls the canonical URL shape we record
+    (`/shorts/<id>` vs `/watch?v=<id>`); the extract itself always goes
+    through `watch?v=` since that's the addressable form for both.
 
     Returns None when the entry can't be parsed (rare — yt-dlp typically
     surfaces a DownloadError instead). Errors propagate via the caller's
-    exception handling: `_fetch_shorts` lets them bubble up so per-channel
+    exception handling: `_fetch_tab` lets them bubble up so per-channel
     failures don't poison the whole `subscribes update` run.
     """
     from yt_dlp import YoutubeDL
@@ -351,65 +385,97 @@ def _extract_short_metadata(
             return None
     else:
         return None
+    url = (
+        f"https://www.youtube.com/shorts/{video_id}"
+        if as_short
+        else f"https://www.youtube.com/watch?v={video_id}"
+    )
     return _ChannelVideo(
         video_id=video_id,
-        url=f"https://www.youtube.com/shorts/{video_id}",
+        url=url,
         title=d.get("title") or "",
         duration_sec=int(d["duration"]) if d.get("duration") else None,
         published=published,
     )
 
 
-def _fetch_shorts(
+def _extract_short_metadata(
+    video_id: str,
+    *,
+    cookies_file: str | None = None,
+) -> _ChannelVideo | None:
+    """Date+duration for one short (records the `/shorts/` URL).
+    See `_extract_tab_metadata`."""
+    return _extract_tab_metadata(
+        video_id, as_short=True, cookies_file=cookies_file,
+    )
+
+
+def _extract_video_metadata(
+    video_id: str,
+    *,
+    cookies_file: str | None = None,
+) -> _ChannelVideo | None:
+    """Date+duration for one regular video (records the `/watch?v=` URL).
+    See `_extract_tab_metadata`."""
+    return _extract_tab_metadata(
+        video_id, as_short=False, cookies_file=cookies_file,
+    )
+
+
+def _fetch_tab(
     channel_url: str,
     *,
+    tab: str,
     in_window_fn,
     cap: int,
     cookies_file: str | None = None,
     max_probe: int = 100,
 ) -> list[_ChannelVideo]:
-    """Early-exit walk through the channel's `/shorts` tab, newest-first.
+    """Early-exit walk through a channel tab (`videos` / `shorts`), newest-first.
 
-    Algorithm (v0.17.1):
-      1. Flat-extract IDs from `<channel>/shorts` (~1s, no dates).
+    Algorithm (v0.17.1 for shorts, generalized v0.20 for videos):
+      1. Flat-extract IDs from `<channel>/<tab>` (~1s, no dates).
       2. Walk IDs in returned order (which is YouTube's newest-first).
          For each id, full-extract to get the publish date.
       3. STOP at the first id that fails `in_window_fn` — newest-first
          ordering guarantees all subsequent IDs are even older.
       4. STOP when `cap` matches are collected (cap=0 means no cap).
 
-    Why this beats the v0.17.0 "fetch everything in window, then cap"
-    approach: on a typical "auto-mode RSS-was-empty so probe shorts" call
-    against a dormant channel, we make exactly ONE per-id extract instead
-    of `cap*4` — the first short is out of window, we exit. Measured
-    ~1.5s vs ~13s on MrBeast (10 shorts).
+    Why this beats "fetch everything in window, then cap": against a
+    dormant channel we make exactly ONE per-id extract instead of `cap*4`
+    — the first id is out of window, we exit. Measured ~1.5s vs ~13s on
+    MrBeast (10 shorts).
 
-    Limitation: when the early-exit fires on a cap-hit, we DON'T know how
-    many more shorts are sitting in the window past the cap — we never
-    scanned them. The warning surfaces "cap reached", not "found N took M".
+    Limitation: when early-exit fires on a cap-hit, we DON'T know how many
+    more items sit in the window past the cap — we never scanned them.
 
-    `ChannelNotFoundError` bubbles up from `_list_short_ids`; per-id
-    extract errors are swallowed (a single dead short shouldn't kill the
-    whole channel's shorts fetch).
+    `ChannelNotFoundError` bubbles up from `_list_tab_ids`; per-id extract
+    errors are swallowed (a single dead item shouldn't kill the channel).
     """
     from yt_dlp.utils import DownloadError
 
-    ids = _list_short_ids(
-        channel_url, limit=max_probe, cookies_file=cookies_file,
-    )
+    as_short = tab == "shorts"
+    # Dispatch through the per-tab wrappers (not `_list_tab_ids` directly) so
+    # `_list_short_ids` / `_list_video_ids` and `_extract_short_metadata` /
+    # `_extract_video_metadata` stay the stable patch seams for tests.
+    list_ids = _list_short_ids if as_short else _list_video_ids
+    extract = _extract_short_metadata if as_short else _extract_video_metadata
+
+    ids = list_ids(channel_url, limit=max_probe, cookies_file=cookies_file)
     if not ids:
         return []
 
     out: list[_ChannelVideo] = []
     for vid in ids:
         try:
-            entry = _extract_short_metadata(vid, cookies_file=cookies_file)
+            entry = extract(vid, cookies_file=cookies_file)
         except DownloadError as e:
             # Per-id failure (deleted / age-gated / region-blocked).
-            # Skip and continue — don't break early-exit because one short
+            # Skip and continue — don't break early-exit because one item
             # rotted; the channel as a whole is still healthy.
             _console.print(
-                f"[dim]shorts/{vid}: skipped ({type(e).__name__})[/dim]"
+                f"[dim]{tab}/{vid}: skipped ({type(e).__name__})[/dim]"
             )
             continue
         if entry is None:
@@ -424,52 +490,68 @@ def _fetch_shorts(
     return out
 
 
-def _fetch_youtube_videos(ch: Channel, *, no_rss: bool) -> list[_ChannelVideo]:
-    """YouTube full-video stream: RSS by default, yt-dlp on `--no-rss`.
-
-    Extracted from the old per-channel branch so the four-mode router can
-    invoke it independently from the Shorts fetcher.
-    """
-    if no_rss:
-        return _fetch_via_yt_dlp(ch.url)
-    return [
-        _ChannelVideo(
-            video_id=e.video_id, url=e.url, title=e.title,
-            duration_sec=None, published=e.published,
-        )
-        for e in fetch_rss(ch.channel_id)
-    ]
-
-
-def _apply_window(
-    entries: list[_ChannelVideo],
-    ch: Channel,
-    window,
+def _fetch_shorts(
+    channel_url: str,
+    *,
+    in_window_fn,
+    cap: int,
+    cookies_file: str | None = None,
+    max_probe: int = 100,
 ) -> list[_ChannelVideo]:
-    """Apply window filter to a video stream; fall through to
-    `last_seen_published` cursor when no explicit window was provided.
-
-    Used for RSS / full-video streams. The Shorts path uses
-    `_make_in_window_predicate` instead because it walks one-by-one
-    and needs an early-exit check, not a list filter.
-    """
-    if window is not None:
-        return [e for e in entries if in_window(e.published, window)]
-    cutoff = (
-        _parse_iso(ch.last_seen_published) if ch.last_seen_published else None
+    """Early-exit walk through the `/shorts` tab. See `_fetch_tab`."""
+    return _fetch_tab(
+        channel_url, tab="shorts", in_window_fn=in_window_fn, cap=cap,
+        cookies_file=cookies_file, max_probe=max_probe,
     )
-    if cutoff is not None:
-        return [e for e in entries if e.published > cutoff]
-    return list(entries)
+
+
+def _fetch_videos(
+    channel_url: str,
+    *,
+    in_window_fn,
+    cookies_file: str | None = None,
+    max_probe: int = 60,
+) -> list[_ChannelVideo]:
+    """Early-exit walk through the `/videos` tab. See `_fetch_tab`.
+
+    cap=0: regular videos have no per-update cap (unlike shorts) — the
+    early-exit on the first out-of-window upload bounds the walk naturally.
+    """
+    return _fetch_tab(
+        channel_url, tab="videos", in_window_fn=in_window_fn, cap=0,
+        cookies_file=cookies_file, max_probe=max_probe,
+    )
+
+
+def _fetch_youtube_videos(
+    ch: Channel,
+    *,
+    in_window_fn,
+    cookies_file: str | None = None,
+) -> list[_ChannelVideo]:
+    """YouTube full-video stream via the channel's `/videos` tab.
+
+    v0.20: replaces the old RSS default. The RSS feed (`feeds/videos.xml`)
+    mixed live streams and premieres into the upload list — and returned
+    empty for some channels — so it could surface a stream as "the latest
+    video". The `/videos` tab lists regular long-form uploads only.
+
+    Dates aren't in the tab listing, so this early-exits the same way the
+    Shorts path does: walk newest-first, full-extract each id for its date,
+    stop at the first out-of-window upload.
+    """
+    return _fetch_videos(
+        ch.url, in_window_fn=in_window_fn, cookies_file=cookies_file,
+    )
 
 
 def _make_in_window_predicate(ch: Channel, window):
-    """Build a `(datetime) -> bool` predicate matching `_apply_window`'s
-    rules — explicit window beats stored cursor beats no-filter.
+    """Build a `(datetime) -> bool` window predicate: explicit window beats
+    stored `last_seen_published` cursor beats no-filter.
 
-    v0.17.1: separated from `_apply_window` because `_fetch_shorts`
-    walks entries one-by-one (for early-exit) and can't use the list-
-    based filter. Same semantics, different shape.
+    Both the `/videos` and `/shorts` fetchers walk entries one-by-one for
+    early-exit (the tab listings carry no dates), so they consume this
+    predicate rather than filtering a pre-dated list.
     """
     if window is not None:
         return lambda dt: in_window(dt, window)
@@ -517,7 +599,6 @@ def _fetch_youtube_entries(
     ch: Channel,
     *,
     effective_mode: str,
-    no_rss: bool,
     window,
     shorts_cap: int,
     youtube_cookies_file: str,
@@ -528,50 +609,53 @@ def _fetch_youtube_entries(
     post-cap, deduped where applicable). See docs/specs/v0.17-subscribes-shorts.md
     for the routing decision tree.
 
-    v0.17.1: Shorts path uses early-exit walk (`_fetch_shorts` takes an
-    in-window predicate + cap and stops at the first out-of-window short),
-    so the window/cap pipeline is now inside the fetcher rather than after
-    a bulk pull. This is a 5-10× speedup on dormant-channel auto fallback.
+    v0.17.1: Shorts path uses an early-exit walk (in-window predicate + cap,
+    stops at the first out-of-window short).
+    v0.20: the videos path does the same on the `/videos` tab (RSS retired —
+    it leaked livestreams and was empty for some channels), so both streams
+    now run the window inside the fetcher rather than after a bulk pull.
     """
-    if effective_mode == "videos-only":
-        videos = _fetch_youtube_videos(ch, no_rss=no_rss)
-        return _apply_window(videos, ch, window)
-
     in_window_pred = _make_in_window_predicate(ch, window)
+    cookies = youtube_cookies_file or None
+
+    if effective_mode == "videos-only":
+        return _fetch_youtube_videos(
+            ch, in_window_fn=in_window_pred, cookies_file=cookies,
+        )
 
     if effective_mode == "shorts-only":
         shorts = _fetch_shorts(
             ch.url,
             in_window_fn=in_window_pred,
             cap=shorts_cap,
-            cookies_file=youtube_cookies_file or None,
+            cookies_file=cookies,
         )
         _maybe_warn_cap_hit(shorts, ch, shorts_cap)
         return shorts
 
     if effective_mode == "shorts-and-videos":
-        videos = _apply_window(
-            _fetch_youtube_videos(ch, no_rss=no_rss), ch, window,
+        videos = _fetch_youtube_videos(
+            ch, in_window_fn=in_window_pred, cookies_file=cookies,
         )
         shorts = _fetch_shorts(
             ch.url,
             in_window_fn=in_window_pred,
             cap=shorts_cap,
-            cookies_file=youtube_cookies_file or None,
+            cookies_file=cookies,
         )
         _maybe_warn_cap_hit(shorts, ch, shorts_cap)
         # Sort by published desc, dedup by id. Shorts come first in the
         # concat so a colliding id (rare — same content visible on both
-        # tabs) keeps the Shorts entry (it has `duration_sec`, RSS path
-        # doesn't, and the Shorts URL is the canonical one for that ID).
+        # tabs) keeps the Shorts entry (its URL is the canonical `/shorts/`
+        # form for that ID).
         merged = sorted(
             shorts + videos, key=lambda e: e.published, reverse=True,
         )
         return _dedup_by_id(merged)
 
     # "auto": videos first, fallback to shorts only if window has nothing.
-    videos = _apply_window(
-        _fetch_youtube_videos(ch, no_rss=no_rss), ch, window,
+    videos = _fetch_youtube_videos(
+        ch, in_window_fn=in_window_pred, cookies_file=cookies,
     )
     if videos:
         return videos
@@ -579,7 +663,7 @@ def _fetch_youtube_entries(
         ch.url,
         in_window_fn=in_window_pred,
         cap=shorts_cap,
-        cookies_file=youtube_cookies_file or None,
+        cookies_file=cookies,
     )
     _maybe_warn_cap_hit(shorts, ch, shorts_cap)
     return shorts
@@ -594,7 +678,7 @@ def run_subscribes_update(
     until: date | None,
     match: str | None,
     filter_text: str | None,
-    no_rss: bool,
+    no_rss: bool,  # deprecated no-op since v0.20 (RSS retired; /videos always used)
     yes: bool,
     no_analyze: bool,
     prompt: str | None,
@@ -689,7 +773,6 @@ def run_subscribes_update(
                 entries = _fetch_youtube_entries(
                     ch,
                     effective_mode=effective_mode,
-                    no_rss=no_rss,
                     window=window,
                     shorts_cap=shorts_cap,
                     youtube_cookies_file=youtube_cookies_file,

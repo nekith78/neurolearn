@@ -256,6 +256,9 @@ def _default_editor() -> str:
 @click.option("--until", default=None)
 @click.option("--match", default=None)
 @click.option("--filter", "filter_text", default=None)
+# --no-rss: deprecated no-op since v0.20. RSS was retired as the YouTube
+# video source (it leaked livestreams and was empty for some channels);
+# the /videos tab is now always used. Flag kept so old scripts don't break.
 @click.option("--no-rss", is_flag=True, default=False)
 @click.option("--yes", is_flag=True, default=False)
 @click.option("--no-analyze", is_flag=True, default=False)

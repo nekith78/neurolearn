@@ -22,13 +22,33 @@ def _channel(handle="@A", channel_id="UC_a", last_id=None, last_pub=None,
     )
 
 
-def _rss(vid, pub_iso="2026-05-11T14:00:00+00:00"):
-    from skills.neurolearn.subscribes.rss import RssEntry
-    return RssEntry(
-        video_id=vid, url=f"https://www.youtube.com/watch?v={vid}",
-        title=f"Title {vid}", channel_id="UC_a",
-        published=datetime.fromisoformat(pub_iso),
-    )
+def _video_seam(*items):
+    """Patch targets for the v0.20 `/videos` early-exit walk.
+
+    `items`: (video_id, pub_iso[, duration]) tuples in newest-first order.
+    Returns ``(ids, extract_fn)`` to feed
+    ``patch("...pipeline._list_video_ids", return_value=ids)`` and
+    ``patch("...pipeline._extract_video_metadata", side_effect=extract_fn)``.
+    Mirrors the real fetcher: list IDs, then extract each id for its date,
+    so the window/early-exit logic under test runs for real.
+    """
+    from skills.neurolearn.subscribes.pipeline import _ChannelVideo
+    mapping: dict = {}
+    ids: list[str] = []
+    for it in items:
+        vid, pub = it[0], it[1]
+        dur = it[2] if len(it) > 2 else None
+        ids.append(vid)
+        mapping[vid] = _ChannelVideo(
+            video_id=vid, url=f"https://www.youtube.com/watch?v={vid}",
+            title=f"Title {vid}", duration_sec=dur,
+            published=datetime.fromisoformat(pub),
+        )
+
+    def extract(video_id, *, cookies_file=None):
+        return mapping.get(video_id)
+
+    return ids, extract
 
 
 def test_first_run_requires_window(tmp_path: Path):
@@ -62,15 +82,20 @@ def test_stateful_default_uses_last_seen(tmp_path: Path):
     from skills.neurolearn.subscribes.pipeline import run_subscribes_update
     sub_path = tmp_path / "subscribes.toml"
     ch = _channel(last_id="oldvid", last_pub="2026-05-10T00:00:00+00:00")
-    entries = [_rss("new1", "2026-05-12T00:00:00+00:00"),
-               _rss("old1", "2026-05-09T00:00:00+00:00")]
+    ids, extract = _video_seam(
+        ("new1", "2026-05-12T00:00:00+00:00"),
+        ("old1", "2026-05-09T00:00:00+00:00"),
+    )
 
     with patch(
         "skills.neurolearn.subscribes.pipeline.load_subscribes",
         return_value=[ch],
     ), patch(
-        "skills.neurolearn.subscribes.pipeline.fetch_rss",
-        return_value=entries,
+        "skills.neurolearn.subscribes.pipeline._list_video_ids",
+        return_value=ids,
+    ), patch(
+        "skills.neurolearn.subscribes.pipeline._extract_video_metadata",
+        side_effect=extract,
     ), patch(
         "skills.neurolearn.subscribes.pipeline._run_batch_pipeline",
         return_value=tmp_path / "out",
@@ -119,14 +144,17 @@ def test_bootstrap_first_run_initializes_state(tmp_path: Path):
     ch = _channel(last_id=None, last_pub=None)  # ← no state yet
     # Entry one day ago — well inside the 7-day bootstrap window.
     recent = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
-    entries = [_rss("v1", recent)]
+    ids, extract = _video_seam(("v1", recent))
 
     with patch(
         "skills.neurolearn.subscribes.pipeline.load_subscribes",
         return_value=[ch],
     ), patch(
-        "skills.neurolearn.subscribes.pipeline.fetch_rss",
-        return_value=entries,
+        "skills.neurolearn.subscribes.pipeline._list_video_ids",
+        return_value=ids,
+    ), patch(
+        "skills.neurolearn.subscribes.pipeline._extract_video_metadata",
+        side_effect=extract,
     ), patch(
         "skills.neurolearn.subscribes.pipeline._run_batch_pipeline",
         return_value=tmp_path / "out",
@@ -162,14 +190,17 @@ def test_state_advances_when_transcribe_batch_returns_none(tmp_path: Path):
     from skills.neurolearn.subscribes.pipeline import run_subscribes_update
     sub_path = tmp_path / "subscribes.toml"
     ch = _channel(last_id="oldvid", last_pub="2026-05-10T00:00:00+00:00")
-    entries = [_rss("recent", "2026-05-12T00:00:00+00:00")]
+    ids, extract = _video_seam(("recent", "2026-05-12T00:00:00+00:00"))
 
     with patch(
         "skills.neurolearn.subscribes.pipeline.load_subscribes",
         return_value=[ch],
     ), patch(
-        "skills.neurolearn.subscribes.pipeline.fetch_rss",
-        return_value=entries,
+        "skills.neurolearn.subscribes.pipeline._list_video_ids",
+        return_value=ids,
+    ), patch(
+        "skills.neurolearn.subscribes.pipeline._extract_video_metadata",
+        side_effect=extract,
     ), patch(
         "skills.neurolearn.subscribes.pipeline._run_batch_pipeline",
         return_value=None,  # ← simulate batch failure
@@ -201,14 +232,17 @@ def test_override_days_skips_state_update(tmp_path: Path):
     from skills.neurolearn.subscribes.pipeline import run_subscribes_update
     sub_path = tmp_path / "subscribes.toml"
     ch = _channel(last_id="oldvid", last_pub="2026-05-10T00:00:00+00:00")
-    entries = [_rss("v1", "2026-05-12T00:00:00+00:00")]
+    ids, extract = _video_seam(("v1", "2026-05-12T00:00:00+00:00"))
 
     with patch(
         "skills.neurolearn.subscribes.pipeline.load_subscribes",
         return_value=[ch],
     ), patch(
-        "skills.neurolearn.subscribes.pipeline.fetch_rss",
-        return_value=entries,
+        "skills.neurolearn.subscribes.pipeline._list_video_ids",
+        return_value=ids,
+    ), patch(
+        "skills.neurolearn.subscribes.pipeline._extract_video_metadata",
+        side_effect=extract,
     ), patch(
         "skills.neurolearn.subscribes.pipeline._run_batch_pipeline",
         return_value=tmp_path / "out",
@@ -235,30 +269,28 @@ def test_override_days_skips_state_update(tmp_path: Path):
     mock_state.assert_not_called()
 
 
-def test_no_rss_uses_yt_dlp_fallback(tmp_path: Path):
-    """--no-rss flag routes per-channel fetch through yt-dlp, not RSS."""
-    from skills.neurolearn.subscribes.pipeline import (
-        run_subscribes_update, _ChannelVideo,
-    )
+def test_youtube_videos_come_from_videos_tab(tmp_path: Path):
+    """v0.20: YouTube full-video fetch lists the channel's `/videos` tab
+    (RSS retired — it leaked livestreams). The fetcher hits `_list_video_ids`
+    with the channel URL, not RSS / the bare-channel yt-dlp scrape."""
+    from skills.neurolearn.subscribes.pipeline import run_subscribes_update
     sub_path = tmp_path / "subscribes.toml"
     ch = _channel(last_id="oldvid", last_pub="2026-05-10T00:00:00+00:00")
-    fake_yt_dlp_entries = [
-        _ChannelVideo(
-            video_id="yt1", url="https://www.youtube.com/watch?v=yt1",
-            title="Long video", duration_sec=900,
-            published=datetime(2026, 5, 12, tzinfo=timezone.utc),
-        ),
-    ]
+    ids, extract = _video_seam(("yt1", "2026-05-12T00:00:00+00:00", 900))
 
     with patch(
         "skills.neurolearn.subscribes.pipeline.load_subscribes",
         return_value=[ch],
     ), patch(
-        "skills.neurolearn.subscribes.pipeline.fetch_rss",
-    ) as mock_rss, patch(
+        "skills.neurolearn.subscribes.pipeline._list_video_ids",
+        return_value=ids,
+    ) as mock_list, patch(
+        "skills.neurolearn.subscribes.pipeline._extract_video_metadata",
+        side_effect=extract,
+    ), patch(
         "skills.neurolearn.subscribes.pipeline._fetch_via_yt_dlp",
-        return_value=fake_yt_dlp_entries,
-    ) as mock_yt, patch(
+        side_effect=AssertionError("YouTube must use the /videos tab, not the bare-channel scrape"),
+    ), patch(
         "skills.neurolearn.subscribes.pipeline._run_batch_pipeline",
         return_value=tmp_path / "out",
     ), patch(
@@ -271,33 +303,25 @@ def test_no_rss_uses_yt_dlp_fallback(tmp_path: Path):
             subscribes_path=sub_path,
             group=None, days=None, since=None, until=None,
             match=None, filter_text=None,
-            no_rss=True,  # ← force yt-dlp path
-            yes=True, no_analyze=True,
+            no_rss=False, yes=True, no_analyze=True,
             prompt=None, prompt_file=None,
             analyze_backend="gemini", filter_backend="gemini",
             ollama_model="llama3.2:3b", ollama_host="http://localhost:11434",
             no_stdout=False, output_dir=str(tmp_path),
             api_keys={}, batch_opts={},
         )
-    # RSS not called when --no-rss is set
-    mock_rss.assert_not_called()
-    # yt-dlp called instead, with the channel URL
-    mock_yt.assert_called_once()
+    mock_list.assert_called_once()
+    # Called with the channel URL; _list_video_ids appends `/videos` itself.
+    assert mock_list.call_args.args[0] == ch.url
 
 
-def test_no_rss_returns_duration(tmp_path: Path):
-    """When --no-rss is used, candidates carry duration_sec from yt-dlp."""
-    from skills.neurolearn.subscribes.pipeline import (
-        run_subscribes_update, _ChannelVideo,
-    )
+def test_videos_tab_carries_duration(tmp_path: Path):
+    """Candidates from the `/videos` walk carry duration_sec (from the
+    per-id extract), so downstream length filters still work."""
+    from skills.neurolearn.subscribes.pipeline import run_subscribes_update
     sub_path = tmp_path / "subscribes.toml"
     ch = _channel(last_id="oldvid", last_pub="2026-05-10T00:00:00+00:00")
-    fake_yt_dlp_entries = [
-        _ChannelVideo(
-            video_id="yt1", url="u", title="T", duration_sec=720,
-            published=datetime(2026, 5, 12, tzinfo=timezone.utc),
-        ),
-    ]
+    ids, extract = _video_seam(("yt1", "2026-05-12T00:00:00+00:00", 720))
 
     captured_targets = {}
 
@@ -309,8 +333,11 @@ def test_no_rss_returns_duration(tmp_path: Path):
         "skills.neurolearn.subscribes.pipeline.load_subscribes",
         return_value=[ch],
     ), patch(
-        "skills.neurolearn.subscribes.pipeline._fetch_via_yt_dlp",
-        return_value=fake_yt_dlp_entries,
+        "skills.neurolearn.subscribes.pipeline._list_video_ids",
+        return_value=ids,
+    ), patch(
+        "skills.neurolearn.subscribes.pipeline._extract_video_metadata",
+        side_effect=extract,
     ), patch(
         "skills.neurolearn.subscribes.pipeline._run_batch_pipeline",
         side_effect=capture_batch,
@@ -324,7 +351,7 @@ def test_no_rss_returns_duration(tmp_path: Path):
             subscribes_path=sub_path,
             group=None, days=None, since=None, until=None,
             match=None, filter_text=None,
-            no_rss=True, yes=True, no_analyze=True,
+            no_rss=False, yes=True, no_analyze=True,
             prompt=None, prompt_file=None,
             analyze_backend="gemini", filter_backend="gemini",
             ollama_model="llama3.2:3b", ollama_host="http://localhost:11434",
@@ -337,7 +364,7 @@ def test_no_rss_returns_duration(tmp_path: Path):
 
 
 def test_group_filters_channels(tmp_path: Path):
-    """--group ai-research should only fetch RSS for matching channels."""
+    """--group ai-research should only fetch videos for matching channels."""
     from skills.neurolearn.subscribes.pipeline import run_subscribes_update
     sub_path = tmp_path / "subscribes.toml"
     channels = [
@@ -350,9 +377,12 @@ def test_group_filters_channels(tmp_path: Path):
         "skills.neurolearn.subscribes.pipeline.load_subscribes",
         return_value=channels,
     ), patch(
-        "skills.neurolearn.subscribes.pipeline.fetch_rss",
+        "skills.neurolearn.subscribes.pipeline._list_video_ids",
         return_value=[],
-    ) as mock_rss, patch(
+    ) as mock_list, patch(
+        "skills.neurolearn.subscribes.pipeline._fetch_shorts",
+        return_value=[],
+    ), patch(
         "skills.neurolearn.subscribes.pipeline._stdin_is_tty",
         return_value=False,
     ), patch(
@@ -370,8 +400,9 @@ def test_group_filters_channels(tmp_path: Path):
             no_stdout=False, output_dir=str(tmp_path),
             api_keys={}, batch_opts={},
         )
-    # Only UC_ai1 fetched
-    mock_rss.assert_called_once_with("UC_ai1")
+    # Only the ai-research channel fetched.
+    mock_list.assert_called_once()
+    assert mock_list.call_args.args[0] == "https://www.youtube.com/@AI1"
 
 
 # === v0.8: Instagram / TikTok flows ===
@@ -405,9 +436,6 @@ def test_instagram_channel_uses_yt_dlp_with_cookies(tmp_path: Path):
     with patch(
         "skills.neurolearn.subscribes.pipeline.load_subscribes",
         return_value=[ch],
-    ), patch(
-        "skills.neurolearn.subscribes.pipeline.fetch_rss",
-        side_effect=AssertionError("RSS must NOT be used for Instagram"),
     ), patch(
         "skills.neurolearn.subscribes.pipeline._fetch_via_yt_dlp",
         side_effect=fake_fetch,
@@ -452,7 +480,7 @@ def test_username_change_surfaces_friendly_error(tmp_path: Path, capsys):
         last_id="x", last_pub="2026-05-01T00:00:00+00:00",
         platform="youtube",
     )
-    yt_rss = [_rss("yt_new", "2026-05-11T00:00:00+00:00")]
+    yt_ids, yt_extract = _video_seam(("yt_new", "2026-05-11T00:00:00+00:00"))
 
     def fake_fetch(url, *, cookies_file=None, limit=30, **kw):
         raise ChannelNotFoundError("user does not exist")
@@ -461,8 +489,11 @@ def test_username_change_surfaces_friendly_error(tmp_path: Path, capsys):
         "skills.neurolearn.subscribes.pipeline.load_subscribes",
         return_value=[ig_ch, yt_ch],
     ), patch(
-        "skills.neurolearn.subscribes.pipeline.fetch_rss",
-        return_value=yt_rss,
+        "skills.neurolearn.subscribes.pipeline._list_video_ids",
+        return_value=yt_ids,
+    ), patch(
+        "skills.neurolearn.subscribes.pipeline._extract_video_metadata",
+        side_effect=yt_extract,
     ), patch(
         "skills.neurolearn.subscribes.pipeline._fetch_via_yt_dlp",
         side_effect=fake_fetch,
@@ -540,9 +571,6 @@ def test_tiktok_channel_uses_yt_dlp_with_tiktok_cookies(tmp_path: Path):
     with patch(
         "skills.neurolearn.subscribes.pipeline.load_subscribes",
         return_value=[ch],
-    ), patch(
-        "skills.neurolearn.subscribes.pipeline.fetch_rss",
-        side_effect=AssertionError("RSS must NOT be used for TikTok"),
     ), patch(
         "skills.neurolearn.subscribes.pipeline._fetch_via_yt_dlp",
         side_effect=fake_fetch,
@@ -660,8 +688,8 @@ def test_platform_filter_restricts_to_one_platform(tmp_path: Path):
         "skills.neurolearn.subscribes.pipeline.load_subscribes",
         return_value=channels,
     ), patch(
-        "skills.neurolearn.subscribes.pipeline.fetch_rss",
-        side_effect=AssertionError("RSS must NOT be called: only TT in scope"),
+        "skills.neurolearn.subscribes.pipeline._list_video_ids",
+        side_effect=AssertionError("YouTube fetch must NOT fire: only TT in scope"),
     ), patch(
         "skills.neurolearn.subscribes.pipeline._fetch_via_yt_dlp",
         side_effect=fake_fetch,
@@ -820,23 +848,26 @@ def _common_pipeline_kwargs(tmp_path: Path) -> dict:
     )
 
 
-def test_auto_mode_with_rss_videos_does_not_fetch_shorts(tmp_path: Path):
-    """auto + RSS has entries in window → /shorts fetch must NOT fire."""
+def test_auto_mode_with_videos_does_not_fetch_shorts(tmp_path: Path):
+    """auto + the /videos tab has entries in window → /shorts must NOT fire."""
     from skills.neurolearn.subscribes.pipeline import run_subscribes_update
     ch = _channel_with_mode(
         mode="auto", last_id="oldvid",
         last_pub="2026-05-10T00:00:00+00:00",
     )
-    entries = [_rss("v_new", "2026-05-12T00:00:00+00:00")]
+    ids, extract = _video_seam(("v_new", "2026-05-12T00:00:00+00:00"))
     with patch(
         "skills.neurolearn.subscribes.pipeline.load_subscribes",
         return_value=[ch],
     ), patch(
-        "skills.neurolearn.subscribes.pipeline.fetch_rss",
-        return_value=entries,
+        "skills.neurolearn.subscribes.pipeline._list_video_ids",
+        return_value=ids,
+    ), patch(
+        "skills.neurolearn.subscribes.pipeline._extract_video_metadata",
+        side_effect=extract,
     ), patch(
         "skills.neurolearn.subscribes.pipeline._fetch_shorts",
-        side_effect=AssertionError("shorts must NOT be fetched on auto when RSS has entries"),
+        side_effect=AssertionError("shorts must NOT be fetched on auto when /videos has entries"),
     ), patch(
         "skills.neurolearn.subscribes.pipeline._run_batch_pipeline",
         return_value=tmp_path / "out",
@@ -851,7 +882,7 @@ def test_auto_mode_with_rss_videos_does_not_fetch_shorts(tmp_path: Path):
         run_subscribes_update(**_common_pipeline_kwargs(tmp_path))
 
 
-def test_auto_mode_falls_back_to_shorts_when_rss_empty(tmp_path: Path):
+def test_auto_mode_falls_back_to_shorts_when_videos_empty(tmp_path: Path):
     """Headline v0.17 scenario: channel hasn't uploaded any full videos in
     the window — auto-mode pulls Shorts so the user doesn't miss what's
     actually new on the channel."""
@@ -864,7 +895,7 @@ def test_auto_mode_falls_back_to_shorts_when_rss_empty(tmp_path: Path):
         "skills.neurolearn.subscribes.pipeline.load_subscribes",
         return_value=[ch],
     ), patch(
-        "skills.neurolearn.subscribes.pipeline.fetch_rss",
+        "skills.neurolearn.subscribes.pipeline._list_video_ids",
         return_value=[],
     ), patch(
         "skills.neurolearn.subscribes.pipeline._fetch_shorts",
@@ -898,7 +929,7 @@ def test_videos_only_mode_never_fetches_shorts(tmp_path: Path):
         "skills.neurolearn.subscribes.pipeline.load_subscribes",
         return_value=[ch],
     ), patch(
-        "skills.neurolearn.subscribes.pipeline.fetch_rss",
+        "skills.neurolearn.subscribes.pipeline._list_video_ids",
         return_value=[],
     ), patch(
         "skills.neurolearn.subscribes.pipeline._fetch_shorts",
@@ -913,7 +944,7 @@ def test_videos_only_mode_never_fetches_shorts(tmp_path: Path):
     assert result is None
 
 
-def test_shorts_only_mode_skips_rss(tmp_path: Path):
+def test_shorts_only_mode_skips_videos(tmp_path: Path):
     from skills.neurolearn.subscribes.pipeline import run_subscribes_update
     ch = _channel_with_mode(
         mode="shorts-only", last_id="oldvid",
@@ -923,8 +954,8 @@ def test_shorts_only_mode_skips_rss(tmp_path: Path):
         "skills.neurolearn.subscribes.pipeline.load_subscribes",
         return_value=[ch],
     ), patch(
-        "skills.neurolearn.subscribes.pipeline.fetch_rss",
-        side_effect=AssertionError("shorts-only must never call RSS"),
+        "skills.neurolearn.subscribes.pipeline._list_video_ids",
+        side_effect=AssertionError("shorts-only must never fetch the /videos tab"),
     ), patch(
         "skills.neurolearn.subscribes.pipeline._fetch_shorts",
         return_value=[_short("s1", "2026-05-12T00:00:00+00:00")],
@@ -949,10 +980,11 @@ def test_shorts_and_videos_mode_merges_and_sorts_by_date(tmp_path: Path):
         mode="shorts-and-videos", last_id="oldvid",
         last_pub="2026-05-10T00:00:00+00:00",
     )
-    rss_entries = [
-        _rss("v_old", "2026-05-11T00:00:00+00:00"),
-        _rss("v_new", "2026-05-14T00:00:00+00:00"),
-    ]
+    # Newest-first (the /videos walk relies on order); both inside window.
+    video_ids, video_extract = _video_seam(
+        ("v_new", "2026-05-14T00:00:00+00:00"),
+        ("v_old", "2026-05-11T00:00:00+00:00"),
+    )
     short_entries = [
         _short("s_mid", "2026-05-13T00:00:00+00:00"),
     ]
@@ -966,8 +998,11 @@ def test_shorts_and_videos_mode_merges_and_sorts_by_date(tmp_path: Path):
         "skills.neurolearn.subscribes.pipeline.load_subscribes",
         return_value=[ch],
     ), patch(
-        "skills.neurolearn.subscribes.pipeline.fetch_rss",
-        return_value=rss_entries,
+        "skills.neurolearn.subscribes.pipeline._list_video_ids",
+        return_value=video_ids,
+    ), patch(
+        "skills.neurolearn.subscribes.pipeline._extract_video_metadata",
+        side_effect=video_extract,
     ), patch(
         "skills.neurolearn.subscribes.pipeline._fetch_shorts",
         return_value=short_entries,
@@ -1001,12 +1036,16 @@ def test_shorts_and_videos_mode_dedups_shared_id(tmp_path: Path):
         captured["video_ids"] = [t.video_id for t in targets]
         return tmp_path / "out"
 
+    dup_ids, dup_extract = _video_seam(("dup", "2026-05-12T00:00:00+00:00"))
     with patch(
         "skills.neurolearn.subscribes.pipeline.load_subscribes",
         return_value=[ch],
     ), patch(
-        "skills.neurolearn.subscribes.pipeline.fetch_rss",
-        return_value=[_rss("dup", "2026-05-12T00:00:00+00:00")],
+        "skills.neurolearn.subscribes.pipeline._list_video_ids",
+        return_value=dup_ids,
+    ), patch(
+        "skills.neurolearn.subscribes.pipeline._extract_video_metadata",
+        side_effect=dup_extract,
     ), patch(
         "skills.neurolearn.subscribes.pipeline._fetch_shorts",
         return_value=[_short("dup", "2026-05-12T00:00:00+00:00")],
@@ -1027,18 +1066,22 @@ def test_shorts_and_videos_mode_dedups_shared_id(tmp_path: Path):
 
 def test_cli_override_mode_beats_stored_mode(tmp_path: Path):
     """Channel stored as shorts-only; cli_override_mode='videos-only' on
-    this call should suppress /shorts and run RSS only."""
+    this call should suppress /shorts and fetch the /videos tab only."""
     from skills.neurolearn.subscribes.pipeline import run_subscribes_update
     ch = _channel_with_mode(
         mode="shorts-only", last_id="oldvid",
         last_pub="2026-05-10T00:00:00+00:00",
     )
+    ov_ids, ov_extract = _video_seam(("v_new", "2026-05-12T00:00:00+00:00"))
     with patch(
         "skills.neurolearn.subscribes.pipeline.load_subscribes",
         return_value=[ch],
     ), patch(
-        "skills.neurolearn.subscribes.pipeline.fetch_rss",
-        return_value=[_rss("v_new", "2026-05-12T00:00:00+00:00")],
+        "skills.neurolearn.subscribes.pipeline._list_video_ids",
+        return_value=ov_ids,
+    ), patch(
+        "skills.neurolearn.subscribes.pipeline._extract_video_metadata",
+        side_effect=ov_extract,
     ), patch(
         "skills.neurolearn.subscribes.pipeline._fetch_shorts",
         side_effect=AssertionError("CLI override videos-only must skip /shorts"),
@@ -1311,3 +1354,87 @@ def test_ig_channel_ignores_mode_field(tmp_path: Path):
         kw["days"] = 30  # explicit window so IG date filter passes
         run_subscribes_update(**kw)
     ig_mock.assert_called_once()
+
+
+# --- _fetch_videos internals: /videos tab early-exit walk (v0.20) ---
+
+def _vid(vid, pub_iso="2026-05-15T12:00:00+00:00", duration=600):
+    """Construct a _ChannelVideo as a /videos entry would look post-fetch."""
+    from skills.neurolearn.subscribes.pipeline import _ChannelVideo
+    return _ChannelVideo(
+        video_id=vid,
+        url=f"https://www.youtube.com/watch?v={vid}",
+        title=f"Video {vid}",
+        duration_sec=duration,
+        published=datetime.fromisoformat(pub_iso),
+    )
+
+
+def test_list_video_ids_targets_the_videos_tab():
+    """_list_video_ids must list the /videos tab (not /streams, not the
+    bare channel) — that is the whole fix: regular uploads, no livestreams."""
+    from skills.neurolearn.subscribes import pipeline as pl
+    seen: dict = {}
+
+    def fake_tab(channel_url, *, tab, limit=50, cookies_file=None):
+        seen["tab"] = tab
+        seen["url"] = channel_url
+        return ["v1"]
+
+    with patch.object(pl, "_list_tab_ids", side_effect=fake_tab):
+        ids = pl._list_video_ids("https://www.youtube.com/@chan")
+    assert ids == ["v1"]
+    assert seen["tab"] == "videos"
+    assert seen["url"] == "https://www.youtube.com/@chan"
+
+
+def test_fetch_videos_stops_at_first_out_of_window():
+    """Newest-first walk on /videos: the first out-of-window upload stops
+    the walk — older IDs are never extracted (same early-exit as shorts)."""
+    from skills.neurolearn.subscribes import pipeline as pl
+    extracted: list[str] = []
+
+    def fake_extract(vid, *, cookies_file=None):
+        extracted.append(vid)
+        if vid == "v1":
+            return _vid("v1", "2026-05-20T00:00:00+00:00")
+        return _vid(vid, "2026-04-10T00:00:00+00:00")
+
+    cutoff = datetime(2026, 5, 1, tzinfo=timezone.utc)
+    with patch.object(pl, "_list_video_ids", return_value=["v1", "v2", "v3"]), \
+         patch.object(pl, "_extract_video_metadata", side_effect=fake_extract):
+        result = pl._fetch_videos(
+            "https://www.youtube.com/@chan",
+            in_window_fn=lambda dt: dt >= cutoff,
+        )
+    assert extracted == ["v1", "v2"]  # v3 never touched
+    assert [e.video_id for e in result] == ["v1"]
+
+
+def test_fetch_videos_empty_id_list_returns_empty():
+    """No /videos tab at all → no per-id extract calls."""
+    from skills.neurolearn.subscribes import pipeline as pl
+    with patch.object(pl, "_list_video_ids", return_value=[]), \
+         patch.object(
+             pl, "_extract_video_metadata",
+             side_effect=AssertionError("must not extract with empty ids"),
+         ):
+        result = pl._fetch_videos(
+            "https://www.youtube.com/@chan", in_window_fn=lambda dt: True,
+        )
+    assert result == []
+
+
+def test_extract_video_vs_short_metadata_url_shape():
+    """Same id, different recorded URL: /watch?v= for videos, /shorts/ for
+    shorts. Both extract via watch?v= but record the canonical tab URL."""
+    from skills.neurolearn.subscribes import pipeline as pl
+    info = {"timestamp": 1747699200, "duration": 612, "title": "T"}
+    fake_ydl = MagicMock()
+    fake_ydl.__enter__.return_value.extract_info.return_value = info
+    with patch("yt_dlp.YoutubeDL", return_value=fake_ydl):
+        v = pl._extract_video_metadata("abc")
+        s = pl._extract_short_metadata("abc")
+    assert v.url == "https://www.youtube.com/watch?v=abc"
+    assert s.url == "https://www.youtube.com/shorts/abc"
+    assert v.duration_sec == 612 and v.title == "T"

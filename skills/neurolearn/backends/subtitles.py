@@ -45,6 +45,38 @@ def _build_authenticated_session(cookies_path: str | None):
     return session
 
 
+def _dedup_langs(codes: list[str]) -> list[str]:
+    seen: set[str] = set()
+    out: list[str] = []
+    for c in codes:
+        if c and c not in seen:
+            seen.add(c)
+            out.append(c)
+    return out
+
+
+def _ytdlp_caption_langs(url: str, cookies_file: str | None) -> list[str]:
+    """Caption language codes from yt-dlp metadata, original-first. Works
+    with cookies / PO Token even when the timedtext endpoint is IP-blocked
+    (which is exactly when the transcript-api listing fails)."""
+    from yt_dlp import YoutubeDL
+
+    opts = {"quiet": True, "no_warnings": True, "skip_download": True}
+    if cookies_file:
+        opts["cookiefile"] = cookies_file
+    with YoutubeDL(opts) as ydl:
+        info = ydl.extract_info(url, download=False) or {}
+    manual = list((info.get("subtitles") or {}).keys())
+    auto = list((info.get("automatic_captions") or {}).keys())
+    ordered: list[str] = []
+    orig = info.get("language")
+    if orig:
+        ordered.append(orig)                      # audio/original language
+    ordered += [k for k in (manual + auto) if k.endswith("-orig")]
+    ordered += manual + auto
+    return _dedup_langs(ordered)
+
+
 class _ApiAdapter:
     """Adapter over youtube-transcript-api ≥0.6 instance-based API.
     Returns list of dicts with text/start/duration keys for backend convenience."""
@@ -68,6 +100,23 @@ class _ApiAdapter:
             {"start": s.start, "duration": s.duration, "text": s.text}
             for s in fetched
         ]
+
+    def list_language_codes(self, video_id: str) -> list[str]:
+        """Base (non-translation) caption languages, original-first:
+        manually-created first, then auto-generated. Used to pick the
+        ORIGINAL language for `language=auto` instead of hardcoding 'en'."""
+        from youtube_transcript_api import YouTubeTranscriptApi
+
+        session = _build_authenticated_session(self._cookies_file)
+        api = (
+            YouTubeTranscriptApi(http_client=session)
+            if session is not None
+            else YouTubeTranscriptApi()
+        )
+        tl = api.list(video_id)
+        manual = [t.language_code for t in tl if not t.is_generated]
+        generated = [t.language_code for t in tl if t.is_generated]
+        return manual + generated
 
 
 def _run_yt_dlp_subtitle_pass(
@@ -263,7 +312,17 @@ class SubtitlesBackend:
         except Exception:
             cookies_file = None
 
-        languages = [language] if language != "auto" else ["en"]
+        # v0.19.x: on `auto`, request the video's ORIGINAL caption language
+        # instead of hardcoding English — otherwise non-English videos (which
+        # DO have captions, just not English) always fall through to an audio
+        # download. Resolve original-first; fall back to ["en"] only if we
+        # can't discover any caption languages (preserves old behaviour).
+        if language != "auto":
+            languages = [language]
+        else:
+            languages = self._resolve_auto_languages(
+                video_id, url, cookies_file
+            ) or ["en"]
 
         # v0.15.3: two-tier subtitle fetch. Path 1 is fast (~3 s, pure
         # Python, no subprocess). When YouTube IP-blocks the timedtext
@@ -294,6 +353,26 @@ class SubtitlesBackend:
     # ------------------------------------------------------------------
     # v0.15.3: subtitle fetch paths
     # ------------------------------------------------------------------
+
+    def _resolve_auto_languages(
+        self, video_id: str, url: str, cookies_file: str | None,
+    ) -> list[str]:
+        """Discover caption languages original-first for `language=auto`.
+        1) transcript-api listing (no media download); 2) yt-dlp metadata
+        fallback (survives timedtext IP-blocks). [] when nothing found —
+        caller then falls back to ['en']."""
+        try:
+            codes = _get_transcript_api(
+                cookies_file=cookies_file
+            ).list_language_codes(video_id)
+            if codes:
+                return _dedup_langs(codes)
+        except Exception:
+            pass
+        try:
+            return _ytdlp_caption_langs(url, cookies_file)
+        except Exception:
+            return []
 
     def _fetch_via_transcript_api(
         self, video_id: str, languages: list[str], cookies_file: str | None,

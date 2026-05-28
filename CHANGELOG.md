@@ -3,6 +3,33 @@
 All notable changes to neurolearn will be documented here.
 The format is loosely based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.20.0] — 2026-05-28
+
+Two correctness fixes to `subscribes`/`smart` that surfaced while testing
+real channels: the wrong videos were being picked, and subtitles weren't
+being used when they existed.
+
+### Fixed
+
+- **`subscribes` picked livestreams instead of regular videos.** The
+  YouTube video source was the RSS feed (`feeds/videos.xml`), which mixes
+  in live VODs and premieres — and was empty for some channels — so a
+  stream could be selected as "the latest video". The fetch now lists the
+  channel's **`/videos` tab** explicitly (regular long-form uploads only;
+  livestreams live under `/streams`, shorts under `/shorts`). Like the
+  Shorts path, it walks IDs newest-first and extracts each for its date,
+  stopping at the first out-of-window upload. RSS is retired as the
+  YouTube source; `subscribes update --no-rss` is now a **deprecated
+  no-op** (kept so old scripts don't break).
+- **`smart`/subtitles ignored existing non-English captions.** With
+  `language="auto"` (the default), the subtitle backend requested
+  English-only, so a Russian (or any non-English) video with perfectly
+  good native captions fell through to a full audio download + ASR
+  instead. `auto` now resolves the video's actual caption languages
+  (original track first) from the transcript API listing, falling back to
+  yt-dlp metadata — so subtitles engage when they exist, regardless of
+  language.
+
 ## [0.19.0] — 2026-05-28
 
 Anti-block hardening: stay under YouTube's per-IP rate limits, and make the

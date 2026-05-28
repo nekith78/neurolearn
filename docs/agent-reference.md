@@ -139,10 +139,13 @@ subscribes schedule uninstall
 
 `subscribes update` rules:
 
-- For each channel: fetch RSS (fast) or yt-dlp scrape (with `--no-rss`),
-  filter to videos newer than `last_seen_published`, transcribe, batch-output.
+- For each channel (YouTube, v0.20+): early-exit walk the `/videos` tab
+  (and/or `/shorts` per `mode`) — list IDs newest-first, extract each for
+  its date, stop at the first out-of-window upload — then transcribe,
+  batch-output. RSS was retired (it leaked livestreams and was empty for
+  some channels); `--no-rss` is a deprecated no-op.
 - First run on a channel **without** state: require `--days N` or `--since`.
-- After RSS yields entries, advance `last_seen_*` **regardless** of
+- After the fetch yields entries, advance `last_seen_*` **regardless** of
   transcription success (v0.7 bootstrap fix — see §5).
 - `--days` / `--since` / `--until` override the incremental window. On a
   channel that *already has state*, the override DOES NOT touch state. On a
@@ -334,7 +337,7 @@ Schemas live in code:
 
 ### `subscribes` state semantics (v0.7 bootstrap rule)
 
-- `last_seen_published` advances after every successful RSS fetch that yielded
+- `last_seen_published` advances after every successful fetch that yielded
   entries, regardless of subsequent transcription outcome. A one-off 429 does
   not pin the channel.
 - First run on a channel **with** `--days N` (or `--since`): bootstrap path
@@ -354,7 +357,7 @@ Failed video_ids stay in `errors.log` of each batch dir. Re-fetch them via
 |---|---|---|---|---|---|
 | `transcribe <URL>` / `batch <URL>` | ✓ | ✓ (needs `--cookies-file`) | ✓ | ✓ | ✓ |
 | `research "query"` | ✓ | ✗ | ✗ | ✗ | n/a |
-| `subscribes` | ✓ (RSS) | ✓ (cookies + yt-dlp / instaloader fallback) | ✓ (cookies + yt-dlp) | ✗ | n/a |
+| `subscribes` | ✓ (`/videos` + `/shorts` tabs via yt-dlp) | ✓ (cookies + yt-dlp / instaloader fallback) | ✓ (cookies + yt-dlp) | ✗ | n/a |
 
 Instagram URL detector lives in
 [`utils/downloader.py`](../skills/neurolearn/utils/downloader.py)
@@ -365,7 +368,8 @@ upstream in the same file.
 
 `subscribes` per-platform source dispatch lives in
 [`subscribes/pipeline.py`](../skills/neurolearn/subscribes/pipeline.py):
-- **YouTube** — RSS feed (no cookies needed).
+- **YouTube** — `/videos` and/or `/shorts` tabs via yt-dlp flat-extract,
+  newest-first early-exit walk (v0.20; RSS retired). Cookies optional.
 - **Instagram** — yt-dlp first; if its profile extractor is marked broken
   upstream (signature: `"marked as broken"` / `"unable to extract data"` /
   `"empty media response"`), falls back to **instaloader** (`[instagram]`
