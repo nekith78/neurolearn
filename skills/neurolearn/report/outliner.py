@@ -18,6 +18,7 @@ Outline shape is JSON-serializable for embedding into manifest.json
 and for debugging via `--keep-json` flag.
 """
 from __future__ import annotations
+from skills.neurolearn.constants import DEFAULT_OLLAMA_HOST, DEFAULT_OLLAMA_MODEL
 
 import json
 import re
@@ -110,8 +111,8 @@ def build_outline(
     api_key: str | None = None,       # backend API key
     custom_template: str | None = None,   # CLI --prompt-file content, optional
     use_global_prefix: bool = True,
-    ollama_model: str = "llama3.2:3b",
-    ollama_host: str = "http://localhost:11434",
+    ollama_model: str = DEFAULT_OLLAMA_MODEL,
+    ollama_host: str = DEFAULT_OLLAMA_HOST,
 ) -> Outline:
     """Produce a structured outline for the report.
 
@@ -173,8 +174,8 @@ def _build_outline_single_call(
     user_filter: str,
     backend: str,
     api_key: str | None,
-    ollama_model: str = "llama3.2:3b",
-    ollama_host: str = "http://localhost:11434",
+    ollama_model: str = DEFAULT_OLLAMA_MODEL,
+    ollama_host: str = DEFAULT_OLLAMA_HOST,
 ) -> Outline:
     """One shot — for short videos."""
     visual_excerpt = _render_visual_segments(visual_segments)
@@ -209,8 +210,8 @@ def _build_outline_hierarchical(
     user_filter: str,
     backend: str,
     api_key: str | None,
-    ollama_model: str = "llama3.2:3b",
-    ollama_host: str = "http://localhost:11434",
+    ollama_model: str = DEFAULT_OLLAMA_MODEL,
+    ollama_host: str = DEFAULT_OLLAMA_HOST,
 ) -> Outline:
     """Long-video path. Chunks transcript by time, runs one LLM call per
     chunk, then a final assembly call to weld outputs together."""

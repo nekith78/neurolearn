@@ -979,7 +979,7 @@ def _parse_iso(s: str) -> datetime | None:
 
 
 def _backend_to_key(backend: str) -> str:
-    return {"gemini": "gemini", "claude": "anthropic",
+    return {"gemini": "gemini", "groq": "groq",
             "openai": "openai", "ollama": "ollama"}[backend]
 
 

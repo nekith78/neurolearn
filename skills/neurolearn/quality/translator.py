@@ -14,6 +14,7 @@ v0.12.0: "claude" backend removed (see feedback_no_anthropic_api). Groq
 Llama-3.3-70b replaces it as the default cheap-LLM translator.
 """
 from __future__ import annotations
+from skills.neurolearn.constants import DEFAULT_OLLAMA_HOST, DEFAULT_OLLAMA_MODEL
 
 import json
 import re
@@ -81,8 +82,8 @@ def translate_transcript(
     *,
     api_key: str | None,
     backend: str = "gemini",
-    ollama_model: str = "llama3.2:3b",
-    ollama_host: str = "http://localhost:11434",
+    ollama_model: str = DEFAULT_OLLAMA_MODEL,
+    ollama_host: str = DEFAULT_OLLAMA_HOST,
 ) -> list[Segment]:
     """Translate transcript to target_lang. Best-effort.
 

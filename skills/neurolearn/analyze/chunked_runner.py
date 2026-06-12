@@ -16,6 +16,7 @@ the budget, this transparently falls through to the existing
 `build_prompt` + `run_analysis` path — one call, no behaviour change.
 """
 from __future__ import annotations
+from skills.neurolearn.constants import DEFAULT_OLLAMA_HOST, DEFAULT_OLLAMA_MODEL
 
 from typing import Callable
 
@@ -41,8 +42,8 @@ def run_analysis_chunked(
     *,
     backend: str,
     api_key: str | None,
-    ollama_model: str = "llama3.2:3b",
-    ollama_host: str = "http://localhost:11434",
+    ollama_model: str = DEFAULT_OLLAMA_MODEL,
+    ollama_host: str = DEFAULT_OLLAMA_HOST,
     max_input_chars: int = MAX_INPUT_CHARS,
     build_max_chars: int = 60_000,
     on_status: Callable[[str], None] | None = None,

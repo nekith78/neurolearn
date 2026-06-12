@@ -314,7 +314,7 @@ def _ask_groq_tier_and_models(
     cfg.groq_model = _ask_model_override(
         "Groq model for AUDIO",
         default="whisper-large-v3-turbo",
-        suggestions="whisper-large-v3-turbo, whisper-large-v3, distil-whisper-large-v3-en",
+        suggestions="whisper-large-v3-turbo, whisper-large-v3",
     )
     if vision_backend == "groq":
         cfg.groq_vision_model = _ask_model_override(

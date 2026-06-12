@@ -7,13 +7,13 @@ prices for each provider.
 Output goes into `manifest.json` so users can see exactly what each
 batch cost without spelunking through provider dashboards.
 
-Prices (as of 2026-05 — refresh when providers re-price):
-  gemini-2.5-flash : $0.30 / 1M input,  $2.50 / 1M output
-                     50% off via Batch API (not modeled — opt-in)
-                     75% off on cached input tokens
-  claude-sonnet-4.6: $3.00 / 1M input,  $15.00 / 1M output
-  claude-haiku-4.5 : $0.80 / 1M input,  $4.00 / 1M output
-  gpt-4o           : $2.50 / 1M input,  $10.00 / 1M output
+Prices (as of 2026-06 — refresh when providers re-price). `_PROVIDER_PRICES`
+below is the authoritative table; the tool's own default analyze/vision models
+(gemini-3.5-flash, llama-3.3-70b-versatile, llama-4-scout) are included so a
+default run is metered correctly rather than at $0. Any model absent from the
+table reports $0 and is surfaced via `summary()["unpriced_models"]` so the gap
+is visible. Groq Whisper audio is billed per audio-hour (not per token) and is
+deliberately not in this token-price table.
 """
 from __future__ import annotations
 
@@ -22,11 +22,16 @@ from typing import Literal
 
 
 _PROVIDER_PRICES: dict[str, tuple[float, float]] = {
-    # (input_per_million_usd, output_per_million_usd)
+    # (input_per_million_usd, output_per_million_usd) — refresh when re-priced.
+    # Gemini (Google AI).
     "gemini-2.5-flash": (0.30, 2.50),
     "gemini-2.5-pro":   (1.25, 10.00),
-    "claude-sonnet-4-6": (3.00, 15.00),
-    "claude-haiku-4-5":  (0.80, 4.00),
+    "gemini-3.5-flash": (1.50, 9.00),
+    # Groq (LPU): llama-3.3-70b for analyze / filter / ASR-correction /
+    # translate; llama-4-scout for vision.
+    "llama-3.3-70b-versatile": (0.59, 0.79),
+    "meta-llama/llama-4-scout-17b-16e-instruct": (0.11, 0.34),
+    # OpenAI.
     "gpt-4o":            (2.50, 10.00),
     "gpt-4o-mini":       (0.15, 0.60),
 }
@@ -98,6 +103,13 @@ class BudgetTracker:
     def total_cost_usd(self) -> float:
         return sum(r.cost_usd() for r in self.records)
 
+    def unpriced_models(self) -> list[str]:
+        """Recorded model names that have no entry in _PROVIDER_PRICES, so
+        their cost is reported as $0. Surfaced in summary() so a run on a
+        model we don't have a price for isn't silently metered at zero."""
+        seen = {r.model for r in self.records}
+        return sorted(m for m in seen if m not in _PROVIDER_PRICES)
+
     def by_stage(self) -> dict[str, dict]:
         out: dict[str, dict] = {}
         for r in self.records:
@@ -119,8 +131,12 @@ class BudgetTracker:
 
     def summary(self) -> dict:
         """Compact dict for embedding into manifest.json."""
-        return {
+        out = {
             "total_cost_usd": round(self.total_cost_usd(), 6),
             "total_calls": len(self.records),
             "by_stage": self.by_stage(),
         }
+        unpriced = self.unpriced_models()
+        if unpriced:
+            out["unpriced_models"] = unpriced
+        return out

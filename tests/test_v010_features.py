@@ -254,7 +254,7 @@ def test_extract_keyframes_asymmetric_uses_correct_offsets(tmp_path):
 
     captured_starts: list[float] = []
 
-    def fake_run(cmd, check=True):
+    def fake_run(cmd, check=True, **kwargs):
         # `-ss <ts>` is the seek timestamp.
         ss_idx = cmd.index("-ss")
         captured_starts.append(float(cmd[ss_idx + 1]))
@@ -283,7 +283,7 @@ def test_asymmetric_clamps_negative_to_zero(tmp_path):
 
     captured_starts: list[float] = []
 
-    def fake_run(cmd, check=True):
+    def fake_run(cmd, check=True, **kwargs):
         ss_idx = cmd.index("-ss")
         captured_starts.append(float(cmd[ss_idx + 1]))
         out_path = Path(cmd[-1])

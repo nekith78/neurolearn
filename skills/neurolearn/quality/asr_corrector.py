@@ -16,6 +16,7 @@ Single call per video; cost ≈ $0.001-$0.01 depending on transcript
 length and chosen backend.
 """
 from __future__ import annotations
+from skills.neurolearn.constants import DEFAULT_OLLAMA_HOST, DEFAULT_OLLAMA_MODEL
 
 import json
 import re
@@ -83,8 +84,8 @@ def correct_transcript_via_llm(
     *,
     api_key: str | None,
     backend: str = "gemini",
-    ollama_model: str = "llama3.2:3b",
-    ollama_host: str = "http://localhost:11434",
+    ollama_model: str = DEFAULT_OLLAMA_MODEL,
+    ollama_host: str = DEFAULT_OLLAMA_HOST,
 ) -> list[Segment]:
     """Run a single LLM call to fix obvious ASR errors. Best-effort.
 
@@ -164,8 +165,8 @@ def _call_openai(prompt: str, api_key: str) -> str:
 def _call_ollama(
     prompt: str,
     *,
-    model: str = "llama3.2:3b",
-    host: str = "http://localhost:11434",
+    model: str = DEFAULT_OLLAMA_MODEL,
+    host: str = DEFAULT_OLLAMA_HOST,
 ) -> str:
     """POST to local Ollama daemon. Requires `ollama serve` running.
 

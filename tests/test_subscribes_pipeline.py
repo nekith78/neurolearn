@@ -1438,3 +1438,14 @@ def test_extract_video_vs_short_metadata_url_shape():
     assert v.url == "https://www.youtube.com/watch?v=abc"
     assert s.url == "https://www.youtube.com/shorts/abc"
     assert v.duration_sec == 612 and v.title == "T"
+
+
+def test_backend_to_key_maps_valid_filter_backends_not_claude():
+    """Regression: --filter-backend used to offer 'claude' → mapped to the
+    never-wired 'anthropic' key and crashed run_analysis. The valid set is
+    gemini/groq/openai/ollama (all identity); 'claude' is gone."""
+    from skills.neurolearn.subscribes.pipeline import _backend_to_key
+    for backend in ("gemini", "groq", "openai", "ollama"):
+        assert _backend_to_key(backend) == backend
+    with pytest.raises(KeyError):
+        _backend_to_key("claude")

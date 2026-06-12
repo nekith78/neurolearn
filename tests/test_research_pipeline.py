@@ -1,5 +1,5 @@
 """Tests for research.pipeline — full orchestration with mocked dependencies."""
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 
@@ -9,7 +9,7 @@ def _candidate(vid="v1", title="T", url=None, lang="en"):
     return SearchCandidate(
         video_id=vid, url=url or f"https://www.youtube.com/watch?v={vid}",
         title=title, channel="ch", duration_sec=300,
-        upload_date=date(2026, 5, 11), source_language=lang,
+        upload_date=date.today() - timedelta(days=2), source_language=lang,
     )
 
 
@@ -319,3 +319,17 @@ def test_pipeline_status_ok_on_happy_path(tmp_path: Path):
         )
 
     assert captured.get("status") == "ok"
+
+
+def test_backend_to_key_maps_valid_filter_backends_not_claude():
+    """Regression: research --filter-backend/--translate-backend 'groq' used to
+    KeyError (map lacked 'groq') and 'claude' mapped to the never-wired
+    'anthropic' key. Valid set is gemini/groq/openai/ollama (identity)."""
+    from skills.neurolearn.research.pipeline import _backend_to_key
+    for backend in ("gemini", "groq", "openai", "ollama"):
+        assert _backend_to_key(backend) == backend
+    try:
+        _backend_to_key("claude")
+        assert False, "claude should no longer be a valid backend key"
+    except KeyError:
+        pass

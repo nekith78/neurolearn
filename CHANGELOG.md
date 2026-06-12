@@ -3,6 +3,49 @@
 All notable changes to neurolearn will be documented here.
 The format is loosely based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.20.2] — 2026-06-12
+
+Cleanup + resilience pass: finished the Anthropic-SDK removal that earlier
+versions started, fixed two crash-on-`groq`/`claude` filter paths, made cost
+metering honest for the default models, and bounded vision/ffmpeg calls.
+
+### Fixed
+
+- **`subscribes update --filter --filter-backend claude` crashed.** The flag
+  still offered `claude`, which mapped to the never-wired `anthropic` key and
+  raised `ValueError: unknown backend: 'claude'`. The valid set is now
+  `gemini / groq / openai / ollama` (matching `--analyze-backend`).
+- **`research --filter-backend groq` / `--translate-backend groq` crashed**
+  with a `KeyError` — the backend→key map lacked `groq` and still carried a
+  dead `claude → anthropic` entry. Both `_backend_to_key` maps are fixed.
+- **Cost reporting metered default runs at $0.** `budget.py`'s price table
+  omitted the tool's own default models, so a default analyze/vision run
+  reported zero cost. Added current prices for `gemini-3.5-flash`,
+  `llama-3.3-70b-versatile`, and `llama-4-scout`; any unpriced model now
+  surfaces in `summary()["unpriced_models"]` instead of silently costing $0.
+
+### Changed
+
+- Wizard no longer suggests `distil-whisper-large-v3-en` for Groq audio —
+  Groq deprecated it in favour of `whisper-large-v3-turbo` (faster,
+  multilingual, lower WER). Suggestions are now
+  `whisper-large-v3-turbo, whisper-large-v3`.
+
+### Robustness
+
+- Vision API calls (Gemini / Groq / OpenAI) and ffmpeg keyframe extraction
+  now carry a 120s timeout, so a hung request or a corrupt video can no
+  longer block the pipeline indefinitely.
+
+### Internal
+
+- Removed the dead `anthropic` / `claude` remnants left over from the v0.12
+  Anthropic-SDK removal: the `ANTHROPIC_API_KEY` registry entry, the
+  `claude → anthropic` maps in the ASR-correction / translation paths, and
+  the stale `anthropic` key in the subscribes / webui key dicts.
+- Single source of truth for the default Ollama model/host
+  (`skills/neurolearn/constants.py`) — previously duplicated across ~14 files.
+
 ## [0.20.1] — 2026-05-28
 
 Follow-up to v0.20.0 from a code+security review of that change.

@@ -22,6 +22,8 @@ from skills.neurolearn.detection.base import DetectionWindow
 from skills.neurolearn.vision import frames as frames_mod
 from skills.neurolearn.vision.prompts import format_prompt
 
+_VISION_CALL_TIMEOUT_S = 120  # seconds — guard a hung vision API call
+
 
 @dataclass
 class OpenAIVisionBackend:
@@ -110,6 +112,7 @@ class OpenAIVisionBackend:
                     model=self.model,
                     max_tokens=self.max_tokens,
                     messages=[{"role": "user", "content": content}],
+                    timeout=_VISION_CALL_TIMEOUT_S,
                 )
                 text = (resp.choices[0].message.content or "") if resp.choices else ""
                 return self._parse_response(text)

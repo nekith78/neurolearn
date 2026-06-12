@@ -76,3 +76,29 @@ def test_empty_tracker_total_zero():
     assert t.summary() == {
         "total_cost_usd": 0.0, "total_calls": 0, "by_stage": {},
     }
+
+
+def test_default_models_are_priced_not_zero():
+    """Regression: the tool's own default analyze/vision models used to be
+    absent from the price table → metered at $0. They must price > 0 now."""
+    for model in (
+        "gemini-3.5-flash",
+        "llama-3.3-70b-versatile",
+        "meta-llama/llama-4-scout-17b-16e-instruct",
+    ):
+        r = CallRecord(stage="analyze", model=model,
+                       prompt_tokens=10_000, output_tokens=1_000)
+        assert r.cost_usd() > 0.0, f"{model} should be priced"
+
+
+def test_summary_surfaces_unpriced_models():
+    """An unknown model is reported (not silently $0) via summary()."""
+    t = BudgetTracker()
+    t.record("analyze", "some-future-model-2030",
+             prompt_tokens=1000, output_tokens=100)
+    s = t.summary()
+    assert s["unpriced_models"] == ["some-future-model-2030"]
+    # A fully-priced run must NOT add the key.
+    t2 = BudgetTracker()
+    t2.record("analyze", "gemini-3.5-flash", prompt_tokens=10, output_tokens=1)
+    assert "unpriced_models" not in t2.summary()

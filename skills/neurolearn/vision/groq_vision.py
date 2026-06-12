@@ -42,6 +42,8 @@ from skills.neurolearn.vision.frames import (
 )
 from skills.neurolearn.vision.prompts import format_prompt
 
+_VISION_CALL_TIMEOUT_S = 120  # seconds — guard a hung vision API call
+
 
 def _import_groq():
     """Lazy import wrapper — tests patch this to inject a fake SDK."""
@@ -285,6 +287,7 @@ class GroqVisionBackend:
                     },
                     max_tokens=400,
                     temperature=0.2,
+                    timeout=_VISION_CALL_TIMEOUT_S,
                 )
                 break
             except Exception as e:  # noqa: BLE001 — Groq SDK exception types vary

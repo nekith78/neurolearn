@@ -312,7 +312,7 @@ def _to_resolved_target(c) -> ResolvedTarget:
 
 
 def _backend_to_key(backend: str) -> str:
-    return {"gemini": "gemini", "claude": "anthropic",
+    return {"gemini": "gemini", "groq": "groq",
             "openai": "openai", "ollama": "ollama"}[backend]
 
 

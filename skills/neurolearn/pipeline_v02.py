@@ -4,6 +4,7 @@ Wrapper applied after the v0.1 transcribe stage. Returns enriched
 TranscriptionResult with .quality and .visual_segments populated.
 """
 from __future__ import annotations
+from skills.neurolearn.constants import DEFAULT_OLLAMA_HOST, DEFAULT_OLLAMA_MODEL
 
 from pathlib import Path
 from typing import Any, Literal
@@ -195,7 +196,7 @@ def apply_v02_stages(
             else:
                 corrector_key = {
                     "gemini": "gemini",
-                    "claude": "anthropic",
+                    "groq": "groq",
                     "openai": "openai",
                 }.get(corrector_backend)
                 corrector_api_key = (
@@ -209,8 +210,8 @@ def apply_v02_stages(
                     result.language_detected or "en",
                     api_key=corrector_api_key,
                     backend=corrector_backend,
-                    ollama_model=cfg.get("ollama_model", "llama3.2:3b"),
-                    ollama_host=cfg.get("ollama_host", "http://localhost:11434"),
+                    ollama_model=cfg.get("ollama_model", DEFAULT_OLLAMA_MODEL),
+                    ollama_host=cfg.get("ollama_host", DEFAULT_OLLAMA_HOST),
                 )
                 if corrected is not result.segments:
                     result.segments = corrected
@@ -229,7 +230,7 @@ def apply_v02_stages(
         else:
             tr_key = {
                 "gemini": "gemini",
-                "claude": "anthropic",
+                "groq": "groq",
                 "openai": "openai",
             }.get(tr_backend)
             tr_api_key = _config_mod.get_api_key(tr_key) if tr_key else None
@@ -242,8 +243,8 @@ def apply_v02_stages(
                 target_lang=target_lang,
                 api_key=tr_api_key,
                 backend=tr_backend,
-                ollama_model=cfg.get("ollama_model", "llama3.2:3b"),
-                ollama_host=cfg.get("ollama_host", "http://localhost:11434"),
+                ollama_model=cfg.get("ollama_model", DEFAULT_OLLAMA_MODEL),
+                ollama_host=cfg.get("ollama_host", DEFAULT_OLLAMA_HOST),
             )
             if translated is not result.segments:
                 result.segments = translated

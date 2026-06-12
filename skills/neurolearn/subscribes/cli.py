@@ -2,6 +2,7 @@
 add / remove / list / edit / update / schedule install|uninstall.
 """
 from __future__ import annotations
+from skills.neurolearn.constants import DEFAULT_OLLAMA_HOST, DEFAULT_OLLAMA_MODEL
 
 import os
 import subprocess
@@ -271,7 +272,7 @@ def _default_editor() -> str:
               help="LLM backend for analyze. Default: ask once and remember "
                    "in config.toml (non-TTY → skip silently).")
 @click.option("--filter-backend", "filter_backend_opt",
-              type=click.Choice(["gemini", "claude", "openai", "ollama"]),
+              type=click.Choice(["gemini", "groq", "openai", "ollama"]),
               default="gemini")
 @click.option("--ollama-model", "ollama_model_opt", default=None)
 @click.option("--ollama-host", "ollama_host_opt", default=None)
@@ -380,7 +381,7 @@ def update_cmd(
     )
     api_keys = {
         "gemini": get_api_key("gemini"),
-        "anthropic": get_api_key("anthropic"),
+        "groq": get_api_key("groq"),
         "openai": get_api_key("openai"),
         "ollama": None,
     }
@@ -434,8 +435,8 @@ def update_cmd(
             prompt=prompt_inline, prompt_file=prompt_file,
             analyze_backend=resolved_analyze_backend or "gemini",
             filter_backend=filter_backend_opt,
-            ollama_model=ollama_model_opt or "llama3.2:3b",
-            ollama_host=ollama_host_opt or "http://localhost:11434",
+            ollama_model=ollama_model_opt or DEFAULT_OLLAMA_MODEL,
+            ollama_host=ollama_host_opt or DEFAULT_OLLAMA_HOST,
             no_stdout=no_stdout_opt,
             output_dir=output_dir,
             api_keys=api_keys,

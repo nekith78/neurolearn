@@ -1,6 +1,7 @@
 """CLI root + `transcribe` sub-command. Bare-URL form routes to `transcribe`.
 The `batch` sub-command is added in Task 20B (registered into the same `cli` group)."""
 from __future__ import annotations
+from skills.neurolearn.constants import DEFAULT_OLLAMA_HOST, DEFAULT_OLLAMA_MODEL
 
 import os
 import re
@@ -2531,8 +2532,8 @@ def summarize_cmd(
         language=language,
         api_key=api_key,
         backend=backend_opt,
-        ollama_model=ollama_model_opt or "llama3.2:3b",
-        ollama_host=ollama_host_opt or "http://localhost:11434",
+        ollama_model=ollama_model_opt or DEFAULT_OLLAMA_MODEL,
+        ollama_host=ollama_host_opt or DEFAULT_OLLAMA_HOST,
     )
     if not summary_md:
         console.print(
@@ -2719,8 +2720,8 @@ def analyze_cmd(
         chosen,
         backend=backend_opt,
         api_key=api_key,
-        ollama_model=ollama_model_opt or "llama3.2:3b",
-        ollama_host=ollama_host_opt or "http://localhost:11434",
+        ollama_model=ollama_model_opt or DEFAULT_OLLAMA_MODEL,
+        ollama_host=ollama_host_opt or DEFAULT_OLLAMA_HOST,
         build_max_chars=max_chars,
         on_status=lambda m: console.print(f"[dim]{m}[/dim]"),
     )
@@ -2930,8 +2931,8 @@ def research_cmd(
             analyze_backend=resolved_analyze_backend or "gemini",
             filter_backend=filter_backend_opt,
             translate_backend=translate_backend,
-            ollama_model=ollama_model_opt or "llama3.2:3b",
-            ollama_host=ollama_host_opt or "http://localhost:11434",
+            ollama_model=ollama_model_opt or DEFAULT_OLLAMA_MODEL,
+            ollama_host=ollama_host_opt or DEFAULT_OLLAMA_HOST,
             no_stdout=no_stdout_opt,
             output_dir=output_dir,
             batch_name=batch_name,
@@ -3207,8 +3208,8 @@ def report_cmd(
             image_max_width=max_image_width_opt,
             keep_html=keep_html_opt,
             version=__version__,
-            ollama_model=ollama_model_opt or "llama3.2:3b",
-            ollama_host=ollama_host_opt or "http://localhost:11434",
+            ollama_model=ollama_model_opt or DEFAULT_OLLAMA_MODEL,
+            ollama_host=ollama_host_opt or DEFAULT_OLLAMA_HOST,
         )
     except FileNotFoundError as e:
         console.print(f"[red]{e}[/red]")

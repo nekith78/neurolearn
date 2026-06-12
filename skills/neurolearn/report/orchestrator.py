@@ -17,6 +17,7 @@ Returns a `ReportResult` with paths and metadata for the CLI to show
 the user.
 """
 from __future__ import annotations
+from skills.neurolearn.constants import DEFAULT_OLLAMA_HOST, DEFAULT_OLLAMA_MODEL
 
 import json
 import re
@@ -69,8 +70,8 @@ def generate_report(
     image_max_width: int = 1000,
     keep_html: bool = False,
     version: str = "",
-    ollama_model: str = "llama3.2:3b",
-    ollama_host: str = "http://localhost:11434",
+    ollama_model: str = DEFAULT_OLLAMA_MODEL,
+    ollama_host: str = DEFAULT_OLLAMA_HOST,
 ) -> ReportResult:
     """Produce a PDF report for one video inside a batch_dir.
 

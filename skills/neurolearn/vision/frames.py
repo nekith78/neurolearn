@@ -24,6 +24,7 @@ import subprocess
 from pathlib import Path
 
 
+_FFMPEG_TIMEOUT_S = 120  # seconds — guard a hung ffmpeg keyframe extraction
 # JPEG quality 3 in ffmpeg's -q:v scale (1=best, 31=worst). q:3 maps to
 # ~80% quality — visually indistinguishable but 5–10× smaller than PNG.
 _DEFAULT_JPEG_QUALITY = 3
@@ -80,7 +81,7 @@ def extract_keyframes(
         "-pix_fmt", "yuvj420p",
         str(pattern),
     ]
-    subprocess.run(cmd, check=True)
+    subprocess.run(cmd, check=True, timeout=_FFMPEG_TIMEOUT_S)
 
     # Rename tmp_NNNN.jpg → <video_id>_<sec>.jpg
     tmp_files = sorted(out_dir.glob("tmp_*.jpg"))
@@ -138,8 +139,8 @@ def extract_keyframes_asymmetric(
             str(out_path),
         ]
         try:
-            subprocess.run(cmd, check=True)
-        except subprocess.CalledProcessError:
+            subprocess.run(cmd, check=True, timeout=_FFMPEG_TIMEOUT_S)
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
             # Skip frames we can't extract (e.g. past end of video) —
             # never fail the whole annotation pipeline over one frame.
             continue

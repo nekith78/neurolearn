@@ -7,6 +7,7 @@ Used by:
 - Default config.toml comment generation
 """
 from __future__ import annotations
+from skills.neurolearn.constants import DEFAULT_OLLAMA_HOST, DEFAULT_OLLAMA_MODEL
 
 from dataclasses import dataclass
 from typing import Any
@@ -120,13 +121,13 @@ REGISTRY: list[OptionField] = [
         section="smart",
     ),
     OptionField(
-        key="ollama_model", type=str, default="llama3.2:3b",
+        key="ollama_model", type=str, default=DEFAULT_OLLAMA_MODEL,
         choices=None,
         description="Ollama model tag (default llama3.2:3b, ~2 GB).",
         section="smart",
     ),
     OptionField(
-        key="ollama_host", type=str, default="http://localhost:11434",
+        key="ollama_host", type=str, default=DEFAULT_OLLAMA_HOST,
         choices=None,
         description="Ollama HTTP host. Default = local daemon.",
         section="smart",

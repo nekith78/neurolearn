@@ -16,6 +16,7 @@ than N — for the common `--languages ru,en,ja` case that's 2s
 instead of 6s before search starts.
 """
 from __future__ import annotations
+from skills.neurolearn.constants import DEFAULT_OLLAMA_HOST, DEFAULT_OLLAMA_MODEL
 
 from concurrent.futures import ThreadPoolExecutor
 
@@ -115,8 +116,8 @@ def translate_query(
     source: str | None,
     backend: str,
     api_key: str | None,
-    ollama_model: str = "llama3.2:3b",
-    ollama_host: str = "http://localhost:11434",
+    ollama_model: str = DEFAULT_OLLAMA_MODEL,
+    ollama_host: str = DEFAULT_OLLAMA_HOST,
 ) -> str:
     """Translate `query` to `target` language. Returns original if target==source
     or LLM fails."""
@@ -154,8 +155,8 @@ def build_queries_per_language(
     source_lang_hint: str | None = None,
     backend: str,
     api_key: str | None,
-    ollama_model: str = "llama3.2:3b",
-    ollama_host: str = "http://localhost:11434",
+    ollama_model: str = DEFAULT_OLLAMA_MODEL,
+    ollama_host: str = DEFAULT_OLLAMA_HOST,
 ) -> dict[str, str]:
     """Return {lang_code: query_string} for each language in `languages`.
 

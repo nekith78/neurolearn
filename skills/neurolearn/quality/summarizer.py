@@ -6,6 +6,7 @@ separate entry point for backwards compatibility with v0.5 callers
 and the existing `neurolearn summarize` CLI.
 """
 from __future__ import annotations
+from skills.neurolearn.constants import DEFAULT_OLLAMA_HOST, DEFAULT_OLLAMA_MODEL
 
 from skills.neurolearn.utils.output_writer import (
     EPISTEMIC_PROMPT_PREFIX, Segment,
@@ -71,8 +72,8 @@ def summarize_transcript(
     *,
     api_key: str | None,
     backend: str = "gemini",
-    ollama_model: str = "llama3.2:3b",
-    ollama_host: str = "http://localhost:11434",
+    ollama_model: str = DEFAULT_OLLAMA_MODEL,
+    ollama_host: str = DEFAULT_OLLAMA_HOST,
 ) -> str:
     """Return Markdown summary or empty string on failure."""
     if not segments:

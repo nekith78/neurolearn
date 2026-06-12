@@ -6,6 +6,7 @@ indices back. Falls back to keeping all candidates if the response
 can't be parsed.
 """
 from __future__ import annotations
+from skills.neurolearn.constants import DEFAULT_OLLAMA_HOST, DEFAULT_OLLAMA_MODEL
 
 import json
 import re
@@ -22,8 +23,8 @@ def screen_candidates(
     *,
     backend: str,
     api_key: str | None,
-    ollama_model: str = "llama3.2:3b",
-    ollama_host: str = "http://localhost:11434",
+    ollama_model: str = DEFAULT_OLLAMA_MODEL,
+    ollama_host: str = DEFAULT_OLLAMA_HOST,
 ) -> list[T]:
     """Return subset chosen by the LLM, or all candidates on parse failure.
 

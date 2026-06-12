@@ -5,6 +5,7 @@ on 127.0.0.1 by default — no external network exposure unless user
 explicitly passes server_name='0.0.0.0'.
 """
 from __future__ import annotations
+from skills.neurolearn.constants import DEFAULT_OLLAMA_HOST, DEFAULT_OLLAMA_MODEL
 
 import tempfile
 from pathlib import Path
@@ -299,7 +300,7 @@ def _handle_research_submit(
     languages = [s.strip() for s in (languages_csv or "ru,en").split(",")]
     api_keys = {
         "gemini": get_api_key("gemini"),
-        "anthropic": get_api_key("anthropic"),
+        "groq": get_api_key("groq"),
         "openai": get_api_key("openai"),
         "ollama": None,
     }
@@ -320,8 +321,8 @@ def _handle_research_submit(
             analyze_backend=analyze_backend,
             filter_backend=filter_backend,
             translate_backend=analyze_backend,
-            ollama_model="llama3.2:3b",
-            ollama_host="http://localhost:11434",
+            ollama_model=DEFAULT_OLLAMA_MODEL,
+            ollama_host=DEFAULT_OLLAMA_HOST,
             no_stdout=True,
             output_dir=cfg.output_dir if cfg else "./transcripts",
             batch_name=f"webui_research_{int(_time.time())}",
@@ -429,7 +430,7 @@ def _handle_subscribes_update(group, days, no_analyze, yes,
     )
     api_keys = {
         "gemini": get_api_key("gemini"),
-        "anthropic": get_api_key("anthropic"),
+        "groq": get_api_key("groq"),
         "openai": get_api_key("openai"),
         "ollama": None,
     }
@@ -448,8 +449,8 @@ def _handle_subscribes_update(group, days, no_analyze, yes,
             prompt=prompt or None, prompt_file=None,
             analyze_backend=analyze_backend,
             filter_backend=analyze_backend,
-            ollama_model="llama3.2:3b",
-            ollama_host="http://localhost:11434",
+            ollama_model=DEFAULT_OLLAMA_MODEL,
+            ollama_host=DEFAULT_OLLAMA_HOST,
             no_stdout=True,
             output_dir=output_dir,
             api_keys=api_keys,

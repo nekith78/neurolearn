@@ -5,6 +5,7 @@ No retries; on exception returns empty string so the CLI layer can
 translate that into exit code 4 with a friendly hint.
 """
 from __future__ import annotations
+from skills.neurolearn.constants import DEFAULT_OLLAMA_HOST, DEFAULT_OLLAMA_MODEL
 
 from skills.neurolearn.quality.asr_corrector import (
     _call_gemini, _call_groq, _call_ollama, _call_openai,
@@ -21,8 +22,8 @@ def run_analysis(
     *,
     backend: str,
     api_key: str | None,
-    ollama_model: str = "llama3.2:3b",
-    ollama_host: str = "http://localhost:11434",
+    ollama_model: str = DEFAULT_OLLAMA_MODEL,
+    ollama_host: str = DEFAULT_OLLAMA_HOST,
 ) -> str:
     """Return LLM response text, or "" on failure / empty response."""
     if backend not in _KNOWN:

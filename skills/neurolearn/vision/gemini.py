@@ -28,6 +28,8 @@ from skills.neurolearn.detection.base import DetectionWindow
 from skills.neurolearn.vision import frames as frames_mod
 from skills.neurolearn.vision.prompts import format_prompt
 
+_VISION_CALL_TIMEOUT_S = 120  # seconds — guard a hung vision API call
+
 
 # JSON schema Gemini MUST follow. response_mime_type=application/json plus
 # this schema makes the model emit a structured object every time.
@@ -304,11 +306,14 @@ class GeminiVisionBackend:
         response = None
         for attempt in range(self.max_retries):
             try:
-                response = await asyncio.to_thread(
-                    client.models.generate_content,
-                    model=self.model,
-                    contents=contents,
-                    config=config,
+                response = await asyncio.wait_for(
+                    asyncio.to_thread(
+                        client.models.generate_content,
+                        model=self.model,
+                        contents=contents,
+                        config=config,
+                    ),
+                    timeout=_VISION_CALL_TIMEOUT_S,
                 )
                 usage = _extract_usage(response)
                 break
