@@ -14,6 +14,10 @@ class DetectionWindow:
     score: float       # 0..1
     weight: float = 1.0
     phrase: str = ""   # the phrase that fired (for trigger-windows)
+    transcript_context: str = ""   # surrounding transcript text — the
+    # vision model's PRIMARY grounding (what the speaker says around this
+    # moment), so it describes the on-screen content the speaker refers to
+    # rather than guessing blind. Populated just before annotation.
 
     @property
     def priority_score(self) -> float:

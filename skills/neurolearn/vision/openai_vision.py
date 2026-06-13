@@ -67,7 +67,11 @@ class OpenAIVisionBackend:
             prompt = format_prompt(
                 prompt_template,
                 language=language,
-                transcript_snippet=w.phrase or "(window from scene change)",
+                transcript_snippet=(
+                    w.transcript_context
+                    or w.phrase
+                    or "(no transcript context for this moment)"
+                ),
                 start_sec=w.start,
                 end_sec=w.end,
             )

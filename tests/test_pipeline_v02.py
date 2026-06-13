@@ -86,3 +86,35 @@ def test_vision_runs_when_gemini_and_video_path(tmp_path):
             video_id="x", out_dir=tmp_path, source="whisper",
         )
     assert len(out.visual_segments) == 1
+
+
+def test_window_transcript_context_grounds_vision_prompt():
+    """v0.21 regression: vision windows must carry the SURROUNDING transcript
+    (not just the trigger phrase) so the annotator knows what the speaker is
+    referring to. Previously transcript_snippet=window.phrase → blind frames."""
+    from skills.neurolearn.pipeline_v02 import (
+        _window_transcript_context, _attach_transcript_context,
+    )
+    from skills.neurolearn.utils.output_writer import Segment
+    from skills.neurolearn.detection.base import DetectionWindow
+
+    segs = [
+        Segment(start=0.0, end=5.0, text="Now let's open the expedition map."),
+        Segment(start=5.0, end=10.0, text="Look at the island rumors panel."),
+        Segment(start=200.0, end=205.0, text="Unrelated much later content."),
+    ]
+    ctx = _window_transcript_context(segs, 5.0, 9.0)
+    assert "island rumors" in ctx
+    assert "expedition map" in ctx          # within pad before the window
+    assert "Unrelated" not in ctx           # far away → excluded
+
+    w = DetectionWindow(start=5.0, end=9.0, reason="raw", score=1.0, phrase="look")
+    enriched = _attach_transcript_context([w], segs)
+    assert len(enriched) == 1
+    assert "island rumors" in enriched[0].transcript_context
+    assert enriched[0].phrase == "look"     # original fields preserved (frozen replace)
+
+
+def test_window_transcript_context_empty_segments_safe():
+    from skills.neurolearn.pipeline_v02 import _window_transcript_context
+    assert _window_transcript_context([], 0.0, 10.0) == ""

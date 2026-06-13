@@ -3,6 +3,38 @@
 All notable changes to neurolearn will be documented here.
 The format is loosely based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.20.3] — 2026-06-13
+
+Vision-grounding fix: report screenshots are now annotated WITH the
+surrounding transcript, so the model describes the on-screen content the
+speaker is referring to instead of guessing blind.
+
+### Fixed
+
+- **Vision annotation was blind to the audio.** The per-window vision prompt
+  fed `transcript_snippet = window.phrase` — just the matched trigger phrase
+  (or literally `"(window from scene change)"` for scene windows) — even
+  though the prompt template calls that field "your primary context". The
+  model therefore described whatever was visually salient (typically the
+  streamer's webcam inset) and missed the game UI / table / inventory the
+  speaker was pointing at. Each detection window now carries the real
+  surrounding transcript (`DetectionWindow.transcript_context`, ±6 s,
+  capped) and it flows into every vision backend (Groq / Gemini / OpenAI)
+  **and** into the Claude-Code extract-only `keyframes/manifest.json`
+  (`transcript_window` now holds the SRT context, matching its long-standing
+  doc-string). Measured on a 26-min Path of Exile 2 guide: game-UI moments
+  that were all `importance: low` with face-cam/hallucinated descriptions
+  are now correctly described and ranked `medium`.
+- **`language_detected` was lost on the subtitles fast-path.** On
+  `language=auto` the subtitles backend returned `language_detected=None`,
+  so `report` defaulted a Russian video to an English write-up. It now
+  records the actually-fetched caption language (original-first
+  `languages[0]`).
+- **Budget mis-attributed non-Gemini vision cost.** The vision stage was
+  hardcoded to `vision_gemini` and the model fell back to a stale
+  `gemini-2.5-flash`; Groq/OpenAI vision is now metered under
+  `vision_groq` / `vision_openai` with the backend's real model id.
+
 ## [0.20.2] — 2026-06-12
 
 Cleanup + resilience pass: finished the Anthropic-SDK removal that earlier

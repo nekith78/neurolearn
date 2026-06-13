@@ -42,7 +42,7 @@ _CACHE_DISCOUNT = 0.25
 
 
 VisionStage = Literal[
-    "vision_gemini", "vision_claude", "vision_openai",
+    "vision_gemini", "vision_groq", "vision_openai", "vision_claude",
     "analyze", "asr_correction", "translate", "filter", "research_translate",
 ]
 

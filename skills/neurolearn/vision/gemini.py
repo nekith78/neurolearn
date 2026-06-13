@@ -269,7 +269,11 @@ class GeminiVisionBackend:
         user_prompt = format_prompt(
             prompt_template,
             language=language,
-            transcript_snippet=window.phrase or "(window from scene change)",
+            transcript_snippet=(
+                window.transcript_context
+                or window.phrase
+                or "(no transcript context for this moment)"
+            ),
             start_sec=window.start,
             end_sec=window.end,
         )

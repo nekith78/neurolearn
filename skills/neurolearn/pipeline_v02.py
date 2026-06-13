@@ -28,6 +28,45 @@ from skills.neurolearn.vision.prompts import (
 )
 
 
+def _window_transcript_context(
+    segments, start: float, end: float, *, pad: float = 6.0, max_chars: int = 700,
+) -> str:
+    """Join transcript segments overlapping [start-pad, end+pad] into one
+    context string. `pad` reaches a few seconds before/after the window so
+    we catch the speaker setting up ("now open the inventory") and the
+    follow-through. Capped at `max_chars` — Llama-4-Scout instruction-
+    following degrades past ~2k tokens of preamble."""
+    if not segments:
+        return ""
+    lo, hi = start - pad, end + pad
+    parts: list[str] = []
+    for s in segments:
+        s_start = float(getattr(s, "start", 0.0) or 0.0)
+        s_end = float(getattr(s, "end", s_start) or s_start)
+        if s_end >= lo and s_start <= hi:
+            text = (getattr(s, "text", "") or "").strip()
+            if text:
+                parts.append(text)
+    ctx = " ".join(parts).strip()
+    return ctx[:max_chars]
+
+
+def _attach_transcript_context(windows: list, segments) -> list:
+    """Return new windows with `transcript_context` populated from the
+    surrounding transcript. DetectionWindow is frozen, so we rebuild via
+    dataclasses.replace."""
+    from dataclasses import replace
+    out = []
+    for w in windows:
+        ctx = _window_transcript_context(segments, w.start, w.end)
+        try:
+            out.append(replace(w, transcript_context=ctx))
+        except TypeError:
+            # Window type without the field (defensive) — leave as-is.
+            out.append(w)
+    return out
+
+
 def _autodetect_video_type(result) -> str:
     """Auto-detect video type from transcript segments. Defensive — any
     failure falls back to 'generic' so the pipeline never breaks."""
@@ -295,6 +334,13 @@ def apply_v02_stages(
             video_duration=video_duration,
         )
 
+        # Attach the surrounding transcript to each window so the vision
+        # annotator (Groq/Gemini/OpenAI) — or Claude in extract-only mode —
+        # knows what the speaker is talking about at that moment and
+        # describes the referenced on-screen content, not just whatever is
+        # visually salient (e.g. a webcam inset).
+        windows = _attach_transcript_context(windows, result.segments)
+
         if windows:
             fpw = cfg.get("frames_per_window", 3)
             asym = bool(cfg.get("asymmetric_frames", False))
@@ -370,7 +416,15 @@ def apply_v02_stages(
             if last_usage:
                 from skills.neurolearn.budget import BudgetTracker
                 tracker = getattr(result, "budget", None) or BudgetTracker()
-                model_name = getattr(backend, "model", "gemini-2.5-flash")
+                # Label the stage by the actual backend (was hardcoded
+                # "vision_gemini", so Groq/OpenAI cost was mis-attributed),
+                # and price by the backend's real model id (no stale default).
+                model_name = getattr(backend, "model", "") or vision_backend_name
+                stage = {
+                    "groq": "vision_groq",
+                    "gemini": "vision_gemini",
+                    "openai": "vision_openai",
+                }.get(vision_backend_name, "vision_gemini")
                 for usage in last_usage:
                     # v0.15.2: GroqTokenUsage doesn't expose `cached_tokens`
                     # (Groq doesn't offer prompt caching the way Gemini did
@@ -378,7 +432,7 @@ def apply_v02_stages(
                     # missing so the vision pipeline doesn't AttributeError
                     # when the backend is Groq.
                     tracker.record(
-                        "vision_gemini", model_name,
+                        stage, model_name,
                         prompt_tokens=usage.prompt_tokens,
                         output_tokens=usage.output_tokens,
                         cached_tokens=getattr(usage, "cached_tokens", 0),
@@ -496,7 +550,11 @@ def _write_keyframes_manifest(
         entries.append({
             "start": float(w.start),
             "end": float(w.end),
-            "transcript_window": getattr(w, "phrase", "") or "",
+            "transcript_window": (
+                getattr(w, "transcript_context", "")
+                or getattr(w, "phrase", "")
+                or ""
+            ),
             "trigger_reason": getattr(w, "reason", "") or "",
             "keyframes": rel_frames,
         })

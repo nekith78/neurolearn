@@ -350,10 +350,20 @@ class SubtitlesBackend:
                 "Smart mode will switch to the fallback backend."
             )
         text = " ".join(s.text for s in segments)
+        # v0.21: on `auto`, record the caption track's actual language.
+        # `languages` was resolved original-first, so languages[0] is the
+        # track we asked for (and almost always got). Without this the
+        # result carries language_detected=None and downstream consumers
+        # (report target-language, manifest) wrongly default to English on
+        # a non-English video.
+        detected_language = (
+            language if language != "auto"
+            else (languages[0] if languages else None)
+        )
         return TranscriptionResult(
             text=text,
             segments=segments,
-            language_detected=language if language != "auto" else None,
+            language_detected=detected_language,
             backend_name=self.name,
             duration_seconds=segments[-1].end if segments else 0.0,
         )
