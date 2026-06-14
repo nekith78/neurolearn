@@ -95,6 +95,33 @@ def test_gemini_handles_invalid_json(tmp_path):
     assert result[0].importance == "medium"  # default fallback
 
 
+def test_parse_box_2d():
+    from skills.neurolearn.vision.gemini import _parse_box_2d
+    assert _parse_box_2d('{"box_2d":[48,550,980,994]}') == (48, 550, 980, 994)
+    assert _parse_box_2d('```json\n{"box_2d":[0,0,1000,1000]}\n```') == (0, 0, 1000, 1000)
+    assert _parse_box_2d('{"description":"x"}') is None          # absent
+    assert _parse_box_2d('{"box_2d":[0,800,1000,200]}') is None  # xmin>xmax
+    assert _parse_box_2d('not json') is None
+
+
+def test_crop_keyframes_to_box_crops_and_skips_full_frame(tmp_path):
+    from PIL import Image
+    from skills.neurolearn.vision.gemini import _crop_keyframes_to_box
+    f = tmp_path / "frames"; f.mkdir()
+    p = f / "vid_00010.jpg"
+    Image.new("RGB", (1000, 500), (0, 0, 0)).save(p)
+
+    # A real sub-region → cropped file referenced.
+    out = _crop_keyframes_to_box([p], (0, 500, 1000, 1000))
+    assert out == ["frames/vid_00010_crop.jpg"]
+    assert (f / "vid_00010_crop.jpg").exists()
+
+    # Near-full-frame box → left uncropped (nothing to gain).
+    assert _crop_keyframes_to_box([p], (0, 0, 1000, 1000)) == ["frames/vid_00010.jpg"]
+    # No box → original frames.
+    assert _crop_keyframes_to_box([p], None) == ["frames/vid_00010.jpg"]
+
+
 def test_gemini_window_with_no_keyframes_skipped(tmp_path):
     """If keyframe extraction returns empty, window is skipped."""
     fake_client = MagicMock()

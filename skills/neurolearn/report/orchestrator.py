@@ -203,6 +203,15 @@ def _try_synthesize_single_video_manifest(transcribe_dir: Path) -> Path | None:
             h, m, s, ms = map(int, matches[-1][4:])
             duration_sec = h * 3600 + m * 60 + s + ms / 1000
 
+    # Canonical schema — same `files: {txt, srt}` / `duration_sec` that
+    # `write_manifest_json` emits and every consumer (_segments_from_video_entry,
+    # vision_report_cmd, frames_cmd) reads. The old flat `txt_path`/`srt_path`/
+    # `duration_seconds` keys here were read by nobody, so a synthesized
+    # manifest loaded zero segments → empty report. This shim now only matters
+    # for legacy transcribe dirs; v0.21 `transcribe` writes its own manifest.
+    files_map = {"txt": txt_path.name}
+    if srt_path.exists():
+        files_map["srt"] = srt_path.name
     manifest = {
         "batch_name": transcribe_dir.name,
         "created_at": "",
@@ -216,9 +225,9 @@ def _try_synthesize_single_video_manifest(transcribe_dir: Path) -> Path | None:
             "video_id": video_id,
             "title": stem,
             "status": "ok",
-            "txt_path": txt_path.name,
-            "srt_path": srt_path.name if srt_path.exists() else "",
-            "duration_seconds": duration_sec,
+            "language_detected": None,
+            "duration_sec": duration_sec,
+            "files": files_map,
         }],
     }
 

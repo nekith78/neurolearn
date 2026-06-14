@@ -10,6 +10,7 @@ generation skip if it's missing; HTML rendering only needs Jinja2.
 from __future__ import annotations
 
 import base64
+import html as _html
 import io
 import mimetypes
 import re
@@ -349,7 +350,19 @@ def render_pdf(
 # ---------------------------------------------------------------------------
 
 
-_IMG_SRC_RE = re.compile(r'(<img\b[^>]*?\bsrc=")([^"]+)(")', re.I)
+_IMG_TAG_RE = re.compile(r'<img\b([^>]*)>', re.I)
+_IMG_ATTR_RE = re.compile(r'\b([a-zA-Z_:][-\w:]*)\s*=\s*"([^"]*)"')
+
+# Markdown-path CSS: captions are visible, and an image + its caption never
+# split across a page break or get orphaned from the heading above them.
+_MARKDOWN_FIGURE_CSS = """
+figure { break-inside: avoid; page-break-inside: avoid; margin: 0.7em 0 1em;
+         text-align: center; }
+figure img { max-width: 100%; max-height: 15cm; object-fit: contain; }
+figcaption { font-size: 0.85em; color: #444; font-style: italic;
+             margin-top: 0.35em; text-align: center; }
+h1, h2, h3 { break-after: avoid; page-break-after: avoid; }
+"""
 
 
 def _data_uri_only_fetcher(url, *args, **kwargs):
@@ -407,33 +420,41 @@ def render_markdown_pdf(
         markdown_text, extensions=["extra", "sane_lists", "toc"],
     )
 
-    # Inline + downscale referenced frames; drop anything unresolved.
+    # Inline + downscale referenced frames; drop anything unresolved. Each
+    # image becomes a <figure> whose <figcaption> is the Markdown alt-text, so
+    # the guide says what every screenshot shows.
     remaining = max_images if max_images > 0 else 0
 
     def _swap(m):
         nonlocal remaining
-        prefix, src, suffix = m.group(1), m.group(2), m.group(3)
+        attrs = dict(_IMG_ATTR_RE.findall(m.group(1)))
+        src = attrs.get("src", "")
+        alt = attrs.get("alt", "").strip()
+        caption = (
+            f"<figcaption>{_html.escape(alt)}</figcaption>" if alt else ""
+        )
         if src.startswith("data:"):
-            return m.group(0)
+            return f"<figure><img src=\"{src}\">{caption}</figure>"
         if remaining <= 0:
-            return prefix + "" + suffix  # over budget — empty src, tag stays valid
+            return ""  # over budget — drop the image entirely
         path = _resolve_image_path(batch_dir, src)
         if path is None:
-            return prefix + "" + suffix
+            return ""
         jpg = downscale_image(path, max_width=image_max_width)
         if jpg is None:
-            return prefix + "" + suffix
+            return ""
         if len(jpg) > _MAX_DATA_URI_BYTES:
             jpg = downscale_image(path, max_width=600) or jpg
         remaining -= 1
-        return prefix + _to_data_uri(jpg) + suffix
+        return f"<figure><img src=\"{_to_data_uri(jpg)}\">{caption}</figure>"
 
-    body = _IMG_SRC_RE.sub(_swap, body)
+    body = _IMG_TAG_RE.sub(_swap, body)
 
     css = _load_template_text("base.css")
     html = (
         "<!doctype html><html><head><meta charset='utf-8'>"
-        f"<style>{css}</style></head><body class='report'>{body}</body></html>"
+        f"<style>{css}{_MARKDOWN_FIGURE_CSS}</style></head>"
+        f"<body class='report'>{body}</body></html>"
     )
     if keep_html:
         output_path.with_suffix(".html").write_text(html, encoding="utf-8")

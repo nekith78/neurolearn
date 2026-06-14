@@ -3,6 +3,51 @@
 All notable changes to neurolearn will be documented here.
 The format is loosely based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.22.0] — 2026-06-14
+
+Visual-report overhaul: the two modes now split cleanly by who's driving,
+single `transcribe` produces a usable batch, and embedded screenshots are
+readable and captioned.
+
+### Fixed
+
+- **Single `transcribe` now writes `manifest.json`.** It only ever wrote
+  loose `.txt`/`.srt` files, so `report` / `vision-report` / `frames` had no
+  manifest to read. The v0.15.2 retrofit synthesized one with a *different*
+  flat schema (`srt_path`/`duration_seconds`) that no consumer read, so
+  `report` on a single-transcribe dir silently loaded **zero segments** and
+  produced an empty report. `transcribe` now writes the same canonical
+  schema `batch` does (`files: {txt, srt}`), and the legacy synthesizer was
+  fixed to match — both verified to load segments.
+- **Embedded screenshots were unreadable.** Full-screen game frames were
+  shrunk to page width, making the tooltip (the point) illegible, and images
+  were split across page breaks / orphaned from their headings.
+
+### Added
+
+- **`neurolearn crop <frame> --box "ymin,xmin,ymax,xmax"`** — crop a keyframe
+  to the relevant region (normalized 0-1000). Mode-1 agents read a frame,
+  then crop it to the readable tooltip/panel before embedding it.
+- **Markdown image captions.** In `report --from-markdown`, an image's
+  Markdown alt-text now renders as a visible `<figcaption>`, and image +
+  caption are wrapped in a `<figure>` that never splits across a page break
+  (headings stay with their content too).
+- **Gemini auto-crop (Mode 2).** The vision call now also returns `box_2d`
+  and the keyframes are cropped to it — same request, no extra cost.
+
+### Changed
+
+- **Two modes split by who's driving (not by an env var).** **Mode 1** is
+  fully agent-driven with **no Gemini**: the agent extracts frames, reads
+  them with its own vision, crops, and writes the guide. **Mode 2** is the
+  autonomous Gemini path. Reflected in SKILL.md.
+- **`vision-report` default model `gemini-3.5-flash` → `gemini-2.5-flash`**
+  (the preview model's free tier is ~20 req/day; 2.5-flash is ~250 and reads
+  tooltips at least as well).
+- **Gemini free-tier warning.** Mode-2 commands now print a one-line reminder
+  that the free tier is request-limited per day (≈250 on 2.5-flash), so heavy
+  users enable billing or use Mode 1.
+
 ## [0.21.0] — 2026-06-14
 
 Two-mode visual reports. The visual-report flow now has an explicit

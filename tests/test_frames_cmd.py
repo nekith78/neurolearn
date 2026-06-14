@@ -6,8 +6,33 @@ from unittest.mock import patch
 import pytest
 
 from skills.neurolearn.frames_cmd import (
-    parse_timestamp, extract_frames_at, resolve_source_video,
+    parse_timestamp, extract_frames_at, resolve_source_video, crop_image,
 )
+
+
+def _make_jpg(path, size=(1000, 500)):
+    from PIL import Image
+    Image.new("RGB", size, (20, 20, 20)).save(path, "JPEG")
+
+
+def test_crop_image_keeps_region_and_writes_crop(tmp_path):
+    """crop_image crops to a normalized 0-1000 box and writes <stem>_crop.jpg."""
+    src = tmp_path / "frame.jpg"
+    _make_jpg(src, size=(1000, 500))
+    out = crop_image(src, (0, 500, 1000, 1000), pad=0.0)  # right half
+    assert out == tmp_path / "frame_crop.jpg"
+    from PIL import Image
+    w, h = Image.open(out).size
+    assert abs(w - 500) <= 2 and abs(h - 500) <= 2  # right half of 1000x500
+
+
+def test_crop_image_rejects_bad_box(tmp_path):
+    src = tmp_path / "frame.jpg"
+    _make_jpg(src)
+    with pytest.raises(ValueError):
+        crop_image(src, (0, 800, 1000, 200))  # xmin > xmax
+    with pytest.raises(ValueError):
+        crop_image(src, (0, 0, 2000, 1000))  # out of 0-1000 range
 
 
 def test_parse_timestamp_forms():

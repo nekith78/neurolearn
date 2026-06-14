@@ -234,116 +234,92 @@ stderr warning at runtime. Relay the fix:
 
 ## Visual moments — vision pipeline (v0.12+, two modes since v0.21)
 
-A visual report turns a transcribed video into a picture-rich guide:
-pick the moments worth a look, get a description of what's ON SCREEN at
-each, assemble. There are two ways to run it, and **which one you use is
-decided by which commands you call** — not by an env var:
+A visual report turns a transcribed video into a picture-rich guide: pick
+the moments worth a look, describe what's ON SCREEN at each, assemble.
+**Which mode you use is decided by who's driving — not by an env var:**
 
-- **Mode 1 — agent-orchestrated** (you, the agent, are driving). You read
-  the transcript, choose the moments, and call the building-block
-  commands (`vision-report` / `frames` / `report --from-markdown`).
-  Gemini does the *looking*; you do the *thinking*. This keeps your own
-  vision/context budget for assembling the report.
-- **Mode 2 — fully autonomous** (no agent). The user runs
-  `transcribe --with-visuals` then `report`; the tool picks the moments
-  AND describes them AND renders the PDF by itself.
+- **Mode 1 — agent-driven (you, the agent, do the vision).** No Gemini at
+  all. You read the transcript, pick the moments, extract frames, and read
+  them with YOUR OWN native vision, then assemble the report. Use this
+  whenever an agent (Claude, Codex, any) is in the loop — it's free (no
+  API), accurate, and you already have vision.
+- **Mode 2 — fully autonomous (no agent).** Gemini does the vision. The
+  user runs `transcribe --with-visuals` then `report`; the tool picks the
+  moments, describes them, and renders the PDF by itself.
 
-**Harness-agnostic.** Mode 1 is not Claude-specific — any orchestrating
-agent (Claude, Codex, …) follows the same protocol. The commands
-self-document via `--help`.
+**Ask the report language.** Before writing a guide, confirm what language
+the user wants it in — it is NOT necessarily the video's language. Write
+the prose and the captions in that language (the transcript/descriptions
+may be in another).
 
-**Timestamps are always OURS** (from the transcript/SRT). Gemini only
-describes what's on a frame; it never supplies timecodes (it drifts on
-long video). So the picture is always pinned to the right second.
+**Timestamps are always OURS** (from the transcript/SRT). We pin every
+screenshot to a real second; nothing relies on a model's time estimate.
 
 ---
 
-### Mode 1 — agent-orchestrated (the common case inside an agent)
+### Mode 1 — agent-driven (the default when an agent is present)
 
-Building blocks, in the order you'd use them:
+The tool only extracts frames and renders; the *looking* and *writing* are
+yours. Building blocks, in order:
 
-1. **`neurolearn vision-report <batch> --moments "6:00,18:30,23:00"`**
-   For each moment: extract a keyframe bracket, send the stills inline to
-   Gemini grounded in the surrounding transcript, return a structured
-   description. Writes `<batch>/vision-report.json`. Flags:
-   - `--ask "<focus>"` — what to pay attention to. **Highest priority** —
-     overrides the default per-video-type inspection. Use it to pass the
-     user's own request ("watch the inventory", "focus on the tier list").
-   - `--depth standard|deep` — `standard` = concise key content;
-     `deep` = exhaustive, beginner-can-reproduce-every-step.
-   - `--video-index N` — pick the n-th video in a multi-video batch.
+1. **`neurolearn frames <batch> --at 6:00 --at 18:30`** — extract a small
+   keyframe bracket at each moment you chose. Pure ffmpeg, offline, no API
+   key, no onboarding gate. Source video is downloaded + cached under
+   `<batch>/source/` on first use; frames land in `<batch>/frames/`.
+2. **Read the frames yourself** with your native vision, using the
+   surrounding transcript as context. Describe what's actually on screen.
+3. **`neurolearn crop <frame.jpg> --box "ymin,xmin,ymax,xmax"`** — game/UI
+   screenshots are full-screen; the relevant tooltip/panel is a small part
+   and becomes unreadable when shrunk to page width. After you've read a
+   frame, crop it to the region worth showing (box is normalized 0-1000,
+   the convention you'd estimate from the frame). Writes `<stem>_crop.jpg`.
+   Embed the crop, not the whole screen.
+4. **Author the guide as Markdown** in the user's language. Reference each
+   (cropped) frame with **Markdown image syntax whose alt-text is the
+   caption** — it renders as a visible line under the image:
+   `![На картинке: tier table — Unknown Ruins is B-tier](frames/x_crop.jpg)`.
+   Every screenshot must have a caption saying what it shows and why.
+5. **`neurolearn report <batch> --from-markdown <file.md>`** — renders your
+   Markdown to PDF, embedding + downscaling the referenced frames and
+   turning each alt-text into a `<figcaption>`. Image + caption never split
+   across a page break.
 
-   **Vision fallback:** if Gemini isn't configured (or fails),
-   `vision-report` still extracts the frames and sets
-   `vision_engine` to `none — …`; you then OPEN those frames with your
-   own native vision and write the descriptions yourself.
-
-2. **`neurolearn frames <batch> --at 6:00 --at 18:30`** — when you just
-   want the raw keyframes (no Gemini description) to read yourself. Pure
-   ffmpeg, offline, no API key, no onboarding gate. Returns paths under
-   `<batch>/frames/`.
-
-3. **`neurolearn report <batch> --from-markdown <file.md>`** — you author
-   the report as Markdown with `<img src="frames/<id>_360.jpg">` tags
-   pointing at the extracted frames; the tool renders it to PDF, embedding
-   and downscaling the images. (Plain `report <batch>` with no
-   `--from-markdown` is the Mode-2 autonomous renderer.)
-
-**Protocol:** read transcript → pick moments → `vision-report`
-(with `--ask`/`--depth` as the user asked) → read `vision-report.json`
-(or the frames yourself on fallback) → write report Markdown referencing
-`frames/…` → `report --from-markdown` → PDF. Apply the epistemic stance
-(below): describe what's actually on the frame, don't parrot the
+**Protocol:** confirm language → read transcript → pick moments →
+`frames` → read frames → `crop` the keepers → write Markdown (captions, in
+the user's language) → `report --from-markdown` → PDF. Apply the epistemic
+stance (below): describe what's actually on the frame, don't parrot the
 transcript.
-
-#### Legacy: `--with-visuals` extract-only manifest
-
-When `transcribe --with-visuals` runs INSIDE Claude Code
-(`$CLAUDE_PLUGIN_ROOT` set), it stays extract-only — it writes
-`<batch>/keyframes/manifest.json` and exits without an external vision
-call, for you to read. This predates the explicit `vision-report` /
-`frames` commands above (which are the preferred Mode-1 path). The
-manifest shape:
-
-```json
-{
-  "video_id": "...",
-  "mode": "claude_code_extract_only",
-  "windows": [
-    {
-      "start": 30.0, "end": 34.0,
-      "transcript_window": "host says ...",
-      "trigger_reason": "trigger" | "scene_change" | ...,
-      "keyframes": ["frames/<id>_30.jpg", ...]
-    }
-  ]
-}
-```
-
-For each `windows[]` entry: open every `keyframes[]` path (RELATIVE to
-the manifest's parent dir), read `transcript_window` (transcript ±4s) for
-context, write a 1-3 sentence description, report back or write to
-`<batch>/visual.md`.
 
 ---
 
 ### Mode 2 — fully autonomous (no agent driving)
 
-`$CLAUDE_PLUGIN_ROOT` is empty (plain CLI), so `transcribe --with-visuals`
-runs the whole pipeline itself:
+Plain CLI, no agent to read frames, so **Gemini does the vision**:
 
-- **Moment selection** defaults to `llm_first` (v0.21) when Gemini is
-  configured: the LLM reads the transcript and chooses the moments, with
-  trigger detection as the fallback when the LLM can't run. Override with
-  `--detect-method keywords_only|hybrid|llm_full_pass|llm_first`.
-- **Vision backend** is `--with-visuals`'s key-aware default: Gemini when
-  configured (best on dense UI), else Groq Llama-4-Scout.
-- The user then runs **`neurolearn report <batch>`** to get the PDF.
+- `transcribe --with-visuals` runs the whole pipeline: pick moments,
+  describe them with Gemini (keyframe stills sent inline, grounded in the
+  transcript, auto-cropped to the relevant region via the model's `box_2d`),
+  store results. Then `neurolearn report <batch>` renders the PDF.
+- **Moment selection** defaults to `llm_first` when Gemini is configured:
+  the LLM reads the transcript and chooses the moments, trigger detection
+  as the fallback. Override with `--detect-method
+  keywords_only|hybrid|llm_full_pass|llm_first`.
+- **Heads-up — Gemini free tier is request-limited per day** (≈250/day on
+  `gemini-2.5-flash`, far fewer on preview models; the CLI prints a
+  reminder). Each moment = one request. For heavy use enable billing
+  (Tier 1 → 1500/day) — or just use Mode 1 (no API). This is why an agent
+  in the loop should prefer Mode 1.
 
-Force a specific mode regardless of environment:
-- `--claude-extract` → force extract-only (write manifest, no API call)
-- `--no-claude-extract` → force the external vision call even inside
-  Claude Code (e.g. a batch job where no agent consumes the frames)
+**`vision-report` (Mode-2 building block).** `neurolearn vision-report
+<batch> --moments "6:00,18:30"` is the standalone Gemini-describe step
+(`--ask`, `--depth standard|deep`, `--video-index`). It writes
+`<batch>/vision-report.json` and auto-crops frames to the region Gemini
+flags. If no Gemini key, it falls back to extracting frames for an agent to
+read — i.e. it degrades into Mode 1.
+
+**Note.** `transcribe` (single) and `batch` both write a canonical
+`manifest.json` (v0.21), so `frames` / `crop` / `vision-report` / `report`
+all work on any transcribe or batch output with no extra steps.
 
 ## Consuming neurolearn output — epistemic stance
 

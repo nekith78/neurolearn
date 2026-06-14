@@ -292,6 +292,13 @@ def transcribe_cmd(audio_or_url: str | None, **opts) -> None:
     # Explicit --detect-method below still wins.
     if _autonomous_llm_first(opts, cli_overrides):
         cli_overrides["detect_method"] = "llm_first"
+    # v0.21 Mode-2: Gemini vision spends API requests per moment — warn about
+    # the per-day free-tier limit (extract-only Mode-1 makes no API call).
+    if (
+        cli_overrides.get("vision_backend") == "gemini"
+        and not cli_overrides.get("vision_extract_only")
+    ):
+        _warn_gemini_vision_quota(console)
     if opts.get("detect_method_opt") is not None:
         cli_overrides["detect_method"] = opts["detect_method_opt"]
     if opts.get("frames_per_window_opt") is not None:
@@ -468,6 +475,43 @@ def transcribe_cmd(audio_or_url: str | None, **opts) -> None:
             title=target.title,
             url=target.url,
             quality=getattr(result, "quality", None),
+        )
+
+    # === v0.21: write a canonical 1-video manifest.json so that report /
+    # vision-report / frames work on a plain `transcribe` output exactly as
+    # they do on a `batch` (one schema, no downstream special-casing). Single
+    # `transcribe` historically wrote only loose files; the v0.15.2 retrofit
+    # synthesized a manifest with a DIFFERENT (flat) schema that consumers
+    # never read, so report silently produced empty output. We write the same
+    # schema `batch` does, via the same builder. ===
+    files_map: dict = {}
+    if write_txt:
+        files_map["txt"] = txt_path.name
+    if write_srt_pick:
+        files_map["srt"] = srt_path.name
+    if write_json_pick:
+        files_map["json"] = json_path.name
+    if visual_path is not None:
+        files_map["visual"] = visual_path.name
+    manifest_meta = BatchMeta(
+        batch_name=output_dir.name,
+        created_at=datetime.now(),
+        source_type=_infer_source_type([target], None),
+        source_url=target.url if is_url(target.url) else None,
+        backend=result.backend_name or "",
+        backend_options={},
+        language=result.language_detected or "auto",
+    )
+    # The transcript files are already on disk; a manifest-write failure must
+    # not fail the whole command (just lose the downstream-convenience index).
+    try:
+        write_manifest_json(
+            [_build_video_status(0, target, result, files_map)],
+            [], manifest_meta, output_dir,
+        )
+    except Exception as e:
+        console.print(
+            f"[yellow]⚠ could not write manifest.json: {e}[/yellow]", style="dim",
         )
 
     console.print(f"[green]✓[/green] {result.backend_name} | "
@@ -908,6 +952,19 @@ def _default_vision_backend() -> str:
     if get_api_key("groq"):
         return "groq"
     return "gemini"
+
+
+def _warn_gemini_vision_quota(console) -> None:
+    """Mode-2 reminder: Gemini vision spends one API request per moment, and
+    the free tier is request-limited PER DAY (≈250/day on gemini-2.5-flash,
+    far fewer on preview models like 3.x). For heavy use enable billing
+    (Tier 1 → 1500/day) or use the agent-driven Mode 1 (no API)."""
+    console.print(
+        "[yellow]⚠ Gemini free tier is request-limited per day[/yellow] "
+        "(~250/day on 2.5-flash). Heavy use → enable billing, or use the "
+        "agent-driven flow (`frames` + read them yourself, no API).",
+        style="dim",
+    )
 
 
 def _autonomous_llm_first(opts: dict, cli_overrides: dict) -> bool:
@@ -1583,6 +1640,13 @@ def batch_cmd(
     # Explicit --detect-method below still wins.
     if _autonomous_llm_first(opts, cli_overrides):
         cli_overrides["detect_method"] = "llm_first"
+    # v0.21 Mode-2: Gemini vision spends API requests per moment — warn about
+    # the per-day free-tier limit (extract-only Mode-1 makes no API call).
+    if (
+        cli_overrides.get("vision_backend") == "gemini"
+        and not cli_overrides.get("vision_extract_only")
+    ):
+        _warn_gemini_vision_quota(console)
     if opts.get("detect_method_opt") is not None:
         cli_overrides["detect_method"] = opts["detect_method_opt"]
     if opts.get("frames_per_window_opt") is not None:
@@ -3086,6 +3150,39 @@ def frames_cmd(batch_dir, latest, ats, video_index):
             console.print(f"  [{label}] [yellow](no frames — past end of video?)[/yellow]")
 
 
+# === v0.21: crop a keyframe to the region the agent wants to show (Mode 1) ===
+@cli.command(name="crop")
+@click.argument("image", required=True,
+                type=click.Path(exists=True, path_type=Path))
+@click.option("--box", "box_csv", required=True,
+              help="Region to keep, normalized 0-1000 as ymin,xmin,ymax,xmax "
+                   "(Gemini convention), e.g. 48,550,980,994.")
+@click.option("--out", "out_path", type=click.Path(path_type=Path), default=None,
+              help="Output path (default: <stem>_crop.jpg next to the source).")
+@click.option("--pad", type=float, default=0.02, show_default=True,
+              help="Extra margin added on each side (fraction of width/height).")
+def crop_cmd(image, box_csv, out_path, pad):
+    """Crop a keyframe to the relevant region so the embedded screenshot is
+    readable (Mode 1: you read the full frame, then crop it to the tooltip /
+    panel worth showing). Box is normalized 0-1000 [ymin,xmin,ymax,xmax]."""
+    console = make_console()
+    from skills.neurolearn.frames_cmd import crop_image
+    try:
+        parts = tuple(int(x.strip()) for x in box_csv.split(","))
+    except ValueError:
+        console.print(f"[red]Bad --box {box_csv!r}: expected 4 integers[/red]")
+        sys.exit(2)
+    if len(parts) != 4:
+        console.print(f"[red]--box needs exactly 4 values, got {len(parts)}[/red]")
+        sys.exit(2)
+    try:
+        out = crop_image(image, parts, out_path=out_path, pad=pad)
+    except (ValueError, RuntimeError, OSError) as e:
+        console.print(f"[red]{e}[/red]")
+        sys.exit(3)
+    console.print(str(out))
+
+
 # === v0.21: agent-orchestrated vision step (Mode 1) ===
 @cli.command(name="vision-report")
 @click.argument("batch_dir", required=True, type=click.Path(path_type=Path))
@@ -3102,14 +3199,17 @@ def frames_cmd(batch_dir, latest, ats, video_index):
               show_default=True)
 def vision_report_cmd(batch_dir, moments_csv, ask, depth, video_index):
     """Describe chosen video moments with Gemini vision, grounded in the
-    transcript (Mode 1: the agent picks the moments, Gemini does the looking).
+    transcript (Mode-2 building block: Gemini does the looking).
 
     Timestamps are yours (from the transcript) — Gemini never supplies them.
     If Gemini isn't configured, frames are still extracted and you should read
-    them yourself. Writes structured results to <batch>/vision-report.json.
+    them yourself (that's the agent-driven Mode 1). Writes structured results
+    to <batch>/vision-report.json.
     """
     console = make_console()
     cfg = load_config(CONFIG_PATH)
+    if get_api_key("gemini"):
+        _warn_gemini_vision_quota(console)
     from skills.neurolearn.frames_cmd import parse_timestamp
     try:
         moments = [parse_timestamp(s) for s in moments_csv.split(",") if s.strip()]

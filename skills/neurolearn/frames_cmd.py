@@ -158,3 +158,50 @@ def extract_frames_at(
         )
         out[ts] = [str(p.relative_to(batch_dir)) for p in paths]
     return out
+
+
+def crop_image(
+    image_path: Path | str,
+    box: tuple[int, int, int, int],
+    *,
+    out_path: Path | str | None = None,
+    pad: float = 0.02,
+) -> Path:
+    """Crop a keyframe to a normalized region so the embedded screenshot shows
+    the relevant tooltip/panel instead of the whole game screen.
+
+    `box` is `[ymin, xmin, ymax, xmax]` in 0-1000 normalized coordinates — the
+    same convention Gemini returns, and resolution-independent so an agent can
+    derive it from a frame it viewed at any size. A small `pad` is added on each
+    side. Writes `<stem>_crop.jpg` next to the source (or `out_path`).
+
+    Mode-1 usage: the agent reads the full frame with its own vision, decides
+    the region worth showing, and calls this to produce the readable crop.
+    """
+    try:
+        from PIL import Image
+    except ImportError as e:  # pragma: no cover - optional dep
+        raise RuntimeError(
+            "Pillow is required to crop frames. Install: uv sync --extra report"
+        ) from e
+
+    image_path = Path(image_path)
+    ymin, xmin, ymax, xmax = box
+    if not (0 <= xmin < xmax <= 1000 and 0 <= ymin < ymax <= 1000):
+        raise ValueError(
+            f"box must be [ymin,xmin,ymax,xmax] in 0-1000 with min<max; got {box}"
+        )
+    im = Image.open(image_path)
+    w, h = im.size
+    x0 = max(0, int((xmin / 1000 - pad) * w))
+    y0 = max(0, int((ymin / 1000 - pad) * h))
+    x1 = min(w, int((xmax / 1000 + pad) * w))
+    y1 = min(h, int((ymax / 1000 + pad) * h))
+    if x1 <= x0 or y1 <= y0:
+        raise ValueError(f"degenerate crop box {box} for image {w}x{h}")
+    out = (
+        Path(out_path) if out_path
+        else image_path.with_name(image_path.stem + "_crop.jpg")
+    )
+    im.convert("RGB").crop((x0, y0, x1, y1)).save(out, "JPEG", quality=90)
+    return out

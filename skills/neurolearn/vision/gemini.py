@@ -66,10 +66,21 @@ _SEGMENT_SCHEMA = {
                 "elements you couldn't read precisely. Triggers Claude refinement."
             ),
         },
+        "box_2d": {
+            "type": "array",
+            "items": {"type": "integer"},
+            "description": (
+                "Bounding box of the single most relevant on-screen region a "
+                "reader should look at (the tooltip / panel / dialog being "
+                "shown), so the screenshot can be cropped to it. Normalized "
+                "0-1000 as [ymin, xmin, ymax, xmax]. If the whole frame is "
+                "relevant, return [0,0,1000,1000]."
+            ),
+        },
     },
     "required": [
         "description", "key_objects", "importance",
-        "confidence", "needs_refinement",
+        "confidence", "needs_refinement", "box_2d",
     ],
 }
 
@@ -345,11 +356,17 @@ class GeminiVisionBackend:
         desc, key_objects, importance, confidence, needs_refinement = (
             _parse_structured_response(response.text or "")
         )
+        # v0.21: crop the keyframes to the region Gemini flagged (box_2d) so
+        # the embedded screenshot shows the tooltip/panel, not the whole game
+        # screen. Same call → no extra request. Falls back to full frames.
+        kf_paths = _crop_keyframes_to_box(
+            keyframes, _parse_box_2d(response.text or ""),
+        )
         return VisualSegment(
             start=window.start,
             end=window.end,
             description=desc,
-            keyframes=[f"frames/{p.name}" for p in keyframes],
+            keyframes=kf_paths,
             detected_objects=key_objects,
             trigger_reason=window.reason,
             importance=importance,
@@ -405,6 +422,49 @@ def _parse_structured_response(
 
     needs_refinement = bool(data.get("needs_refinement", False))
     return description, key_objects, importance, confidence, needs_refinement
+
+
+def _parse_box_2d(text: str) -> tuple[int, int, int, int] | None:
+    """Pull the optional `box_2d` ([ymin,xmin,ymax,xmax], 0-1000) from Gemini's
+    JSON. Returns None when absent or malformed."""
+    text = (text or "").strip()
+    if text.startswith("```"):
+        text = "\n".join(ln for ln in text.split("\n") if not ln.startswith("```"))
+    try:
+        box = json.loads(text).get("box_2d")
+    except (json.JSONDecodeError, AttributeError):
+        return None
+    if not isinstance(box, (list, tuple)) or len(box) != 4:
+        return None
+    try:
+        ymin, xmin, ymax, xmax = (int(v) for v in box)
+    except (TypeError, ValueError):
+        return None
+    if not (0 <= xmin < xmax <= 1000 and 0 <= ymin < ymax <= 1000):
+        return None
+    return (ymin, xmin, ymax, xmax)
+
+
+def _crop_keyframes_to_box(
+    keyframes: list[Path], box: tuple[int, int, int, int] | None,
+) -> list[str]:
+    """Crop each keyframe to `box` and return the cropped relative paths. A
+    near-full-frame box (≥90% each side) or any failure leaves the frame
+    uncropped — cropping a whole-screen moment gains nothing."""
+    rel = [f"frames/{p.name}" for p in keyframes]
+    if box is None:
+        return rel
+    ymin, xmin, ymax, xmax = box
+    if (xmax - xmin) >= 900 and (ymax - ymin) >= 900:
+        return rel
+    from skills.neurolearn.frames_cmd import crop_image
+    out: list[str] = []
+    for p in keyframes:
+        try:
+            out.append(f"frames/{crop_image(p, box).name}")
+        except Exception:
+            out.append(f"frames/{p.name}")
+    return out
 
 
 def _parse_retry_delay_seconds(exc: Exception) -> float | None:

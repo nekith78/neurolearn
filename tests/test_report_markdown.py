@@ -36,6 +36,27 @@ def test_render_markdown_pdf_embeds_resolves_and_blocks_traversal(tmp_path):
     assert "etc/passwd" not in html                     # traversal blocked
 
 
+@pytest.mark.skipif(not _weasyprint_ok(), reason="weasyprint/native libs unavailable")
+def test_render_markdown_pdf_renders_caption_as_figcaption(tmp_path):
+    """Markdown image alt-text becomes a visible <figcaption>, wrapped in a
+    <figure> that won't split across page breaks."""
+    from PIL import Image
+    from skills.neurolearn.report.renderer import render_markdown_pdf
+
+    batch = tmp_path / "b"
+    (batch / "frames").mkdir(parents=True)
+    Image.new("RGB", (40, 30), (0, 0, 0)).save(batch / "frames" / "f_00010.jpg")
+
+    md = "# G\n\n![На картинке: тултип перчаток](frames/f_00010.jpg)\n"
+    out = batch / "r.pdf"
+    render_markdown_pdf(md, batch_dir=batch, output_path=out, keep_html=True)
+
+    html = (batch / "r.html").read_text(encoding="utf-8")
+    assert "<figure>" in html and "</figure>" in html
+    assert "<figcaption>На картинке: тултип перчаток</figcaption>" in html
+    assert "break-inside: avoid" in html
+
+
 def test_data_uri_only_fetcher_blocks_non_data_urls():
     """The WeasyPrint url_fetcher must reject everything but data: URIs, so
     poisoned report HTML can't read local files via file:// / url() / SVG."""

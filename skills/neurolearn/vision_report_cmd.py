@@ -117,7 +117,7 @@ def build_vision_report(
             video_type = DEFAULT_VIDEO_TYPE
         template = _build_prompt_template(video_type, depth, ask)
         model = (getattr(cfg, "gemini_vision_model", "") if cfg else "") \
-            or "gemini-3.5-flash"
+            or "gemini-2.5-flash"
         tier = (getattr(cfg, "gemini_tier", "free") if cfg else "free") or "free"
         backend = GeminiVisionBackend(
             api_key=gem_key, model=model,
