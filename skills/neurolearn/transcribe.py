@@ -3309,6 +3309,13 @@ def vision_report_cmd(batch_dir, moments_csv, ask, depth, video_index):
                    "(bypasses the outline LLM). Images use Markdown syntax "
                    "pointing at frames/ inside the batch. Needs BATCH_DIR or "
                    "--latest to resolve those images.")
+@click.option("--verify/--no-verify", "verify_opt", default=False,
+              help="Grounding check (with --from-markdown): OCR each embedded "
+                   "frame and flag caption claims (stats / numbers / terms) "
+                   "not visible on it. Needs the `ocr` extra.")
+@click.option("--strict", "strict_opt", is_flag=True, default=False,
+              help="With --verify: exit non-zero (don't render) while any "
+                   "grounding issue remains.")
 def report_cmd(
     batch_dir: Path | None,
     latest: bool,
@@ -3328,6 +3335,8 @@ def report_cmd(
     ollama_model_opt: str | None,
     ollama_host_opt: str | None,
     from_markdown_file: Path | None,
+    verify_opt: bool,
+    strict_opt: bool,
 ) -> None:
     """Render a PDF report from a transcribed batch directory."""
     # 1. Cheap flag validation FIRST — fast feedback on typos before
@@ -3368,11 +3377,47 @@ def report_cmd(
             sys.exit(2)
         rb = Path(rb).resolve()
         from skills.neurolearn.report.renderer import render_markdown_pdf
+        md_text = from_markdown_file.read_text(encoding="utf-8")
+
+        # Grounding check (before render so --strict can abort): does each
+        # caption's claims actually appear on its (cropped) frame?
+        if verify_opt:
+            from skills.neurolearn.report.grounding import (
+                verify_markdown_grounding,
+            )
+            console.print("[dim]Grounding check (OCR per frame)…[/dim]")
+            try:
+                issues = verify_markdown_grounding(md_text, rb)
+            except RuntimeError as e:
+                console.print(f"[red]{e}[/red]")
+                sys.exit(4)
+            if issues:
+                console.print(
+                    f"[yellow]⚠ Grounding: {len(issues)} image(s) with "
+                    f"caption claims not found on the frame — review each "
+                    f"(fix the crop/text, or confirm it's a cross-step "
+                    f"reference):[/yellow]"
+                )
+                for it in issues:
+                    console.print(f"  [bold]{it.image}[/bold] — missing: "
+                                  f"{', '.join(it.missing)}")
+                    console.print(f"    caption: {it.caption}", style="dim")
+                    if it.ocr_excerpt:
+                        console.print(f"    on-frame (OCR): {it.ocr_excerpt}",
+                                      style="dim")
+                if strict_opt:
+                    console.print("[red]--strict: not rendering until claims "
+                                  "are grounded.[/red]")
+                    sys.exit(5)
+            else:
+                console.print("[green]✓ Grounding: every caption claim was "
+                              "found on its frame.[/green]")
+
         out = Path(output_opt) if output_opt else (
             rb / f"report_{from_markdown_file.stem}.pdf"
         )
         render_markdown_pdf(
-            from_markdown_file.read_text(encoding="utf-8"),
+            md_text,
             batch_dir=rb, output_path=out,
             max_images=(0 if no_screenshots else max_images_opt),
             image_max_width=max_image_width_opt, keep_html=keep_html_opt,

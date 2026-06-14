@@ -315,17 +315,31 @@ yours. Building blocks, in order:
      from the transcript (here: 40% quality boosts the caster mod), and pin
      each number to the step/frame where it's actually visible. Don't
      hand-wave an important change.
-6. **`neurolearn report <batch> --from-markdown <file.md>`** — renders your
-   Markdown to PDF, embedding + downscaling the referenced frames and
-   turning each alt-text into a `<figcaption>`. Image + caption never split
-   across a page break.
+6. **Render WITH the grounding gate:** `neurolearn report <batch>
+   --from-markdown <file.md> --verify`. `--verify` OCRs each embedded crop
+   and flags any caption claim (game term / number) not visible on that
+   frame — the mechanical catch for "emphasized a stat the crop cut off",
+   "claimed +4 over a +3 frame", or "said it goes in the tree when the
+   tooltip doesn't say so". **This step is mandatory.** Resolve every flag:
+   fix the crop (re-crop taller) or the text; only leave a flag if it's a
+   deliberate cross-step reference you can justify (`--strict` blocks the
+   render until none remain). Needs the `ocr` extra. Then it renders to PDF
+   (embeds + downscales frames, alt-text → `<figcaption>`, image+caption
+   never split across a page break).
 
 **Protocol:** confirm language → read transcript → **classify each moment
 (showcase vs procedure)** → `frames` (`--best` for showcase, per-step for
 procedure) → read frames → `crop` the keepers → write Markdown (flowing
 prose, captions, numbered steps for procedures, in the user's language) →
-`report --from-markdown` → PDF. Apply the epistemic stance (below):
-describe what's actually on the frame, don't parrot the transcript.
+**`report --from-markdown --verify` and clear every grounding flag** → PDF.
+Apply the epistemic stance (below): describe what's actually on the frame,
+don't parrot the transcript.
+
+**Caption precision (keeps the grounding gate green):** a caption states
+only what's visible on ITS OWN frame; put cross-step references ("up from
++3", "the wand from §2") in the body prose, not the caption. When you make a
+placement or stat claim, include the exact on-screen English term (e.g.
+"Passive Skill Tree", "Arcane Surge") so it's checkable against the image.
 
 ---
 

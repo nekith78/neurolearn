@@ -3,6 +3,31 @@
 All notable changes to neurolearn will be documented here.
 The format is loosely based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.24.0] — 2026-06-15
+
+Grounding gate for visual reports — a mechanical check that the prose matches
+the screenshots, so a text↔image mismatch can't ship silently.
+
+### Added
+
+- **`report --from-markdown --verify`** — for each embedded frame, OCRs the
+  (cropped) image (easyocr, from the `ocr` extra; cached per frame, invalidated
+  by mtime) and flags any caption claim — game terms (Latin words) and
+  numbers/percentages — not found on it. Catches "emphasized a stat the crop
+  cut off", "claimed +4 over a +3 frame", and "said it goes in the tree when
+  the tooltip doesn't". Fuzzy matching tolerates OCR noise (DODGE↔DODCE).
+  Warnings by default (a caption may legitimately reference another step);
+  **`--strict`** blocks the render until every flag is resolved.
+- **`skills/neurolearn/report/grounding.py`** — `verify_markdown_grounding`
+  (OCR function injectable for testing) + `extract_claim_tokens`.
+
+### Changed
+
+- **SKILL.md Mode-1 protocol** — the grounding gate (`--verify`, clear every
+  flag) is now a mandatory step, plus caption-precision guidance (a caption
+  states only what's on its own frame; include the exact on-screen English
+  term so it's checkable).
+
 ## [0.23.1] — 2026-06-15
 
 ### Changed
