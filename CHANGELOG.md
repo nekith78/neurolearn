@@ -3,6 +3,20 @@
 All notable changes to neurolearn will be documented here.
 The format is loosely based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.24.2] — 2026-06-15
+
+### Changed
+
+- **SKILL.md — don't translate on-screen terms in a translated report.** A
+  guide written in the user's language keeps every on-screen / in-video term
+  (item names, stat / affix / property / ability names, UI labels, mechanics)
+  **verbatim in its original form, as a proper name** — only the agent's own
+  explanations are translated. Translating game terms ("энергощит" for "Energy
+  Shield") loses the exact term the reader needs in-game and blinds the
+  grounding check; keeping them original also makes the OCR `--verify` floor
+  effective for non-English reports (the on-screen terms are now in the
+  captions to check against the frame).
+
 ## [0.24.1] — 2026-06-15
 
 ### Fixed

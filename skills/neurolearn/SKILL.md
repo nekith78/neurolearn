@@ -302,6 +302,18 @@ yours. Building blocks, in order:
    sentence on what changed. Write **flowing, connected prose** — not terse
    staccato fragments.
 
+   **Translate your explanations, NOT the on-screen terms.** Your narration —
+   what you understood the author to mean — goes in the user's language. But
+   any term that appears on screen or is named from the source — item names,
+   stat / affix / property names, ability names, UI labels, mechanics — stays
+   **verbatim in its original form, as a proper name** (`Energy Shield`,
+   `Spirit`, `Critical Hit Chance`, `Arcane Surge`, `Cast on Dodge`, `Jewel
+   Socket`, `Passive Skill Tree`, `Well of Souls`, item names). Don't render
+   them in the user's language ("энергощит", "шанс крита") — that loses the
+   exact term the reader needs to find in-game AND blinds the grounding check.
+   Test: is it shown on the frame / spoken as a game term? → keep original. Is
+   it your own explanation? → translate.
+
    **Ground the text in the image, and read the whole tooltip.** Three rules
    that catch the usual mistakes:
    - If you emphasize a stat/property in the text, the crop MUST actually
