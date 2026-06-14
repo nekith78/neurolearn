@@ -191,17 +191,17 @@ def crop_image(
         raise ValueError(
             f"box must be [ymin,xmin,ymax,xmax] in 0-1000 with min<max; got {box}"
         )
-    im = Image.open(image_path)
-    w, h = im.size
-    x0 = max(0, int((xmin / 1000 - pad) * w))
-    y0 = max(0, int((ymin / 1000 - pad) * h))
-    x1 = min(w, int((xmax / 1000 + pad) * w))
-    y1 = min(h, int((ymax / 1000 + pad) * h))
-    if x1 <= x0 or y1 <= y0:
-        raise ValueError(f"degenerate crop box {box} for image {w}x{h}")
-    out = (
-        Path(out_path) if out_path
-        else image_path.with_name(image_path.stem + "_crop.jpg")
-    )
-    im.convert("RGB").crop((x0, y0, x1, y1)).save(out, "JPEG", quality=90)
+    with Image.open(image_path) as im:
+        w, h = im.size
+        x0 = max(0, int((xmin / 1000 - pad) * w))
+        y0 = max(0, int((ymin / 1000 - pad) * h))
+        x1 = min(w, int((xmax / 1000 + pad) * w))
+        y1 = min(h, int((ymax / 1000 + pad) * h))
+        if x1 <= x0 or y1 <= y0:
+            raise ValueError(f"degenerate crop box {box} for image {w}x{h}")
+        out = (
+            Path(out_path) if out_path
+            else image_path.with_name(image_path.stem + "_crop.jpg")
+        )
+        im.convert("RGB").crop((x0, y0, x1, y1)).save(out, "JPEG", quality=90)
     return out
