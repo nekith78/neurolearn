@@ -168,3 +168,27 @@ def test_extract_flat_wraps_yt_dlp_download_error():
         from skills.neurolearn.utils.downloader import _extract_flat
         with pytest.raises(DownloadError):
             _extract_flat("https://youtu.be/blocked")
+
+
+def test_download_video_max_height_in_format(tmp_path):
+    """v0.23: download_video honors max_height in the yt-dlp -f format
+    string (visual-report path requests 1080; default stays 720)."""
+    from skills.neurolearn.utils import downloader as dl
+    captured = {}
+
+    def fake_run(cmd, **kw):
+        captured["cmd"] = cmd
+        (tmp_path / "video_x.mp4").write_bytes(b"\x00")
+        return MagicMock(returncode=0, stderr="")
+
+    with patch("shutil.which", return_value="/usr/bin/yt-dlp"), \
+         patch.object(dl.subprocess, "run", fake_run):
+        dl.download_video("https://youtu.be/x", tmp_path, max_height=1080)
+    fmt = captured["cmd"][captured["cmd"].index("-f") + 1]
+    assert "height<=1080" in fmt and "height<=720" not in fmt
+
+    with patch("shutil.which", return_value="/usr/bin/yt-dlp"), \
+         patch.object(dl.subprocess, "run", fake_run):
+        dl.download_video("https://youtu.be/x", tmp_path)  # default
+    fmt = captured["cmd"][captured["cmd"].index("-f") + 1]
+    assert "height<=720" in fmt

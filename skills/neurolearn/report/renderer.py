@@ -25,6 +25,10 @@ from skills.neurolearn.report.outliner import Outline
 
 # Image pipeline defaults — tunable from CLI.
 _DEFAULT_MAX_WIDTH = 1000
+# Markdown visual-report embeds are cropped, text-heavy game/UI tooltips:
+# wider + higher JPEG quality so the text stays crisp (v0.23).
+_MARKDOWN_EMBED_WIDTH = 1600
+_MARKDOWN_EMBED_QUALITY = 92
 _DEFAULT_MAX_IMAGES = 50
 
 # Cap stored data URI sizes — defensive; downscale should already
@@ -46,7 +50,7 @@ class _PreparedImage:
 
 
 def downscale_image(
-    path: Path | str, *, max_width: int = _DEFAULT_MAX_WIDTH,
+    path: Path | str, *, max_width: int = _DEFAULT_MAX_WIDTH, quality: int = 82,
 ) -> bytes | None:
     """Return downscaled JPEG bytes, or None if the source can't be read.
 
@@ -54,6 +58,10 @@ def downscale_image(
     re-encode as JPEG for predictable size; alpha channels are flattened
     to white. Returning None on missing path lets the caller cleanly
     skip that image rather than blowing up the whole render.
+
+    `quality` is the JPEG quality of the single re-encode. The default 82 is
+    fine for photo-like frames; the Markdown report path passes a higher value
+    because cropped UI/game tooltips are text-heavy and show JPEG ringing.
     """
     src = Path(path)
     if not src.exists():
@@ -88,7 +96,7 @@ def downscale_image(
                 img = img.resize(new_size, Image.LANCZOS)
 
             buf = io.BytesIO()
-            img.save(buf, format="JPEG", quality=82, optimize=True)
+            img.save(buf, format="JPEG", quality=quality, optimize=True)
             return buf.getvalue()
     except Exception:
         # Corrupt image / unsupported format → skip, don't crash.
@@ -389,7 +397,7 @@ def render_markdown_pdf(
     batch_dir: Path | str,
     output_path: Path | str,
     max_images: int = _DEFAULT_MAX_IMAGES,
-    image_max_width: int = _DEFAULT_MAX_WIDTH,
+    image_max_width: int = _MARKDOWN_EMBED_WIDTH,
     keep_html: bool = False,
 ) -> Path:
     """Render an already-authored Markdown report (e.g. one Claude or the
@@ -440,11 +448,15 @@ def render_markdown_pdf(
         path = _resolve_image_path(batch_dir, src)
         if path is None:
             return ""
-        jpg = downscale_image(path, max_width=image_max_width)
+        jpg = downscale_image(
+            path, max_width=image_max_width, quality=_MARKDOWN_EMBED_QUALITY,
+        )
         if jpg is None:
             return ""
         if len(jpg) > _MAX_DATA_URI_BYTES:
-            jpg = downscale_image(path, max_width=600) or jpg
+            jpg = downscale_image(
+                path, max_width=1000, quality=_MARKDOWN_EMBED_QUALITY,
+            ) or jpg
         remaining -= 1
         return f"<figure><img src=\"{_to_data_uri(jpg)}\">{caption}</figure>"
 

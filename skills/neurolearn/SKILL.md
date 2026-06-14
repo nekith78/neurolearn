@@ -262,33 +262,56 @@ screenshot to a real second; nothing relies on a model's time estimate.
 The tool only extracts frames and renders; the *looking* and *writing* are
 yours. Building blocks, in order:
 
-1. **`neurolearn frames <batch> --at 6:00 --at 18:30`** — extract a small
-   keyframe bracket at each moment you chose. Pure ffmpeg, offline, no API
-   key, no onboarding gate. Source video is downloaded + cached under
-   `<batch>/source/` on first use; frames land in `<batch>/frames/`.
-2. **Read the frames yourself** with your native vision, using the
+1. **Classify each moment — this drives how many screenshots it gets.**
+   - **Showcase / reference** (a single item, panel, stat, result): **one**
+     clean screenshot.
+   - **Procedure / craft / demo** (the author performs a multi-step
+     sequence — "first… then… after that…", a crafting walkthrough, a chain
+     of UI actions): a **step sequence — one screenshot per step**, because
+     these are exactly the moments a reader needs shown in detail. Don't
+     collapse a craft into a single image.
+
+   Tell the two apart by the transcript: stepwise narration (sequential
+   connectives + several actions) = procedure. (`detection.moment_kind.
+   classify_moment_kind` is the same heuristic the autonomous mode uses,
+   if you want a programmatic hint — but your own reading is better.)
+
+2. **Extract frames.**
+   - Showcase → `neurolearn frames <batch> --best --at 6:00` — `--best`
+     samples a window and keeps only the **sharpest** frame, so you don't
+     get a tooltip caught mid-fade.
+   - Procedure → call `frames` at **each step's timestamp**
+     (`--at 2:14 --at 2:26 --at 2:41 …`) so you get a frame per step.
+   Pure ffmpeg, offline, no API key. Source video (1080p) is downloaded +
+   cached under `<batch>/source/` on first use; frames land in
+   `<batch>/frames/`.
+3. **Read the frames yourself** with your native vision, using the
    surrounding transcript as context. Describe what's actually on screen.
-3. **`neurolearn crop <frame.jpg> --box "ymin,xmin,ymax,xmax"`** — game/UI
+4. **`neurolearn crop <frame.jpg> --box "ymin,xmin,ymax,xmax"`** — game/UI
    screenshots are full-screen; the relevant tooltip/panel is a small part
    and becomes unreadable when shrunk to page width. After you've read a
    frame, crop it to the region worth showing (box is normalized 0-1000,
    the convention you'd estimate from the frame). Writes `<stem>_crop.jpg`.
    Embed the crop, not the whole screen.
-4. **Author the guide as Markdown** in the user's language. Reference each
+5. **Author the guide as Markdown** in the user's language. Reference each
    (cropped) frame with **Markdown image syntax whose alt-text is the
    caption** — it renders as a visible line under the image:
    `![На картинке: tier table — Unknown Ruins is B-tier](frames/x_crop.jpg)`.
-   Every screenshot must have a caption saying what it shows and why.
-5. **`neurolearn report <batch> --from-markdown <file.md>`** — renders your
+   Every screenshot needs a caption saying what it shows. For a procedure,
+   write it as **numbered steps**, each with its own cropped frame and a
+   sentence on what changed. Write **flowing, connected prose** — not terse
+   staccato fragments.
+6. **`neurolearn report <batch> --from-markdown <file.md>`** — renders your
    Markdown to PDF, embedding + downscaling the referenced frames and
    turning each alt-text into a `<figcaption>`. Image + caption never split
    across a page break.
 
-**Protocol:** confirm language → read transcript → pick moments →
-`frames` → read frames → `crop` the keepers → write Markdown (captions, in
-the user's language) → `report --from-markdown` → PDF. Apply the epistemic
-stance (below): describe what's actually on the frame, don't parrot the
-transcript.
+**Protocol:** confirm language → read transcript → **classify each moment
+(showcase vs procedure)** → `frames` (`--best` for showcase, per-step for
+procedure) → read frames → `crop` the keepers → write Markdown (flowing
+prose, captions, numbered steps for procedures, in the user's language) →
+`report --from-markdown` → PDF. Apply the epistemic stance (below):
+describe what's actually on the frame, don't parrot the transcript.
 
 ---
 

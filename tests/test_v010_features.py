@@ -235,7 +235,8 @@ def test_explicit_caches_create_not_called_v012(tmp_path):
 
 
 def test_extract_keyframes_uses_quality_and_scale(tmp_path):
-    """ffmpeg command should include -q:v 3 and a 1280px-wide scale filter."""
+    """ffmpeg command should include -q:v 2 and a 1920px-wide scale filter
+    (v0.23: raised from q:3/1280 for sharper cropped tooltip text)."""
     import skills.neurolearn.vision.frames as frames_mod
 
     with patch.object(frames_mod, "subprocess") as mock_sp:
@@ -252,10 +253,10 @@ def test_extract_keyframes_uses_quality_and_scale(tmp_path):
     cmd = mock_sp.run.call_args.args[0]
     assert "-q:v" in cmd
     qv_idx = cmd.index("-q:v")
-    assert cmd[qv_idx + 1] == "3"
-    # Scale filter contains 1280.
+    assert cmd[qv_idx + 1] == "2"
+    # Scale filter contains 1920.
     vf_idx = cmd.index("-vf")
-    assert "1280" in cmd[vf_idx + 1]
+    assert "1920" in cmd[vf_idx + 1]
 
 
 # === #6 — Asymmetric offsets ===

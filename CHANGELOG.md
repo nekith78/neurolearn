@@ -3,6 +3,44 @@
 All notable changes to neurolearn will be documented here.
 The format is loosely based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.23.0] — 2026-06-14
+
+Visual-report quality + structure pass: sharper screenshots, the right frame,
+and step-by-step coverage for procedures (research-backed: multi-step
+processes get one screenshot per step; a showcase gets one clean image).
+
+### Fixed
+
+- **Blurry screenshots.** Three compounding causes: the source video was
+  capped at 720p, frames were extracted at JPEG q:3, and the embed re-encoded
+  again at q82. Now the visual path downloads **1080p**, extracts at q:2 /
+  1920px, and embeds at q92 / 1600px — cropped tooltip text stays crisp.
+- **Tooltip caught mid-fade.** A single blind frame offset sometimes landed
+  on a transition. `frames --best` now samples a window and keeps the
+  **sharpest** frame (variance-of-Laplacian), so the on-screen info is fully
+  shown and legible.
+
+### Added
+
+- **`frames --best`** — per `--at`, sample a window and keep only the sharpest
+  frame.
+- **Moment typing — `detection.moment_kind.classify_moment_kind`** —
+  procedure (stepwise narration / craft / chained actions) vs showcase
+  (single item / panel). Drives how much visual detail a moment gets.
+- **Procedure density.** In the autonomous Gemini path, a procedure moment
+  with a real time span gets more frames spread across it (one per step);
+  showcases keep the compact bracket.
+
+### Changed
+
+- **`download_video(max_height=…)`** — visual-report frame path requests
+  1080p; the general transcription download stays at 720p.
+- **`downscale_image(quality=…)`** — the Markdown report path embeds at a
+  higher JPEG quality for text-heavy tooltips.
+- **SKILL.md Mode-1 protocol** — classify each moment, use `--best` for
+  showcases and a per-step frame sequence for procedures, write flowing prose
+  with numbered steps for procedures, in the user's chosen report language.
+
 ## [0.22.0] — 2026-06-14
 
 Visual-report overhaul: the two modes now split cleanly by who's driving,

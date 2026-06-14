@@ -112,7 +112,9 @@ def resolve_source_video(
         )
     from skills.neurolearn.utils.downloader import download_video
     source_dir.mkdir(parents=True, exist_ok=True)
-    return download_video(url, source_dir, cfg=cfg)
+    # Visual reports need sharp tooltip text in cropped screenshots → pull
+    # 1080p here (the general transcription path stays at the 720p default).
+    return download_video(url, source_dir, cfg=cfg, max_height=1080)
 
 
 def extract_frames_at(
@@ -122,16 +124,20 @@ def extract_frames_at(
     video_index: int = 0,
     cfg=None,
     offsets: tuple[float, ...] = (-1.5, 0.3, 2.0),
+    best: bool = False,
 ) -> dict[float, list[str]]:
-    """Extract a small bracket of frames around each timestamp.
+    """Extract frames around each timestamp.
 
-    The bracket (default -1.5 / +0.3 / +2.0 s) captures the moment the
-    speaker references something just before it appears, the action, and
-    the settled result — the visual a guide reader needs is often a beat
-    after the words. Returns {timestamp: [relative frame paths]}; paths are
-    relative to `batch_dir` so they're portable in Claude's chat context.
+    Default: a small bracket (-1.5 / +0.3 / +2.0 s) — the "before / action /
+    settled" trio. With `best=True`, sample several frames in a window per
+    moment and keep only the SHARPEST one (avoids catching a tooltip mid-fade
+    or mid-transition) — ideal when you want a single clean screenshot to crop.
+    Returns {timestamp: [relative frame paths]}; paths are relative to
+    `batch_dir` so they're portable in an agent's chat context.
     """
-    from skills.neurolearn.vision.frames import extract_keyframes_asymmetric
+    from skills.neurolearn.vision.frames import (
+        extract_keyframes_asymmetric, extract_sharpest_frame,
+    )
 
     batch_dir = Path(batch_dir)
     video_path = resolve_source_video(
@@ -149,14 +155,21 @@ def extract_frames_at(
         if ts in seen:
             continue
         seen.add(ts)
-        paths = extract_keyframes_asymmetric(
-            video_path=video_path,
-            event_ts=ts,
-            out_dir=frames_dir,
-            video_id=video_id,
-            offsets=offsets,
-        )
-        out[ts] = [str(p.relative_to(batch_dir)) for p in paths]
+        if best:
+            p = extract_sharpest_frame(
+                video_path=video_path, event_ts=ts,
+                out_dir=frames_dir, video_id=video_id,
+            )
+            out[ts] = [str(p.relative_to(batch_dir))] if p else []
+        else:
+            paths = extract_keyframes_asymmetric(
+                video_path=video_path,
+                event_ts=ts,
+                out_dir=frames_dir,
+                video_id=video_id,
+                offsets=offsets,
+            )
+            out[ts] = [str(p.relative_to(batch_dir)) for p in paths]
     return out
 
 

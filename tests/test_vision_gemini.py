@@ -122,6 +122,32 @@ def test_crop_keyframes_to_box_crops_and_skips_full_frame(tmp_path):
     assert _crop_keyframes_to_box([p], None) == ["frames/vid_00010.jpg"]
 
 
+def test_procedure_window_gets_denser_frames(tmp_path):
+    """A procedure moment (stepwise transcript + long span) extracts more
+    frames across the span; a showcase keeps the compact bracket."""
+    import skills.neurolearn.vision.frames as frames_mod
+    backend = GeminiVisionBackend(api_key="x", frames_per_window=3)
+
+    proc = DetectionWindow(
+        start=100.0, end=140.0, reason="raw", score=1.0, weight=1.0, phrase="x",
+        transcript_context=(
+            "First grab the base, then chaos spam it, after that fracture it, "
+            "and finally quality the amulet."
+        ),
+    )
+    with patch.object(frames_mod, "extract_keyframes", return_value=[]) as ek:
+        backend._extract_frames_for_window(Path("v.mp4"), proc, tmp_path, "v")
+    assert ek.call_args.kwargs["count"] == 5  # max(3, 5)
+
+    show = DetectionWindow(
+        start=10.0, end=15.0, reason="raw", score=1.0, weight=1.0, phrase="x",
+        transcript_context="This amulet grants cast on dodge for free.",
+    )
+    with patch.object(frames_mod, "extract_keyframes", return_value=[]) as ek2:
+        backend._extract_frames_for_window(Path("v.mp4"), show, tmp_path, "v")
+    assert ek2.call_args.kwargs["count"] == 3  # frames_per_window default
+
+
 def test_gemini_window_with_no_keyframes_skipped(tmp_path):
     """If keyframe extraction returns empty, window is skipped."""
     fake_client = MagicMock()

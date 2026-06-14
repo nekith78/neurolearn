@@ -3092,15 +3092,19 @@ cli.add_command(memory_group)
 @click.option("--video-index", "video_index", type=int, default=0,
               show_default=True,
               help="Pick the n-th video (0-based) when the batch has several.")
-def frames_cmd(batch_dir, latest, ats, video_index):
+@click.option("--best", "best", is_flag=True, default=False,
+              help="Per --at, sample a window and keep only the SHARPEST frame "
+                   "(avoids tooltips caught mid-fade). Best for a clean "
+                   "single screenshot to crop.")
+def frames_cmd(batch_dir, latest, ats, video_index, best):
     """Extract keyframes at chosen timestamps from a batch's source video.
 
     Pass 2 of the visual-report flow: after a transcript exists, the agent
     decides which moments to inspect and calls this to get the frames. The
     source video is downloaded + cached under <batch>/source/ on first use;
-    each --at yields a small before/action/after bracket under <batch>/frames/.
-    Offline (ffmpeg) apart from the one-time video download — no API key,
-    no onboarding gate.
+    each --at yields a small before/action/after bracket under <batch>/frames/
+    (or one sharpest frame with --best). Offline (ffmpeg) apart from the
+    one-time video download — no API key, no onboarding gate.
     """
     console = make_console()
     cfg = load_config(CONFIG_PATH)
@@ -3131,7 +3135,7 @@ def frames_cmd(batch_dir, latest, ats, video_index):
     try:
         console.print("[dim]Resolving source video (downloads + caches on first use)…[/dim]")
         result = extract_frames_at(
-            batch_dir, timestamps, video_index=video_index, cfg=cfg,
+            batch_dir, timestamps, video_index=video_index, cfg=cfg, best=best,
         )
     except (FileNotFoundError, ValueError, IndexError) as e:
         console.print(f"[red]{e}[/red]")

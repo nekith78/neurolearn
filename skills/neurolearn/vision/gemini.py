@@ -223,6 +223,27 @@ class GeminiVisionBackend:
         frames_dir: Path,
         video_id: str,
     ) -> list[Path]:
+        # v0.23: a procedure/craft moment (stepwise narration) gets denser
+        # coverage — more frames spread across the window so each step is
+        # captured — while a showcase keeps the compact bracket. Window span
+        # has to be meaningful for this to help (the LLM moment-selector
+        # returns the real time range for a procedure).
+        from skills.neurolearn.detection.moment_kind import (
+            classify_moment_kind, PROCEDURE,
+        )
+        if (
+            classify_moment_kind(getattr(window, "transcript_context", "") or "")
+            == PROCEDURE
+            and (window.end - window.start) >= 6.0
+        ):
+            return frames_mod.extract_keyframes(
+                video_path=video_path,
+                start=window.start,
+                end=window.end,
+                count=max(self.frames_per_window, 5),
+                out_dir=frames_dir,
+                video_id=video_id,
+            )
         if self.use_asymmetric_offsets:
             # Tutorial preset: speech-anchored offsets. window.start is
             # already `seg.start - 1.5`, so the speech event lands at

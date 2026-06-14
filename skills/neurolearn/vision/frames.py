@@ -25,11 +25,15 @@ from pathlib import Path
 
 
 _FFMPEG_TIMEOUT_S = 120  # seconds — guard a hung ffmpeg keyframe extraction
-# JPEG quality 3 in ffmpeg's -q:v scale (1=best, 31=worst). q:3 maps to
-# ~80% quality — visually indistinguishable but 5–10× smaller than PNG.
-_DEFAULT_JPEG_QUALITY = 3
-# 1280px wide is enough for UI tutorials; bump to 1920 for IDE / code.
-_DEFAULT_MAX_WIDTH = 1280
+# JPEG quality in ffmpeg's -q:v scale (1=best, 31=worst). v0.23: q:2
+# (~90%, near-lossless) — keyframes get cropped to small tooltip regions and
+# embedded in PDFs, where q:3 ringing on text was visible. Still far smaller
+# than PNG. Gemini downsamples server-side (media_resolution LOW) so the
+# extra detail costs it nothing.
+_DEFAULT_JPEG_QUALITY = 2
+# v0.23: 1920px (was 1280) so a 1080p source keeps full width — a cropped
+# tooltip then has ~50% more pixels and stays sharp when embedded.
+_DEFAULT_MAX_WIDTH = 1920
 
 
 def _tmp_pattern(out_dir: Path) -> Path:
@@ -154,3 +158,74 @@ def extract_keyframes_asymmetric(
         if out_path.exists():
             paths.append(out_path)
     return paths
+
+
+def frame_sharpness(path: Path) -> float:
+    """Variance of the Laplacian — a standard blur/detail metric. Higher means
+    sharper / more edge detail. A fully-shown crisp tooltip scores higher than
+    a motion-blur transition or a faded-out overlay, so it lets us pick the
+    frame where the on-screen info is actually legible."""
+    from PIL import Image, ImageFilter, ImageStat
+    try:
+        with Image.open(path) as im:
+            lap = im.convert("L").filter(ImageFilter.Kernel(
+                (3, 3), [0, 1, 0, 1, -4, 1, 0, 1, 0], scale=1, offset=128,
+            ))
+            return float(ImageStat.Stat(lap).var[0])
+    except Exception:
+        return 0.0
+
+
+def extract_sharpest_frame(
+    video_path: Path,
+    event_ts: float,
+    out_dir: Path,
+    video_id: str,
+    *,
+    window: float = 2.0,
+    samples: int = 6,
+    max_width: int = _DEFAULT_MAX_WIDTH,
+    jpeg_quality: int = _DEFAULT_JPEG_QUALITY,
+) -> Path | None:
+    """Sample several frames in a window around `event_ts` and keep the
+    sharpest as `<video_id>_<sec>.jpg`.
+
+    Fixes the "tooltip caught mid-fade / mid-transition" problem: instead of
+    one blind offset we look at a few candidates (forward-weighted, because a
+    tooltip appears a beat after the speech) and pick the one with the most
+    edge detail. Returns the kept frame, or None if nothing extracted.
+    """
+    out_dir.mkdir(parents=True, exist_ok=True)
+    final = out_dir / f"{video_id}_{int(max(0.0, event_ts)):05d}.jpg"
+    if final.exists() and final.stat().st_size > 0:
+        return final  # already chosen on a prior call
+
+    start = max(0.0, event_ts - window * 0.4)
+    n = max(2, samples)
+    cands = [start + window * i / (n - 1) for i in range(n)]
+    scored: list[tuple[float, Path]] = []
+    for i, ts in enumerate(cands):
+        tmp = out_dir / f".cand_{video_id}_{int(ts * 1000):08d}_{i}.jpg"
+        cmd = [
+            "ffmpeg", "-y", "-loglevel", "error",
+            "-ss", f"{ts:.3f}", "-i", str(video_path),
+            "-frames:v", "1", "-q:v", str(jpeg_quality),
+            "-vf", _vf_filter(max_width), "-pix_fmt", "yuvj420p", str(tmp),
+        ]
+        try:
+            subprocess.run(cmd, check=True, timeout=_FFMPEG_TIMEOUT_S)
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
+            continue
+        if tmp.exists() and tmp.stat().st_size > 0:
+            scored.append((frame_sharpness(tmp), tmp))
+    if not scored:
+        return None
+    scored.sort(key=lambda s: s[0], reverse=True)
+    best = scored[0][1]
+    best.replace(final)
+    for _, t in scored[1:]:
+        try:
+            t.unlink()
+        except OSError:
+            pass
+    return final

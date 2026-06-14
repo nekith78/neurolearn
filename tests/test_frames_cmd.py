@@ -35,6 +35,56 @@ def test_crop_image_rejects_bad_box(tmp_path):
         crop_image(src, (0, 0, 2000, 1000))  # out of 0-1000 range
 
 
+def test_frame_sharpness_ranks_sharp_over_blurred(tmp_path):
+    """A frame with edges scores higher than a flat/blurred one."""
+    from PIL import Image, ImageDraw, ImageFilter
+    from skills.neurolearn.vision.frames import frame_sharpness
+
+    sharp = tmp_path / "sharp.jpg"
+    im = Image.new("RGB", (400, 300), (0, 0, 0))
+    d = ImageDraw.Draw(im)
+    for x in range(0, 400, 12):
+        d.line([(x, 0), (x, 300)], fill=(255, 255, 255), width=2)
+    im.save(sharp, "JPEG", quality=95)
+
+    blurred = tmp_path / "blur.jpg"
+    im.filter(ImageFilter.GaussianBlur(6)).save(blurred, "JPEG", quality=95)
+
+    # The property we rely on: a crisp frame outranks a blurred/faded one.
+    assert frame_sharpness(sharp) > frame_sharpness(blurred)
+
+
+def test_extract_sharpest_frame_picks_best_and_cleans_temps(tmp_path, monkeypatch):
+    """extract_sharpest_frame samples candidates, keeps the sharpest as
+    <id>_<sec>.jpg, and removes the temp candidates."""
+    import skills.neurolearn.vision.frames as fm
+    from PIL import Image, ImageDraw
+
+    out = tmp_path / "frames"
+
+    def fake_run(cmd, check=True, **kw):
+        # The output path is the last arg; write a frame whose sharpness
+        # depends on the seek time so one candidate clearly wins.
+        ss = float(cmd[cmd.index("-ss") + 1])
+        p = Path(cmd[-1]); p.parent.mkdir(parents=True, exist_ok=True)
+        im = Image.new("RGB", (200, 150), (0, 0, 0))
+        if abs(ss - 10.0) < 0.05:  # the "best" candidate — lots of edges
+            d = ImageDraw.Draw(im)
+            for x in range(0, 200, 6):
+                d.line([(x, 0), (x, 150)], fill=(255, 255, 255), width=1)
+        im.save(p, "JPEG", quality=90)
+        return __import__("unittest.mock", fromlist=["MagicMock"]).MagicMock(returncode=0)
+
+    monkeypatch.setattr(fm.subprocess, "run", fake_run)
+    best = fm.extract_sharpest_frame(
+        Path("v.mp4"), 10.0, out, "vid", window=2.0, samples=5,
+    )
+    assert best is not None and best.name == "vid_00010.jpg"
+    assert best.exists()
+    # No leftover temp candidates.
+    assert not list(out.glob(".cand_*"))
+
+
 def test_parse_timestamp_forms():
     assert parse_timestamp("263") == 263.0
     assert parse_timestamp(263) == 263.0

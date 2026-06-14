@@ -359,15 +359,25 @@ def _download_video_once(
     cookies_file: str,
     timeout_seconds: int,
     throttle: str = "off",
+    max_height: int = 720,
 ) -> Path:
-    """One video-download attempt. Same shape as `_download_audio_once`."""
+    """One video-download attempt. Same shape as `_download_audio_once`.
+
+    `max_height` caps the video resolution. 720 is the default (smaller, fine
+    for Gemini to read); the visual-report frame path passes 1080 so cropped
+    tooltip text stays sharp in the embedded screenshots.
+    """
     if shutil.which("yt-dlp") is None:
         raise DownloadError("yt-dlp not found in PATH.")
     output_dir.mkdir(parents=True, exist_ok=True)
     template = str(output_dir / "video_%(id)s.%(ext)s")
+    h = int(max_height)
     cmd = [
         "yt-dlp",
-        "-f", "bestvideo[ext=mp4][height<=720]+bestaudio[ext=m4a]/best[ext=mp4][height<=720]/best",
+        "-f", (
+            f"bestvideo[ext=mp4][height<={h}]+bestaudio[ext=m4a]/"
+            f"best[ext=mp4][height<={h}]/best"
+        ),
         "--merge-output-format", "mp4",
         "--geo-bypass",
         "--no-playlist",
@@ -409,12 +419,16 @@ def download_video(
     cfg=None,                  # v0.15.0: optional Config — enables anti-block cascade
     cookies_file: str = "",
     timeout_seconds: int = 1200,
+    max_height: int = 720,
 ) -> Path:
     """Download mp4 (audio+video) from URL via yt-dlp. Returns path to mp4.
 
     Same v0.15.0 cascade semantics as `download_audio`: pass `cfg` to
     opt into the anti-block cascade. Used by visual mode
     (--with-visuals) — Gemini multimodal needs both frames and audio.
+
+    `max_height` caps resolution (default 720). The visual-report frame path
+    passes 1080 for sharper cropped tooltips.
     """
     throttle = getattr(cfg, "throttle", "off") if cfg is not None else "off"
     if cfg is None:
@@ -423,6 +437,7 @@ def download_video(
             cookies_file=cookies_file,
             timeout_seconds=timeout_seconds,
             throttle=throttle,
+            max_height=max_height,
         )
 
     from skills.neurolearn.utils.anti_block_cascade import run_cascade
@@ -434,6 +449,7 @@ def download_video(
             cookies_file=ck,
             timeout_seconds=timeout_seconds,
             throttle=throttle,
+            max_height=max_height,
         )
 
     return run_cascade(url=url, cfg=cfg, do_attempt=_do_attempt)
