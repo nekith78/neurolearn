@@ -76,8 +76,9 @@ def _token_found(token: str, ocr_norm: str, ocr_words: list[str]) -> bool:
     """Is `token` present in the OCR text, tolerant of OCR errors?"""
     digits = re.sub(r"\D", "", token)
     if digits and re.fullmatch(r"[+\-]?\d+%?", token):
-        # Number claim: the digit run must appear in the OCR's digit runs.
-        return any(digits in re.sub(r"\D", "", w) for w in ocr_words if w)
+        # Number claim: the digit run must appear as a whole number in the OCR,
+        # not as a substring — otherwise "+3" spuriously matches "34%".
+        return re.search(rf"(?<!\d){re.escape(digits)}(?!\d)", ocr_norm) is not None
     t = _normalize(token)
     if not t:
         return True

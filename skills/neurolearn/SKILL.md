@@ -315,23 +315,35 @@ yours. Building blocks, in order:
      from the transcript (here: 40% quality boosts the caster mod), and pin
      each number to the step/frame where it's actually visible. Don't
      hand-wave an important change.
-6. **Render WITH the grounding gate:** `neurolearn report <batch>
-   --from-markdown <file.md> --verify`. `--verify` OCRs each embedded crop
-   and flags any caption claim (game term / number) not visible on that
-   frame — the mechanical catch for "emphasized a stat the crop cut off",
-   "claimed +4 over a +3 frame", or "said it goes in the tree when the
-   tooltip doesn't say so". **This step is mandatory.** Resolve every flag:
-   fix the crop (re-crop taller) or the text; only leave a flag if it's a
-   deliberate cross-step reference you can justify (`--strict` blocks the
-   render until none remain). Needs the `ocr` extra. Then it renders to PDF
-   (embeds + downscales frames, alt-text → `<figcaption>`, image+caption
-   never split across a page break).
+6. **Two-layer grounding gate — both layers are mandatory.**
+
+   **Layer 1 — you look (the real semantic check).** Before rendering, open
+   EVERY cropped frame you're about to embed with your own vision and confirm
+   each thing its caption claims is actually visible *on that crop*. You are
+   the verifier here — your vision is as good as any model's, and this needs
+   no API. This catches what a text check cannot: a property you described in
+   the report's language (e.g. you wrote «спелл-крит» but the crop shows the
+   pre-reveal amulet, not the Critical Hit Chance), or simply the wrong /
+   over-tight crop. If the crop doesn't show the claim, fix the crop (re-crop,
+   or pick the frame where the property IS visible — it may be elsewhere in
+   the same frame, like a reveal/options panel) or fix the text.
+
+   **Layer 2 — `neurolearn report … --from-markdown <file.md> --verify`** —
+   the mechanical floor: OCRs each crop and flags caption game-terms/numbers
+   not found on it. It catches "stat cut off by the crop", "+4 over a +3
+   frame", "placement the tooltip doesn't support". Resolve every flag
+   (`--strict` blocks the render until none remain). Needs the `ocr` extra.
+   **Layer 2 only sees claims you wrote as on-screen English terms or
+   numbers** — that's exactly why Layer 1 (you looking) is not optional. Then
+   it renders to PDF (embeds + downscales frames, alt-text → `<figcaption>`,
+   image+caption never split across a page break).
 
 **Protocol:** confirm language → read transcript → **classify each moment
 (showcase vs procedure)** → `frames` (`--best` for showcase, per-step for
 procedure) → read frames → `crop` the keepers → write Markdown (flowing
 prose, captions, numbered steps for procedures, in the user's language) →
-**`report --from-markdown --verify` and clear every grounding flag** → PDF.
+**Layer 1: re-open every crop and confirm its caption is fully visible on it**
+→ **Layer 2: `report --from-markdown --verify`, clear every flag** → PDF.
 Apply the epistemic stance (below): describe what's actually on the frame,
 don't parrot the transcript.
 

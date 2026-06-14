@@ -62,6 +62,24 @@ def test_number_grounding_catches_wrong_value(tmp_path):
     assert len(issues) == 1 and "+4" in issues[0].missing
 
 
+def test_number_not_matched_as_substring(tmp_path):
+    """'+3' must NOT be considered present just because OCR has '34%'."""
+    (tmp_path / "frames").mkdir()
+    (tmp_path / "frames" / "a_crop.jpg").write_bytes(b"x")
+    md = "![+3 to Spell Skills](frames/a_crop.jpg)\n"
+    issues = verify_markdown_grounding(
+        md, tmp_path,
+        ocr_fn=_fake_ocr({"a_crop.jpg": "34% INCREASED ENERGY SHIELD +47 SPIRIT"}),
+    )
+    assert len(issues) == 1 and "+3" in issues[0].missing
+    # ...but a genuine standalone match passes.
+    ok = verify_markdown_grounding(
+        md, tmp_path,
+        ocr_fn=_fake_ocr({"a_crop.jpg": "+3 TO LEVEL OF ALL SPELL SKILLS"}),
+    )
+    assert ok == []
+
+
 def test_missing_image_file_flagged(tmp_path):
     md = "![something](frames/nope.jpg)\n"
     issues = verify_markdown_grounding(md, tmp_path, ocr_fn=_fake_ocr({}))

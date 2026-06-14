@@ -3,6 +3,25 @@
 All notable changes to neurolearn will be documented here.
 The format is loosely based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.24.1] — 2026-06-15
+
+### Fixed
+
+- **Grounding number match was substring-based** — a caption claiming "+3"
+  counted as present when the frame only showed "34%". Numbers now match on
+  whole-number boundaries, so a wrong value (e.g. +4 claimed over a +3 frame)
+  is reliably flagged.
+
+### Changed
+
+- **SKILL.md — grounding is now an explicit two-layer gate, both mandatory.**
+  Layer 1 (the real semantic check): the agent re-opens every crop with its
+  own vision and confirms each caption claim is visible on it — no API,
+  language-independent, catches claims written in the report's language and
+  wrong/over-tight crops. Layer 2: OCR `--verify` as the mechanical floor for
+  English terms/numbers. Clarifies that `--verify` only sees claims written as
+  on-screen English terms or numbers, which is why Layer 1 is not optional.
+
 ## [0.24.0] — 2026-06-15
 
 Grounding gate for visual reports — a mechanical check that the prose matches
