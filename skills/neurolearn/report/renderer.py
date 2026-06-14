@@ -334,10 +334,11 @@ def render_pdf(
         html_path = output_path.with_suffix(".html")
         html_path.write_text(html, encoding="utf-8")
 
-    # base_url=batch_dir lets WeasyPrint resolve any non-data refs
-    # (we use data URIs by default, but be defensive).
+    # All images are inlined as data URIs; the url_fetcher blocks any other
+    # scheme so report content can't read local files via file:// / url().
     weasyprint.HTML(
-        string=html, base_url=str(Path(batch_dir))
+        string=html, base_url=str(Path(batch_dir)),
+        url_fetcher=_data_uri_only_fetcher,
     ).write_pdf(target=str(output_path))
 
     return output_path
@@ -349,6 +350,24 @@ def render_pdf(
 
 
 _IMG_SRC_RE = re.compile(r'(<img\b[^>]*?\bsrc=")([^"]+)(")', re.I)
+
+
+def _data_uri_only_fetcher(url, *args, **kwargs):
+    """WeasyPrint url_fetcher that allows ONLY `data:` URIs.
+
+    Every legitimate image is inlined as a data URI before rendering, so any
+    other scheme (`file:`, `http(s):`, or a relative path resolved against
+    `base_url`) in the report HTML can only be an attempt to read a
+    local/remote resource from untrusted report content (e.g. an
+    LLM/agent-authored Markdown body whose `<img>` guard we already enforce,
+    but which can also smuggle `file://` via raw HTML / CSS `url()` / SVG).
+    Block it. WeasyPrint logs the block and renders without the resource
+    instead of aborting.
+    """
+    if url.startswith("data:"):
+        from weasyprint import default_url_fetcher
+        return default_url_fetcher(url, *args, **kwargs)
+    raise ValueError(f"blocked non-data: URL in report content: {url[:60]!r}")
 
 
 def render_markdown_pdf(
@@ -419,7 +438,8 @@ def render_markdown_pdf(
     if keep_html:
         output_path.with_suffix(".html").write_text(html, encoding="utf-8")
 
-    weasyprint.HTML(string=html, base_url=str(batch_dir)).write_pdf(
-        target=str(output_path)
-    )
+    weasyprint.HTML(
+        string=html, base_url=str(batch_dir),
+        url_fetcher=_data_uri_only_fetcher,
+    ).write_pdf(target=str(output_path))
     return output_path

@@ -135,11 +135,15 @@ def find_detection_windows(
     # windows on top of triggers+scenes), llm_first uses the LLM's judgment
     # ALONE and only falls back to triggers when the LLM is unavailable.
     if detect_method == "llm_first":
-        if api_key:
+        # find_visual_moments_via_llm is Gemini-only, so fetch the Gemini key
+        # explicitly rather than reusing the vision-backend `api_key` (which
+        # could be a Groq/OpenAI key — sending it to Google is wrong).
+        gemini_key = _config_mod.get_api_key("gemini")
+        if gemini_key:
             try:
                 llm_windows = find_visual_moments_via_llm(
                     result.segments,
-                    api_key=api_key,
+                    api_key=gemini_key,
                     language=result.language_detected or "en",
                 )
             except Exception:

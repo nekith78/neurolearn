@@ -36,6 +36,26 @@ def test_render_markdown_pdf_embeds_resolves_and_blocks_traversal(tmp_path):
     assert "etc/passwd" not in html                     # traversal blocked
 
 
+def test_data_uri_only_fetcher_blocks_non_data_urls():
+    """The WeasyPrint url_fetcher must reject everything but data: URIs, so
+    poisoned report HTML can't read local files via file:// / url() / SVG."""
+    from skills.neurolearn.report.renderer import _data_uri_only_fetcher
+    for blocked in (
+        "file:///etc/passwd",
+        "/etc/passwd",
+        "../../secret.txt",
+        "http://evil.example/x",
+        "https://evil.example/x",
+    ):
+        with pytest.raises(ValueError):
+            _data_uri_only_fetcher(blocked)
+    # data: URIs are allowed (delegated to WeasyPrint's default fetcher) —
+    # the call must not raise. (Return type varies across WeasyPrint
+    # versions, so we only assert it succeeds.)
+    if _weasyprint_ok():
+        _data_uri_only_fetcher("data:text/plain;base64,aGVsbG8=")  # "hello"
+
+
 @pytest.mark.skipif(not _weasyprint_ok(), reason="weasyprint/native libs unavailable")
 def test_render_markdown_pdf_respects_max_images(tmp_path):
     from PIL import Image
