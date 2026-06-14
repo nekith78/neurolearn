@@ -69,7 +69,9 @@ REGISTRY: list[OptionField] = [
     # === detection ===
     OptionField(
         key="detect_method", type=str, default="keywords_only",
-        choices=["keywords_only", "semantic", "hybrid", "llm_full_pass"],
+        choices=[
+            "keywords_only", "semantic", "hybrid", "llm_full_pass", "llm_first",
+        ],
         description="Method for finding visually important moments.",
         section="detection",
     ),

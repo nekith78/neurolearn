@@ -24,6 +24,15 @@ from skills.neurolearn.backends.base import TranscriptionResult, Segment
 # ---------------------------------------------------------------------------
 
 
+def _kf(path):
+    """Create a real dummy JPEG and return [path]. v0.21 sends keyframe
+    stills inline (read_bytes), so mocked frames must exist on disk."""
+    p = Path(path)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_bytes(b"\xff\xd8\xff\xd9")
+    return [p]
+
+
 def _fake_segments(*pieces) -> list[Segment]:
     """Build a list of Segments from (start, end, text) tuples."""
     out = []
@@ -111,7 +120,7 @@ def test_e2e_explicit_video_type_overrides_autodetect(tmp_path):
         return_value=client,
     ), patch(
         "skills.neurolearn.vision.frames.extract_keyframes",
-        return_value=[frames_dir / "v.jpg"],
+        side_effect=lambda *a, **k: _kf(frames_dir / "v.jpg"),
     ), patch(
         "skills.neurolearn.pipeline_v02._config_mod.get_api_key",
         return_value="fake-key",
@@ -180,7 +189,7 @@ def test_e2e_autodetect_picks_tutorial_from_dense_transcript(tmp_path):
         return_value=client,
     ), patch(
         "skills.neurolearn.vision.frames.extract_keyframes",
-        return_value=[frames_dir / "v.jpg"],
+        side_effect=lambda *a, **k: _kf(frames_dir / "v.jpg"),
     ), patch(
         "skills.neurolearn.pipeline_v02._config_mod.get_api_key",
         return_value="fake-key",
@@ -242,7 +251,7 @@ def test_e2e_no_signal_falls_back_to_talking_head(tmp_path):
         return_value=client,
     ), patch(
         "skills.neurolearn.vision.frames.extract_keyframes",
-        return_value=[frames_dir / "v.jpg"],
+        side_effect=lambda *a, **k: _kf(frames_dir / "v.jpg"),
     ), patch(
         "skills.neurolearn.pipeline_v02._config_mod.get_api_key",
         return_value="fake-key",
@@ -340,7 +349,7 @@ def test_e2e_single_window_skips_cache_in_full_pipeline(tmp_path):
         return_value=client,
     ), patch(
         "skills.neurolearn.vision.frames.extract_keyframes",
-        return_value=[frames_dir / "v.jpg"],
+        side_effect=lambda *a, **k: _kf(frames_dir / "v.jpg"),
     ), patch(
         "skills.neurolearn.pipeline_v02._config_mod.get_api_key",
         return_value="fake-key",
@@ -395,7 +404,7 @@ def test_e2e_multiple_windows_no_explicit_cache_v012(tmp_path):
         return_value=client,
     ), patch(
         "skills.neurolearn.vision.frames.extract_keyframes",
-        return_value=[frames_dir / "v.jpg"],
+        side_effect=lambda *a, **k: _kf(frames_dir / "v.jpg"),
     ), patch(
         "skills.neurolearn.pipeline_v02._config_mod.get_api_key",
         return_value="fake-key",
@@ -567,7 +576,7 @@ def test_e2e_custom_prompt_file_drops_global_prefix(tmp_path):
         return_value=client,
     ), patch(
         "skills.neurolearn.vision.frames.extract_keyframes",
-        return_value=[tmp_path / "v.jpg"],
+        side_effect=lambda *a, **k: _kf(tmp_path / "v.jpg"),
     ), patch(
         "skills.neurolearn.pipeline_v02._config_mod.get_api_key",
         return_value="fake-key",
@@ -628,7 +637,7 @@ def test_e2e_budget_tracker_populated_after_run(tmp_path):
         return_value=client,
     ), patch(
         "skills.neurolearn.vision.frames.extract_keyframes",
-        return_value=[tmp_path / "v.jpg"],
+        side_effect=lambda *a, **k: _kf(tmp_path / "v.jpg"),
     ), patch(
         "skills.neurolearn.pipeline_v02._config_mod.get_api_key",
         return_value="fake-key",

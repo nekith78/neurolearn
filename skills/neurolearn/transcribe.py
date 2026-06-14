@@ -133,7 +133,7 @@ def cli() -> None:
 @click.option("--beam-size", type=int, default=None)
 @click.option("--vad/--no-vad", default=None)
 @click.option("--verbose", is_flag=True)
-@click.option("--with-visuals", is_flag=True, help="Shortcut for --vision-backend=groq (v0.12+).")
+@click.option("--with-visuals", is_flag=True, help="Shortcut for vision: Gemini when configured, else Groq (v0.21).")
 @click.option("--vision-backend", "vision_backend_opt", type=click.Choice(["off", "groq", "gemini"]), default=None,
               help="Visual mode backend. off = audio only. groq = Llama-4-Scout (recommended).")
 @click.option("--claude-extract/--no-claude-extract", "claude_extract_opt", default=None,
@@ -141,7 +141,7 @@ def cli() -> None:
                    "and let Claude read them in chat (no vision API call). Auto-on when "
                    "$CLAUDE_PLUGIN_ROOT is set.")
 @click.option("--detect-method", "detect_method_opt",
-              type=click.Choice(["keywords_only", "semantic", "hybrid", "llm_full_pass"]),
+              type=click.Choice(["keywords_only", "semantic", "hybrid", "llm_full_pass", "llm_first"]),
               default=None, help="How to find visual moments.")
 @click.option("--frames-per-window", "frames_per_window_opt", type=int, default=None)
 @click.option("--max-windows", "max_windows_opt", type=int, default=None)
@@ -272,8 +272,10 @@ def transcribe_cmd(audio_or_url: str | None, **opts) -> None:
     if opts.get("vision_backend_opt") is not None:
         cli_overrides["vision_backend"] = opts["vision_backend_opt"]
     if opts.get("with_visuals"):
-        # v0.12.0: --with-visuals shortcut now defaults to groq (was gemini).
-        cli_overrides["vision_backend"] = "groq"
+        # v0.21: --with-visuals defaults to the key-aware best vision backend
+        # (Gemini when configured — best on dense UI; else Groq). Explicit
+        # --vision-backend above still wins.
+        cli_overrides["vision_backend"] = _default_vision_backend()
 
     # v0.12.1: Claude Code extract-only mode. CLAUDE_PLUGIN_ROOT is set
     # in env when neurolearn runs as a plugin inside Claude Code. We
@@ -286,6 +288,10 @@ def transcribe_cmd(audio_or_url: str | None, **opts) -> None:
         cli_overrides["vision_extract_only"] = False
     elif os.environ.get("CLAUDE_PLUGIN_ROOT") and cli_overrides.get("vision_backend") not in (None, "off"):
         cli_overrides["vision_extract_only"] = True
+    # v0.21 Mode-2 autonomous moment selection (see _autonomous_llm_first).
+    # Explicit --detect-method below still wins.
+    if _autonomous_llm_first(opts, cli_overrides):
+        cli_overrides["detect_method"] = "llm_first"
     if opts.get("detect_method_opt") is not None:
         cli_overrides["detect_method"] = opts["detect_method_opt"]
     if opts.get("frames_per_window_opt") is not None:
@@ -891,6 +897,36 @@ def _api_key_for_backend(backend: str) -> str | None:
     return get_api_key(key_name)
 
 
+def _default_vision_backend() -> str:
+    """Key-aware default for `--with-visuals` (v0.21): Gemini gives the best
+    vision on dense UI, so prefer it when its key is set; fall back to Groq
+    when only that key exists; otherwise return 'gemini' so the unconfigured
+    path surfaces a clear 'set GEMINI_API_KEY' hint rather than silently
+    picking a backend the user can't use."""
+    if get_api_key("gemini"):
+        return "gemini"
+    if get_api_key("groq"):
+        return "groq"
+    return "gemini"
+
+
+def _autonomous_llm_first(opts: dict, cli_overrides: dict) -> bool:
+    """v0.21 Mode-2: should `--with-visuals` auto-select LLM moment selection?
+
+    Yes when visuals run the full pipeline themselves (NOT extract-only, where
+    an in-editor agent picks the moments), the user gave no explicit
+    `--detect-method`, and Gemini is configured. The `llm_first` method falls
+    back to trigger detection on its own, so a missing key is handled there —
+    but we only opt in when a key exists to avoid a guaranteed-wasted LLM call.
+    """
+    return bool(
+        opts.get("with_visuals")
+        and opts.get("detect_method_opt") is None
+        and not cli_overrides.get("vision_extract_only")
+        and get_api_key("gemini")
+    )
+
+
 # ---------------------------------------------------------------------------
 # Task 13 (v0.7) — core batch pipeline, extracted from batch_cmd
 # ---------------------------------------------------------------------------
@@ -1343,14 +1379,14 @@ def _run_batch_pipeline(
 @click.option("--beam-size", type=int, default=None)
 @click.option("--vad/--no-vad", default=None)
 @click.option("--verbose", is_flag=True)
-@click.option("--with-visuals", is_flag=True, help="Shortcut for --vision-backend=groq (v0.12+).")
+@click.option("--with-visuals", is_flag=True, help="Shortcut for vision: Gemini when configured, else Groq (v0.21).")
 @click.option("--vision-backend", "vision_backend_opt",
               type=click.Choice(["off", "groq", "gemini"]), default=None,
               help="Visual mode backend. off = audio only. groq = Llama-4-Scout.")
 @click.option("--claude-extract/--no-claude-extract", "claude_extract_opt", default=None,
               help="Claude Code extract-only mode (auto-on with $CLAUDE_PLUGIN_ROOT).")
 @click.option("--detect-method", "detect_method_opt",
-              type=click.Choice(["keywords_only", "semantic", "hybrid", "llm_full_pass"]),
+              type=click.Choice(["keywords_only", "semantic", "hybrid", "llm_full_pass", "llm_first"]),
               default=None, help="How to find visual moments.")
 @click.option("--frames-per-window", "frames_per_window_opt", type=int, default=None)
 @click.option("--max-windows", "max_windows_opt", type=int, default=None)
@@ -1527,8 +1563,10 @@ def batch_cmd(
     if opts.get("vision_backend_opt") is not None:
         cli_overrides["vision_backend"] = opts["vision_backend_opt"]
     if opts.get("with_visuals"):
-        # v0.12.0: --with-visuals shortcut now defaults to groq (was gemini).
-        cli_overrides["vision_backend"] = "groq"
+        # v0.21: --with-visuals defaults to the key-aware best vision backend
+        # (Gemini when configured — best on dense UI; else Groq). Explicit
+        # --vision-backend above still wins.
+        cli_overrides["vision_backend"] = _default_vision_backend()
 
     # v0.12.1: Claude Code extract-only mode. CLAUDE_PLUGIN_ROOT is set
     # in env when neurolearn runs as a plugin inside Claude Code. We
@@ -1541,6 +1579,10 @@ def batch_cmd(
         cli_overrides["vision_extract_only"] = False
     elif os.environ.get("CLAUDE_PLUGIN_ROOT") and cli_overrides.get("vision_backend") not in (None, "off"):
         cli_overrides["vision_extract_only"] = True
+    # v0.21 Mode-2 autonomous moment selection (see _autonomous_llm_first).
+    # Explicit --detect-method below still wins.
+    if _autonomous_llm_first(opts, cli_overrides):
+        cli_overrides["detect_method"] = "llm_first"
     if opts.get("detect_method_opt") is not None:
         cli_overrides["detect_method"] = opts["detect_method_opt"]
     if opts.get("frames_per_window_opt") is not None:
@@ -2975,6 +3017,140 @@ from skills.neurolearn.memory.cli import memory_group
 cli.add_command(memory_group)
 
 
+# === v0.21: on-demand keyframe extraction for the Claude-driven visual flow ===
+@cli.command(name="frames")
+@click.argument("batch_dir", required=False, type=click.Path(path_type=Path))
+@click.option("--latest", is_flag=True, default=False,
+              help="Use the most recently modified batch under output-dir.")
+@click.option("--at", "ats", multiple=True, required=True,
+              help="Timestamp to grab frames at — MM:SS, HH:MM:SS, or seconds. "
+                   "Repeatable: --at 4:23 --at 23:00.")
+@click.option("--video-index", "video_index", type=int, default=0,
+              show_default=True,
+              help="Pick the n-th video (0-based) when the batch has several.")
+def frames_cmd(batch_dir, latest, ats, video_index):
+    """Extract keyframes at chosen timestamps from a batch's source video.
+
+    Pass 2 of the visual-report flow: after a transcript exists, the agent
+    decides which moments to inspect and calls this to get the frames. The
+    source video is downloaded + cached under <batch>/source/ on first use;
+    each --at yields a small before/action/after bracket under <batch>/frames/.
+    Offline (ffmpeg) apart from the one-time video download — no API key,
+    no onboarding gate.
+    """
+    console = make_console()
+    cfg = load_config(CONFIG_PATH)
+
+    if batch_dir is None and latest:
+        outputs_dir = Path(cfg.output_dir).expanduser()
+        candidates = [
+            p for p in outputs_dir.iterdir()
+            if p.is_dir() and (p / "manifest.json").exists()
+        ] if outputs_dir.exists() else []
+        if not candidates:
+            console.print(f"[red]No batches with a manifest under {outputs_dir}.[/red]")
+            sys.exit(3)
+        batch_dir = max(candidates, key=lambda p: p.stat().st_mtime)
+        console.print(f"[dim]latest: {batch_dir}[/dim]")
+    elif batch_dir is None:
+        console.print("[red]Pass a BATCH_DIR or --latest.[/red]")
+        sys.exit(2)
+
+    batch_dir = Path(batch_dir).resolve()
+    from skills.neurolearn.frames_cmd import parse_timestamp, extract_frames_at
+    try:
+        timestamps = [parse_timestamp(a) for a in ats]
+    except ValueError as e:
+        console.print(f"[red]Bad --at value: {e}[/red]")
+        sys.exit(2)
+
+    try:
+        console.print("[dim]Resolving source video (downloads + caches on first use)…[/dim]")
+        result = extract_frames_at(
+            batch_dir, timestamps, video_index=video_index, cfg=cfg,
+        )
+    except (FileNotFoundError, ValueError, IndexError) as e:
+        console.print(f"[red]{e}[/red]")
+        sys.exit(3)
+
+    console.print(f"\n[green]Frames extracted into {batch_dir / 'frames'}/[/green]")
+    for ts in sorted(result):
+        hh = int(ts) // 3600
+        mm = (int(ts) % 3600) // 60
+        ss = int(ts) % 60
+        label = f"{hh:d}:{mm:02d}:{ss:02d}" if hh else f"{mm:d}:{ss:02d}"
+        paths = result[ts]
+        if paths:
+            console.print(f"  [{label}] " + ", ".join(paths))
+        else:
+            console.print(f"  [{label}] [yellow](no frames — past end of video?)[/yellow]")
+
+
+# === v0.21: agent-orchestrated vision step (Mode 1) ===
+@cli.command(name="vision-report")
+@click.argument("batch_dir", required=True, type=click.Path(path_type=Path))
+@click.option("--moments", "moments_csv", required=True,
+              help="Comma-separated timestamps (MM:SS or seconds) the agent "
+                   "chose from the transcript, e.g. '6:00,18:30,23:00'.")
+@click.option("--ask", "ask", default="",
+              help="Your focus — what to pay attention to. Takes priority "
+                   "over the default per-type inspection.")
+@click.option("--depth", "depth", type=click.Choice(["standard", "deep"]),
+              default="standard", show_default=True,
+              help="standard = key moments; deep = exhaustive beginner guide.")
+@click.option("--video-index", "video_index", type=int, default=0,
+              show_default=True)
+def vision_report_cmd(batch_dir, moments_csv, ask, depth, video_index):
+    """Describe chosen video moments with Gemini vision, grounded in the
+    transcript (Mode 1: the agent picks the moments, Gemini does the looking).
+
+    Timestamps are yours (from the transcript) — Gemini never supplies them.
+    If Gemini isn't configured, frames are still extracted and you should read
+    them yourself. Writes structured results to <batch>/vision-report.json.
+    """
+    console = make_console()
+    cfg = load_config(CONFIG_PATH)
+    from skills.neurolearn.frames_cmd import parse_timestamp
+    try:
+        moments = [parse_timestamp(s) for s in moments_csv.split(",") if s.strip()]
+    except ValueError as e:
+        console.print(f"[red]Bad --moments value: {e}[/red]")
+        sys.exit(2)
+    if not moments:
+        console.print("[red]--moments is empty.[/red]")
+        sys.exit(2)
+
+    from skills.neurolearn.vision_report_cmd import build_vision_report
+    try:
+        report = build_vision_report(
+            Path(batch_dir).resolve(), moments,
+            video_index=video_index, depth=depth, ask=ask, cfg=cfg,
+        )
+    except (FileNotFoundError, ValueError, IndexError) as e:
+        console.print(f"[red]{e}[/red]")
+        sys.exit(3)
+
+    console.print(f"[green]vision-report — {report['vision_engine']}[/green]")
+    for m in report["moments"]:
+        ts = m["timestamp"]
+        hh, mm, ss = int(ts) // 3600, (int(ts) % 3600) // 60, int(ts) % 60
+        label = f"{hh}:{mm:02d}:{ss:02d}" if hh else f"{mm}:{ss:02d}"
+        frames = ", ".join(m.get("frames") or []) or "(none)"
+        console.print(f"\n[bold][{label}][/bold] frames: {frames}")
+        if m.get("description"):
+            console.print(f"  {m['description']}")
+        else:
+            ctx = (m.get("transcript_context") or "")[:160]
+            console.print(
+                "  [yellow](read these frames yourself)[/yellow]"
+                + (f" — context: {ctx}" if ctx else "")
+            )
+    console.print(
+        f"\n[dim]structured JSON: "
+        f"{Path(batch_dir).resolve() / 'vision-report.json'}[/dim]"
+    )
+
+
 # === v0.10.2: report command ===
 @cli.command(name="report")
 @click.argument("batch_dir", required=False,
@@ -3023,6 +3199,12 @@ cli.add_command(memory_group)
               help="Ollama model tag (default: llama3.2:3b).")
 @click.option("--ollama-host", "ollama_host_opt", default=None,
               help="Ollama HTTP host.")
+@click.option("--from-markdown", "from_markdown_file", default=None,
+              type=click.Path(exists=True, path_type=Path),
+              help="Render an already-authored Markdown report to PDF "
+                   "(bypasses the outline LLM). Images use Markdown syntax "
+                   "pointing at frames/ inside the batch. Needs BATCH_DIR or "
+                   "--latest to resolve those images.")
 def report_cmd(
     batch_dir: Path | None,
     latest: bool,
@@ -3041,6 +3223,7 @@ def report_cmd(
     yes_flag: bool,
     ollama_model_opt: str | None,
     ollama_host_opt: str | None,
+    from_markdown_file: Path | None,
 ) -> None:
     """Render a PDF report from a transcribed batch directory."""
     # 1. Cheap flag validation FIRST — fast feedback on typos before
@@ -3057,6 +3240,41 @@ def report_cmd(
     # 2. Optional deps gate (weasyprint + jinja2 + markdown).
     from skills.neurolearn.report import require_report_deps_or_exit
     require_report_deps_or_exit()
+
+    # --from-markdown: render an already-authored Markdown report straight to
+    # PDF (no outline LLM). We only need the batch to resolve frames/ images.
+    if from_markdown_file is not None:
+        cfg = load_config(CONFIG_PATH)
+        rb = batch_dir
+        if rb is None and latest:
+            outputs_dir = Path(cfg.output_dir).expanduser()
+            cands = [
+                p for p in outputs_dir.iterdir()
+                if p.is_dir() and (p / "manifest.json").exists()
+            ] if outputs_dir.exists() else []
+            if not cands:
+                console.print(f"[red]No batches under {outputs_dir}.[/red]")
+                sys.exit(3)
+            rb = max(cands, key=lambda p: p.stat().st_mtime)
+        if rb is None:
+            console.print(
+                "[red]--from-markdown needs BATCH_DIR or --latest "
+                "(to resolve frames/ images).[/red]"
+            )
+            sys.exit(2)
+        rb = Path(rb).resolve()
+        from skills.neurolearn.report.renderer import render_markdown_pdf
+        out = Path(output_opt) if output_opt else (
+            rb / f"report_{from_markdown_file.stem}.pdf"
+        )
+        render_markdown_pdf(
+            from_markdown_file.read_text(encoding="utf-8"),
+            batch_dir=rb, output_path=out,
+            max_images=(0 if no_screenshots else max_images_opt),
+            image_max_width=max_image_width_opt, keep_html=keep_html_opt,
+        )
+        console.print(f"[green]✓ Report rendered from Markdown:[/green] {out}")
+        return
 
     from skills.neurolearn.report.orchestrator import generate_report
 

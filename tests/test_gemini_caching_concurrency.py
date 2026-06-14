@@ -15,6 +15,15 @@ from skills.neurolearn.vision.gemini import (
 )
 
 
+def _kf(path):
+    """Create a real dummy JPEG and return [path]. v0.21 sends keyframe
+    stills inline (read_bytes), so mocked frames must exist on disk."""
+    p = Path(path)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_bytes(b"\xff\xd8\xff\xd9")
+    return [p]
+
+
 def _fake_response(payload: dict, *, prompt=1000, output=100, cached=0):
     r = MagicMock()
     r.text = json.dumps(payload)
@@ -116,7 +125,7 @@ def test_single_window_skips_cache_creation(tmp_path):
         return_value=fake_client,
     ), patch(
         "skills.neurolearn.vision.frames.extract_keyframes",
-        return_value=[out_dir / "v.jpg"],
+        side_effect=lambda *a, **k: _kf(out_dir / "v.jpg"),
     ):
         backend = GeminiVisionBackend(api_key="x")
         backend.annotate_segments(
@@ -128,16 +137,12 @@ def test_single_window_skips_cache_creation(tmp_path):
     fake_client.caches.create.assert_not_called()
 
 
-def test_two_windows_skip_explicit_cache_v012(tmp_path):
-    """v0.12.0: explicit `client.caches.create()` was REMOVED.
-
-    Empirical finding: free-tier Gemini sets
-    TotalCachedContentStorageTokensPerModelFreeTier=0 so the call
-    always 4xx'd. Implicit caching handles prefix reuse server-side.
-    """
+def test_no_explicit_cache_or_files_upload_v021(tmp_path):
+    """v0.21: keyframe stills are sent inline. Neither explicit cache
+    creation nor the Files API video upload is used anymore — both were
+    sources of the ACTIVE-state race / free-tier 4xx. The per-window
+    prompt text (our template) rides in contents[0]."""
     fake_client = MagicMock()
-    fake_uploaded = MagicMock(name="files/1")
-    fake_client.files.upload.return_value = fake_uploaded
     fake_client.models.generate_content.return_value = _fake_response({
         "description": "x", "key_objects": [],
         "importance": "medium", "confidence": 0.9, "needs_refinement": False,
@@ -151,7 +156,7 @@ def test_two_windows_skip_explicit_cache_v012(tmp_path):
         return_value=fake_client,
     ), patch(
         "skills.neurolearn.vision.frames.extract_keyframes",
-        return_value=[out_dir / "v.jpg"],
+        side_effect=lambda *a, **k: _kf(out_dir / "v.jpg"),
     ):
         backend = GeminiVisionBackend(api_key="x", max_concurrent=3)
         backend.annotate_segments(
@@ -160,27 +165,19 @@ def test_two_windows_skip_explicit_cache_v012(tmp_path):
             video_id="v", out_dir=out_dir,
         )
 
-    # No more explicit cache creation regardless of window count.
     fake_client.caches.create.assert_not_called()
-    # The system_instruction is now passed per-call directly via
-    # GenerateContentConfig (no longer pre-cached). System prompt
-    # is still our MY_PROMPT_TEMPLATE.
+    fake_client.files.upload.assert_not_called()
+    # The template (no placeholders → unchanged) rides in the prompt string.
     first_call = fake_client.models.generate_content.call_args_list[0]
-    config = first_call.kwargs["config"]
-    assert "MY_PROMPT_TEMPLATE" in str(config.system_instruction)
+    contents = first_call.kwargs["contents"]
+    assert "MY_PROMPT_TEMPLATE" in contents[0]
 
 
-def test_per_window_contents_include_video_v012(tmp_path):
-    """v0.12.0: without explicit cache, each per-window call MUST carry
-    the uploaded video reference alongside the user prompt — otherwise
-    Gemini has no visual to ground the description.
-
-    Implicit caching on Google's side dedupes the repeated video upload
-    transparently; we don't have to change our request shape.
-    """
+def test_per_window_contents_carry_inline_stills_v021(tmp_path):
+    """v0.21: each per-window call carries the user prompt plus the
+    extracted keyframe STILLS inline (image/jpeg Parts) — that's what
+    grounds the description. No uploaded-video reference."""
     fake_client = MagicMock()
-    fake_uploaded = MagicMock(name="files/1")
-    fake_client.files.upload.return_value = fake_uploaded
     fake_client.models.generate_content.return_value = _fake_response({
         "description": "x", "key_objects": [],
         "importance": "medium", "confidence": 0.9, "needs_refinement": False,
@@ -194,7 +191,7 @@ def test_per_window_contents_include_video_v012(tmp_path):
         return_value=fake_client,
     ), patch(
         "skills.neurolearn.vision.frames.extract_keyframes",
-        return_value=[out_dir / "v.jpg"],
+        side_effect=lambda *a, **k: _kf(out_dir / "v.jpg"),
     ):
         backend = GeminiVisionBackend(api_key="x")
         backend.annotate_segments(
@@ -203,44 +200,11 @@ def test_per_window_contents_include_video_v012(tmp_path):
             video_id="v", out_dir=out_dir,
         )
 
-    # Per-window call carries [user_prompt, uploaded_video] now (cache
-    # removed → must inline the video reference each time).
     for call in fake_client.models.generate_content.call_args_list:
         contents = call.kwargs["contents"]
-        assert len(contents) == 2
-        # Second element references the uploaded video MagicMock.
-        assert contents[1] is fake_uploaded
-
-
-def test_cache_failure_falls_back_to_per_call_content(tmp_path):
-    """If caches.create raises, we should keep sending video+prompt per call."""
-    fake_client = MagicMock()
-    fake_uploaded = MagicMock(name="files/1")
-    fake_client.files.upload.return_value = fake_uploaded
-    fake_client.caches.create.side_effect = RuntimeError("cache server down")
-    fake_client.models.generate_content.return_value = _fake_response({
-        "description": "x", "key_objects": [],
-        "importance": "medium", "confidence": 0.9, "needs_refinement": False,
-    })
-
-    out_dir = tmp_path / "out"
-    out_dir.mkdir()
-
-    with patch(
-        "skills.neurolearn.vision.gemini.genai.Client",
-        return_value=fake_client,
-    ), patch(
-        "skills.neurolearn.vision.frames.extract_keyframes",
-        return_value=[out_dir / "v.jpg"],
-    ):
-        backend = GeminiVisionBackend(api_key="x")
-        backend.annotate_segments(
-            video_path=Path("v.mp4"), windows=_windows(3),
-            prompt_template="t", language="en",
-            video_id="v", out_dir=out_dir,
-        )
-
-    # Fallback: per-window calls re-send the video.
-    for call in fake_client.models.generate_content.call_args_list:
-        contents = call.kwargs["contents"]
-        assert fake_uploaded in contents
+        # [prompt_str, image_Part, ...] — at least the prompt + one still.
+        assert len(contents) >= 2
+        assert isinstance(contents[0], str)
+        still = contents[1]
+        assert getattr(still.inline_data, "mime_type", "") == "image/jpeg"
+        assert still.inline_data.data == b"\xff\xd8\xff\xd9"

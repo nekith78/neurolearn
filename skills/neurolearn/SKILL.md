@@ -194,7 +194,7 @@ Pick the backend BEFORE invoking, based on user intent + environment.
 | Paid Gemini tier + 3.5-flash configured | `--backend gemini` | URL path: no download, no upload. Only safe with timestamp-accurate Gemini models. |
 | Free Gemini tier (anyone) | `--backend smart` (NOT `--backend gemini` for audio) | Gemini 3.5-flash free tier is only 20 RPD; use Groq instead. |
 | Instagram / TikTok URL | any backend (smart works) | Non-YouTube providers don't accept URL natively. Smart downloads audio then transcribes. |
-| Need keyframes / visual analysis | `--with-visuals` (Groq Llama-4-Scout by default v0.12) | Or `--preset standard / premium / tutorial`. See "Visual moments" section below. |
+| Need keyframes / visual analysis | `--with-visuals` (Gemini when configured, else Groq — v0.21) | Or `--preset standard / premium / tutorial`. See "Visual moments" section below. |
 | Diarization (who-said-what) | `--diarize` | Adds pyannote; requires HF token. Doesn't change transcription backend. |
 | Very high accuracy | `--backend whisper-local --whisper-model large` | Best Whisper variant. Or `--backend deepgram --deepgram-model nova-3`. |
 
@@ -232,27 +232,83 @@ stderr warning at runtime. Relay the fix:
   includes `retryDelay` for per-minute limits; daily caps don't surface
   a clean reset time.
 
-## Visual moments — vision pipeline (v0.12+)
+## Visual moments — vision pipeline (v0.12+, two modes since v0.21)
 
-`--with-visuals` triggers keyframe extraction and per-frame description.
+A visual report turns a transcribed video into a picture-rich guide:
+pick the moments worth a look, get a description of what's ON SCREEN at
+each, assemble. There are two ways to run it, and **which one you use is
+decided by which commands you call** — not by an env var:
 
-### When the user is INSIDE Claude Code (the common case)
+- **Mode 1 — agent-orchestrated** (you, the agent, are driving). You read
+  the transcript, choose the moments, and call the building-block
+  commands (`vision-report` / `frames` / `report --from-markdown`).
+  Gemini does the *looking*; you do the *thinking*. This keeps your own
+  vision/context budget for assembling the report.
+- **Mode 2 — fully autonomous** (no agent). The user runs
+  `transcribe --with-visuals` then `report`; the tool picks the moments
+  AND describes them AND renders the PDF by itself.
 
-**Default behavior**: when `$CLAUDE_PLUGIN_ROOT` env var is set
-(neurolearn detects Claude Code automatically) AND vision is requested,
-neurolearn writes `<batch>/keyframes/manifest.json` with frame paths +
-transcript snippets, then EXITS without calling any external vision API.
+**Harness-agnostic.** Mode 1 is not Claude-specific — any orchestrating
+agent (Claude, Codex, …) follows the same protocol. The commands
+self-document via `--help`.
 
-YOU (Claude) then read the manifest and describe the frames yourself.
-This saves the user's API quota and uses your native vision instead.
+**Timestamps are always OURS** (from the transcript/SRT). Gemini only
+describes what's on a frame; it never supplies timecodes (it drifts on
+long video). So the picture is always pinned to the right second.
 
-**How to consume `<batch>/keyframes/manifest.json`:**
+---
+
+### Mode 1 — agent-orchestrated (the common case inside an agent)
+
+Building blocks, in the order you'd use them:
+
+1. **`neurolearn vision-report <batch> --moments "6:00,18:30,23:00"`**
+   For each moment: extract a keyframe bracket, send the stills inline to
+   Gemini grounded in the surrounding transcript, return a structured
+   description. Writes `<batch>/vision-report.json`. Flags:
+   - `--ask "<focus>"` — what to pay attention to. **Highest priority** —
+     overrides the default per-video-type inspection. Use it to pass the
+     user's own request ("watch the inventory", "focus on the tier list").
+   - `--depth standard|deep` — `standard` = concise key content;
+     `deep` = exhaustive, beginner-can-reproduce-every-step.
+   - `--video-index N` — pick the n-th video in a multi-video batch.
+
+   **Vision fallback:** if Gemini isn't configured (or fails),
+   `vision-report` still extracts the frames and sets
+   `vision_engine` to `none — …`; you then OPEN those frames with your
+   own native vision and write the descriptions yourself.
+
+2. **`neurolearn frames <batch> --at 6:00 --at 18:30`** — when you just
+   want the raw keyframes (no Gemini description) to read yourself. Pure
+   ffmpeg, offline, no API key, no onboarding gate. Returns paths under
+   `<batch>/frames/`.
+
+3. **`neurolearn report <batch> --from-markdown <file.md>`** — you author
+   the report as Markdown with `<img src="frames/<id>_360.jpg">` tags
+   pointing at the extracted frames; the tool renders it to PDF, embedding
+   and downscaling the images. (Plain `report <batch>` with no
+   `--from-markdown` is the Mode-2 autonomous renderer.)
+
+**Protocol:** read transcript → pick moments → `vision-report`
+(with `--ask`/`--depth` as the user asked) → read `vision-report.json`
+(or the frames yourself on fallback) → write report Markdown referencing
+`frames/…` → `report --from-markdown` → PDF. Apply the epistemic stance
+(below): describe what's actually on the frame, don't parrot the
+transcript.
+
+#### Legacy: `--with-visuals` extract-only manifest
+
+When `transcribe --with-visuals` runs INSIDE Claude Code
+(`$CLAUDE_PLUGIN_ROOT` set), it stays extract-only — it writes
+`<batch>/keyframes/manifest.json` and exits without an external vision
+call, for you to read. This predates the explicit `vision-report` /
+`frames` commands above (which are the preferred Mode-1 path). The
+manifest shape:
 
 ```json
 {
   "video_id": "...",
   "mode": "claude_code_extract_only",
-  "extracted_at": "2026-05-21T...Z",
   "windows": [
     {
       "start": 30.0, "end": 34.0,
@@ -264,29 +320,30 @@ This saves the user's API quota and uses your native vision instead.
 }
 ```
 
-For each `windows[]` entry:
-1. Open every path in `keyframes[]` with your image-reading capability
-   (paths are RELATIVE to the manifest's parent directory).
-2. Read the `transcript_window` string — it's the audio transcript
-   ±4s around the moment.
-3. Synthesize a 1-3 sentence description of what's on the frame using
-   the transcript as disambiguation context.
-4. Report descriptions back to the user inline or write them into a
-   user-readable file (e.g. `<batch>/visual.md`).
+For each `windows[]` entry: open every `keyframes[]` path (RELATIVE to
+the manifest's parent dir), read `transcript_window` (transcript ±4s) for
+context, write a 1-3 sentence description, report back or write to
+`<batch>/visual.md`.
 
-Apply the same epistemic stance (below) — describe what's actually on
-the frame, do not parrot the transcript.
+---
 
-### When the user is RUNNING THE CLI STANDALONE (not via Claude Code)
+### Mode 2 — fully autonomous (no agent driving)
 
-`$CLAUDE_PLUGIN_ROOT` is empty, so neurolearn calls the configured
-external vision backend (Groq Llama-4-Scout primary, Gemini 2.5-flash
-fallback). The user gets a `visual.md` written automatically.
+`$CLAUDE_PLUGIN_ROOT` is empty (plain CLI), so `transcribe --with-visuals`
+runs the whole pipeline itself:
 
-User can force one mode or the other with:
+- **Moment selection** defaults to `llm_first` (v0.21) when Gemini is
+  configured: the LLM reads the transcript and chooses the moments, with
+  trigger detection as the fallback when the LLM can't run. Override with
+  `--detect-method keywords_only|hybrid|llm_full_pass|llm_first`.
+- **Vision backend** is `--with-visuals`'s key-aware default: Gemini when
+  configured (best on dense UI), else Groq Llama-4-Scout.
+- The user then runs **`neurolearn report <batch>`** to get the PDF.
+
+Force a specific mode regardless of environment:
 - `--claude-extract` → force extract-only (write manifest, no API call)
-- `--no-claude-extract` → force external API call even from inside
-  Claude Code (e.g. for batch jobs where Claude isn't the consumer)
+- `--no-claude-extract` → force the external vision call even inside
+  Claude Code (e.g. a batch job where no agent consumes the frames)
 
 ## Consuming neurolearn output — epistemic stance
 

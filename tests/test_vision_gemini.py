@@ -32,6 +32,8 @@ def test_gemini_annotate_returns_visual_segments(tmp_path):
 
     out_dir = tmp_path / "out"
     out_dir.mkdir()
+    frame = out_dir / "vid_00010.jpg"
+    frame.write_bytes(b"\xff\xd8\xff\xd9")  # minimal JPEG bytes; sent inline
 
     windows = [
         DetectionWindow(start=10.0, end=15.0, reason="universal", score=0.8, weight=1.0, phrase="code"),
@@ -42,7 +44,7 @@ def test_gemini_annotate_returns_visual_segments(tmp_path):
         return_value=fake_client,
     ), patch(
         "skills.neurolearn.vision.frames.extract_keyframes",
-        return_value=[out_dir / "vid_00010.jpg"],
+        return_value=[frame],
     ):
         backend = GeminiVisionBackend(api_key="fake", model="gemini-2.5-flash")
         result = backend.annotate_segments(
@@ -70,13 +72,15 @@ def test_gemini_handles_invalid_json(tmp_path):
 
     out_dir = tmp_path / "out"
     out_dir.mkdir()
+    frame = out_dir / "vid_00010.jpg"
+    frame.write_bytes(b"\xff\xd8\xff\xd9")  # minimal JPEG bytes; sent inline
 
     with patch(
         "skills.neurolearn.vision.gemini.genai.Client",
         return_value=fake_client,
     ), patch(
         "skills.neurolearn.vision.frames.extract_keyframes",
-        return_value=[out_dir / "vid_00010.jpg"],
+        return_value=[frame],
     ):
         backend = GeminiVisionBackend(api_key="fake")
         result = backend.annotate_segments(

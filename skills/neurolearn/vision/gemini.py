@@ -162,28 +162,13 @@ class GeminiVisionBackend:
         out_dir: Path,
     ) -> list[VisualSegment]:
         client = genai.Client(api_key=self.api_key)
-        # Upload video ONCE, reuse uploaded reference for every window.
-        try:
-            uploaded = await asyncio.to_thread(
-                client.files.upload, file=str(video_path),
-            )
-        except Exception:
-            return []
-
-        # v0.12.0: removed explicit `client.caches.create()` path.
-        # Empirical finding (qa-out/v0.12.0-vision-compare/, Test 3):
-        # free-tier Gemini accounts get
-        #   TotalCachedContentStorageTokensPerModelFreeTier limit=0
-        # so the API call always 4xx'd on free users. Gemini 2.5/3.5
-        # Flash provide IMPLICIT caching automatically (no API call,
-        # no storage billing) when consecutive requests share a stable
-        # prefix ≥1024 tokens — which our per-window pattern hits.
-        # See research: https://developers.googleblog.com/gemini-2-5-models-now-support-implicit-caching/
-        # For paid users that genuinely benefit from explicit caching,
-        # we'll add a tier-aware re-introduction in a future release;
-        # for now the implicit path covers >99% of users with no
-        # configuration burden.
-        cached_name = None
+        # v0.21: send each window's extracted keyframe STILLS inline (see
+        # _annotate_window_async) instead of uploading the whole video via the
+        # Files API. Inline avoids the Files-API ACTIVE-state race (400
+        # FAILED_PRECONDITION) and the long-video timestamp drift, is cheaper,
+        # and matches the proven per-window pattern — timestamps come from our
+        # transcript, never from Gemini. Implicit caching still applies to the
+        # stable instruction prefix shared across windows.
 
         frames_dir = out_dir / "frames"
         frames_dir.mkdir(parents=True, exist_ok=True)
@@ -208,11 +193,9 @@ class GeminiVisionBackend:
             async with semaphore:
                 return await self._annotate_window_async(
                     client=client,
-                    uploaded=uploaded,
                     window=w,
                     prompt_template=prompt_template,
                     language=language,
-                    cached_name=cached_name,
                     keyframes=keyframes,
                 )
 
@@ -259,11 +242,9 @@ class GeminiVisionBackend:
         self,
         *,
         client: genai.Client,
-        uploaded,
         window: DetectionWindow,
         prompt_template: str,
         language: str,
-        cached_name: str | None,
         keyframes: list[Path],
     ) -> VisualSegment | None:
         user_prompt = format_prompt(
@@ -278,26 +259,36 @@ class GeminiVisionBackend:
             end_sec=window.end,
         )
 
-        config_kwargs: dict = dict(
+        config = types.GenerateContentConfig(
             temperature=0.2,
-            max_output_tokens=300,
+            # v0.21: Gemini 2.5/3.x flash are *thinking* models — they spend
+            # ~300-560 tokens reasoning before the JSON. We disable thinking
+            # (describing a still needs none) so the whole budget goes to the
+            # answer, and keep generous headroom so a deep-depth description
+            # never truncates (a too-small cap → finish_reason=MAX_TOKENS and
+            # only a "Here is the JSON:" preamble leaks out).
+            thinking_config=types.ThinkingConfig(thinking_budget=0),
+            max_output_tokens=768,
             response_mime_type="application/json",
             response_schema=_SEGMENT_SCHEMA,
             media_resolution=types.MediaResolution.MEDIA_RESOLUTION_LOW,
         )
-        if cached_name:
-            config_kwargs["cached_content"] = cached_name
-        else:
-            # No cache available — inline the system prompt.
-            config_kwargs["system_instruction"] = prompt_template
 
-        config = types.GenerateContentConfig(**config_kwargs)
-
-        # When caching is active the bundle (video + system prompt) is
-        # already on Google's side — we only send the dynamic per-window
-        # part. Otherwise (cache failed / N<2 windows) we re-send the
-        # uploaded video reference together with the user prompt.
-        contents = [user_prompt] if cached_name else [user_prompt, uploaded]
+        # v0.21: send the window's keyframe STILLS inline alongside the
+        # prompt. The prompt already carries the transcript context and our
+        # timestamps; Gemini only describes what's on screen. Inline bytes
+        # sidestep the Files-API ACTIVE-state race entirely.
+        contents: list = [user_prompt]
+        for fp in keyframes[: self.frames_per_window]:
+            try:
+                contents.append(types.Part.from_bytes(
+                    data=fp.read_bytes(), mime_type="image/jpeg",
+                ))
+            except OSError:
+                continue
+        if len(contents) == 1:
+            # No frame readable — nothing to look at, skip this window.
+            return None
 
         usage: TokenUsage | None = None
         # Default exponential backoff used when the server doesn't tell

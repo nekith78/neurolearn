@@ -26,6 +26,15 @@ from skills.neurolearn.detection.base import DetectionWindow
 from skills.neurolearn.vision.gemini import GeminiVisionBackend
 
 
+def _kf(path):
+    """Create a real dummy JPEG and return [path]. v0.21 sends keyframe
+    stills inline (read_bytes), so mocked frames must exist on disk."""
+    p = Path(path)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_bytes(b"\xff\xd8\xff\xd9")
+    return [p]
+
+
 def _mock_gemini_response(payload: dict, *, prompt_tokens=1000, cached_tokens=0, output_tokens=100):
     """Build a fake Gemini response that exposes usage_metadata."""
     resp = MagicMock()
@@ -76,7 +85,7 @@ def test_gemini_config_uses_low_resolution_and_schema(tmp_path):
         return_value=fake_client,
     ), patch(
         "skills.neurolearn.vision.frames.extract_keyframes",
-        return_value=[out_dir / "v_00010.jpg"],
+        side_effect=lambda *a, **k: _kf(out_dir / "v_00010.jpg"),
     ):
         backend = GeminiVisionBackend(api_key="fake", model="gemini-2.5-flash")
         backend.annotate_segments(
@@ -94,7 +103,11 @@ def test_gemini_config_uses_low_resolution_and_schema(tmp_path):
     config = call_kwargs["config"]
     # Pydantic config object — introspect.
     assert config.temperature == 0.2
-    assert config.max_output_tokens == 300
+    # v0.21: headroom so a deep description never truncates under the
+    # thinking-token budget (cap was 300 → MAX_TOKENS preamble bug).
+    assert config.max_output_tokens == 768
+    # Thinking disabled — describing a still needs no reasoning pass.
+    assert config.thinking_config.thinking_budget == 0
     assert config.response_mime_type == "application/json"
     assert config.response_schema is not None
     # MEDIA_RESOLUTION_LOW is the optimization knob.
@@ -141,7 +154,7 @@ def test_gemini_processes_windows_concurrently(tmp_path):
         return_value=fake_client,
     ), patch(
         "skills.neurolearn.vision.frames.extract_keyframes",
-        return_value=[out_dir / "v_00010.jpg"],
+        side_effect=lambda *a, **k: _kf(out_dir / "v_00010.jpg"),
     ):
         backend = GeminiVisionBackend(
             api_key="fake", model="gemini-2.5-flash", max_concurrent=5,
@@ -194,7 +207,7 @@ def test_explicit_caches_create_not_called_v012(tmp_path):
         return_value=fake_client,
     ), patch(
         "skills.neurolearn.vision.frames.extract_keyframes",
-        return_value=[out_dir / "v_00010.jpg"],
+        side_effect=lambda *a, **k: _kf(out_dir / "v_00010.jpg"),
     ):
         backend = GeminiVisionBackend(api_key="fake", model="gemini-2.5-flash")
         backend.annotate_segments(
@@ -365,7 +378,7 @@ def test_gemini_records_token_usage_per_call(tmp_path):
         return_value=fake_client,
     ), patch(
         "skills.neurolearn.vision.frames.extract_keyframes",
-        return_value=[out_dir / "v_00010.jpg"],
+        side_effect=lambda *a, **k: _kf(out_dir / "v_00010.jpg"),
     ):
         backend = GeminiVisionBackend(api_key="fake", model="gemini-2.5-flash")
         backend.annotate_segments(

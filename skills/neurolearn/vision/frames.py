@@ -127,6 +127,13 @@ def extract_keyframes_asymmetric(
         # Each call is a separate ffmpeg invocation — three windows is
         # cheap (each takes ~100ms with input seeking).
         out_path = out_dir / f"{video_id}_{int(ts):05d}.jpg"
+        # Skip-if-exists: the filename is deterministic for a given
+        # (video_id, second), so a non-empty frame already on disk means a
+        # prior call extracted it. Reuse it instead of re-running ffmpeg —
+        # matters when Claude re-requests overlapping moments on demand.
+        if out_path.exists() and out_path.stat().st_size > 0:
+            paths.append(out_path)
+            continue
         cmd = [
             "ffmpeg", "-y", "-loglevel", "error",
             "-ss", f"{ts:.3f}",

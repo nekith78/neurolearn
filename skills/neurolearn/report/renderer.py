@@ -12,6 +12,7 @@ from __future__ import annotations
 import base64
 import io
 import mimetypes
+import re
 from dataclasses import dataclass
 from datetime import datetime
 from importlib.resources import files as _resource_files
@@ -339,4 +340,86 @@ def render_pdf(
         string=html, base_url=str(Path(batch_dir))
     ).write_pdf(target=str(output_path))
 
+    return output_path
+
+
+# ---------------------------------------------------------------------------
+# Markdown → PDF — for the orchestrated visual-report flow
+# ---------------------------------------------------------------------------
+
+
+_IMG_SRC_RE = re.compile(r'(<img\b[^>]*?\bsrc=")([^"]+)(")', re.I)
+
+
+def render_markdown_pdf(
+    markdown_text: str,
+    *,
+    batch_dir: Path | str,
+    output_path: Path | str,
+    max_images: int = _DEFAULT_MAX_IMAGES,
+    image_max_width: int = _DEFAULT_MAX_WIDTH,
+    keep_html: bool = False,
+) -> Path:
+    """Render an already-authored Markdown report (e.g. one Claude or the
+    outliner produced) to PDF, embedding any referenced keyframes.
+
+    Image references use normal Markdown image syntax pointing at frames
+    inside the batch, e.g. `![6:00 — expedition cheatsheet](frames/<id>_00360.jpg)`.
+    Each `src` is resolved through the same path-traversal-safe + downscale
+    pipeline as the outline renderer, then inlined as a data: URI. Unknown
+    or out-of-batch paths are dropped (the image is removed) rather than
+    leaving a broken link. Caps embedded images at `max_images`.
+    """
+    from skills.neurolearn.report._macos import prime_native_libs_for_weasyprint
+    prime_native_libs_for_weasyprint()
+    try:
+        import weasyprint
+    except ImportError as e:
+        raise RuntimeError(
+            "WeasyPrint is required for PDF output. Install: uv sync --extra report"
+        ) from e
+    import markdown as _md
+
+    batch_dir = Path(batch_dir)
+    output_path = Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    body = _md.markdown(
+        markdown_text, extensions=["extra", "sane_lists", "toc"],
+    )
+
+    # Inline + downscale referenced frames; drop anything unresolved.
+    remaining = max_images if max_images > 0 else 0
+
+    def _swap(m):
+        nonlocal remaining
+        prefix, src, suffix = m.group(1), m.group(2), m.group(3)
+        if src.startswith("data:"):
+            return m.group(0)
+        if remaining <= 0:
+            return prefix + "" + suffix  # over budget — empty src, tag stays valid
+        path = _resolve_image_path(batch_dir, src)
+        if path is None:
+            return prefix + "" + suffix
+        jpg = downscale_image(path, max_width=image_max_width)
+        if jpg is None:
+            return prefix + "" + suffix
+        if len(jpg) > _MAX_DATA_URI_BYTES:
+            jpg = downscale_image(path, max_width=600) or jpg
+        remaining -= 1
+        return prefix + _to_data_uri(jpg) + suffix
+
+    body = _IMG_SRC_RE.sub(_swap, body)
+
+    css = _load_template_text("base.css")
+    html = (
+        "<!doctype html><html><head><meta charset='utf-8'>"
+        f"<style>{css}</style></head><body class='report'>{body}</body></html>"
+    )
+    if keep_html:
+        output_path.with_suffix(".html").write_text(html, encoding="utf-8")
+
+    weasyprint.HTML(string=html, base_url=str(batch_dir)).write_pdf(
+        target=str(output_path)
+    )
     return output_path

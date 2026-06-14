@@ -126,7 +126,29 @@ def find_detection_windows(
       keywords_only / semantic: triggers only
       hybrid: triggers + scenes
       llm_full_pass: triggers + scenes + LLM classifier
+      llm_first (v0.21, Mode-2 autonomous): LLM picks the moments; triggers
+        are the fallback when the LLM can't run (no key / error / empty).
     """
+    # v0.21 Mode-2: let the LLM read the whole transcript and choose the
+    # moments worth a visual look. This is the autonomous counterpart to an
+    # agent picking moments in Mode-1. Unlike llm_full_pass (which ADDS LLM
+    # windows on top of triggers+scenes), llm_first uses the LLM's judgment
+    # ALONE and only falls back to triggers when the LLM is unavailable.
+    if detect_method == "llm_first":
+        if api_key:
+            try:
+                llm_windows = find_visual_moments_via_llm(
+                    result.segments,
+                    api_key=api_key,
+                    language=result.language_detected or "en",
+                )
+            except Exception:
+                llm_windows = []
+            if llm_windows:
+                return llm_windows
+        # LLM unavailable / returned nothing → fall back to trigger windows.
+        detect_method = "keywords_only"
+
     windows: list[DetectionWindow] = []
 
     # 1. Trigger-based windows from transcript

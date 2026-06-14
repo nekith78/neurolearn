@@ -3,6 +3,57 @@
 All notable changes to neurolearn will be documented here.
 The format is loosely based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.21.0] — 2026-06-14
+
+Two-mode visual reports. The visual-report flow now has an explicit
+**agent-orchestrated** path (you pick the moments, Gemini does the looking)
+and a **fully autonomous** path (the tool picks moments, describes them, and
+renders the PDF by itself). Which mode runs is decided by which commands you
+call, not by an environment variable, and the agent path is harness-agnostic
+(Claude / Codex / any). Timestamps are always ours (from the transcript) —
+Gemini only ever describes what's on a frame.
+
+### Added
+
+- **`vision-report` command (Mode 1).** `neurolearn vision-report <batch>
+  --moments "6:00,18:30"` extracts a keyframe bracket per moment, sends the
+  stills to Gemini grounded in the surrounding transcript, and writes
+  structured descriptions to `<batch>/vision-report.json`. `--ask "<focus>"`
+  passes the user's own request (highest priority over the default per-type
+  inspection); `--depth standard|deep` trades concision for an exhaustive
+  beginner guide. Falls back to extracting frames for the agent to read with
+  its own vision when Gemini isn't configured.
+- **`frames` command (Mode 1).** `neurolearn frames <batch> --at 6:00 --at
+  18:30` extracts raw keyframes at chosen timestamps for the agent to read.
+  Pure ffmpeg, offline, no API key, no onboarding gate; lazily downloads and
+  caches the source video under `<batch>/source/`.
+- **`report --from-markdown <file.md>` (Mode 1).** Renders an
+  agent-authored Markdown report to PDF, embedding and downscaling the
+  `<img src="frames/…">` images it references (path-traversal safe).
+- **`detect_method = "llm_first"` (Mode 2).** Autonomous moment selection:
+  the LLM reads the whole transcript and chooses the moments, with trigger
+  detection as the fallback when it can't run (no key / error / empty).
+  `--with-visuals` auto-selects it when Gemini is configured and no explicit
+  `--detect-method` was given.
+
+### Changed
+
+- **`--with-visuals` vision backend is now key-aware.** Defaults to Gemini
+  when its key is set (best on dense UI), else Groq Llama-4-Scout.
+
+### Fixed
+
+- **Gemini vision sent the whole video, not the keyframes.** The backend
+  uploaded the source video via the Files API and used it before it reached
+  ACTIVE state (`400 FAILED_PRECONDITION`), and never sent the extracted
+  stills. It now sends the per-window keyframe stills inline — sidestepping
+  the ACTIVE-state race, the long-video timestamp drift, and ~40× the cost.
+- **Gemini structured output truncated to a `"Here is the JSON:"` preamble.**
+  Gemini 2.5/3.x flash are *thinking* models that spent the whole 300-token
+  output budget reasoning, so `finish_reason=MAX_TOKENS` fired before the
+  JSON. Thinking is now disabled for the describe-a-still task and the budget
+  raised to 768, so deep descriptions never truncate.
+
 ## [0.20.3] — 2026-06-13
 
 Vision-grounding fix: report screenshots are now annotated WITH the
