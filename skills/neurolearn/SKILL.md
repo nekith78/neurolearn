@@ -301,6 +301,20 @@ yours. Building blocks, in order:
    write it as **numbered steps**, each with its own cropped frame and a
    sentence on what changed. Write **flowing, connected prose** — not terse
    staccato fragments.
+
+   **Ground the text in the image, and read the whole tooltip.** Three rules
+   that catch the usual mistakes:
+   - If you emphasize a stat/property in the text, the crop MUST actually
+     show it — crop tall enough, and re-view the crop to confirm the line is
+     there (don't claim "Arcane Surge on crit" over an image that cut it off).
+   - Before stating *where* an item/jewel goes (tree vs slot vs item), read
+     the tooltip's placement line — e.g. a jewel that says "Place into an
+     allocated Jewel Socket on the Passive Skill Tree" goes in the tree, not
+     the gloves, regardless of what a vision model guessed.
+   - When a value changes across steps (e.g. +3 → +4), explain the mechanism
+     from the transcript (here: 40% quality boosts the caster mod), and pin
+     each number to the step/frame where it's actually visible. Don't
+     hand-wave an important change.
 6. **`neurolearn report <batch> --from-markdown <file.md>`** — renders your
    Markdown to PDF, embedding + downscaling the referenced frames and
    turning each alt-text into a `<figcaption>`. Image + caption never split

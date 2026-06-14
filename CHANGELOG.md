@@ -3,6 +3,19 @@
 All notable changes to neurolearn will be documented here.
 The format is loosely based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.23.1] — 2026-06-15
+
+### Changed
+
+- **SKILL.md — text↔image grounding rules for visual reports.** Three rules
+  added to the Mode-1 protocol, from real report-accuracy misses: (1) if you
+  emphasize a stat in the prose, the crop must actually show it (crop tall
+  enough, re-view to confirm); (2) read a tooltip's placement line before
+  stating where an item/jewel goes (e.g. "Place into a Jewel Socket on the
+  Passive Skill Tree" = tree, not the item) rather than trusting a vision
+  model's guess; (3) when a value changes across steps, explain the mechanism
+  from the transcript and pin each number to the frame where it's visible.
+
 ## [0.23.0] — 2026-06-14
 
 Visual-report quality + structure pass: sharper screenshots, the right frame,
