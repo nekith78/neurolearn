@@ -61,3 +61,6 @@ ig-test/
 # Useful locally on the dev machine, no need to publish to git.
 # Specs that survive should live in docs/specs/ (architecture-level only).
 docs/plans/
+
+# Session handoff notes — local dev scaffolding, same rationale as docs/plans/.
+docs/handoffs/
