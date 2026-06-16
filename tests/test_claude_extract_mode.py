@@ -1,25 +1,17 @@
-"""Tests for v0.12.1 Claude Code extract-only mode.
+"""Tests for the keyframe-extraction manifest (Mode-1 visual reports).
 
-When `$CLAUDE_PLUGIN_ROOT` is set in env AND vision is requested via
---with-visuals (or --vision-backend groq/gemini), neurolearn extracts
-keyframes via ffmpeg and writes `keyframes/manifest.json` with the
-mapping but SKIPS the vision-LLM API call. Claude in chat reads the
-manifest directly — no extra API quota burn.
+Visual reports are agent-driven: --with-visuals extracts keyframes via ffmpeg
+and writes `keyframes/manifest.json` mapping frames → moments. Claude reads the
+manifest in chat. There is no vision-LLM describe call.
 
-Verifies:
-- $CLAUDE_PLUGIN_ROOT triggers vision_extract_only=True automatically
-- --no-claude-extract overrides the auto-detection
-- --claude-extract forces it even outside Claude Code
-- The manifest writer produces the expected structure
+Verifies the manifest writer produces the expected structure.
 """
 from __future__ import annotations
 
 import json
-import os
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
-import pytest
 
 from skills.neurolearn.detection.base import DetectionWindow
 from skills.neurolearn.pipeline_v02 import _write_keyframes_manifest
@@ -126,34 +118,3 @@ class TestWriteKeyframesManifest:
         assert manifest["windows"] == []
 
 
-class TestClaudeExtractAutoDetect:
-    """Test that $CLAUDE_PLUGIN_ROOT auto-enables extract-only mode."""
-
-    def test_claude_plugin_root_env_triggers_extract_only(self, monkeypatch):
-        """When the env var is set AND vision_backend is groq/gemini,
-        cli_overrides should contain vision_extract_only=True."""
-        # We don't run the full CLI here — we just inspect the logic
-        # block in transcribe.py by importing and calling the merger.
-        # The relevant snippet is:
-        #   if os.environ.get("CLAUDE_PLUGIN_ROOT") and ...:
-        #       cli_overrides["vision_extract_only"] = True
-        monkeypatch.setenv("CLAUDE_PLUGIN_ROOT", "/some/plugin/install/path")
-        # Sanity: env var visible
-        assert os.environ.get("CLAUDE_PLUGIN_ROOT") == "/some/plugin/install/path"
-        # Actual end-to-end is verified by the existing cli_visual_wiring
-        # tests — they pass with auto-detect because the test doesn't set
-        # CLAUDE_PLUGIN_ROOT and visual mode still works.
-
-    def test_no_claude_extract_overrides_auto_detect(self, monkeypatch):
-        """When --no-claude-extract is explicitly passed, env auto-detect
-        should NOT force extract-only mode on."""
-        # Logic in transcribe.py:
-        #   if claude_extract_opt is False:  cli_overrides["vision_extract_only"] = False
-        # claude_extract_opt is False when user passes --no-claude-extract.
-        # We assert the flag exists and accepts both forms.
-        from click.testing import CliRunner
-        from skills.neurolearn.transcribe import cli
-        runner = CliRunner()
-        result = runner.invoke(cli, ["transcribe", "--help"])
-        assert "--claude-extract" in result.output
-        assert "--no-claude-extract" in result.output

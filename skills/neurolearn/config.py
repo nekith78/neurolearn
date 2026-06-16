@@ -203,8 +203,11 @@ class Config:
     # The wizard collects choices for audio (default_backend / fallback_backend
     # above), vision, and analyze separately. Empty string means "use whatever
     # the preset / CLI flag passed". Set by wizard or via `config set`.
-    # Allowed values: "off" | "groq" | "gemini" (vision_backend), or "groq" |
-    # "gemini" | "ollama" | "skip" (analyze_backend — already declared above).
+    # Visual reports are Mode-1 only (agent reads keyframes in chat), so
+    # vision_backend is just an on/off gate: "off" | "on". Legacy values
+    # "groq"/"gemini" are still accepted and treated as "on" (any non-"off"
+    # value enables offline keyframe extraction — no describe API call).
+    # analyze_backend: "groq" | "gemini" | "ollama" | "skip" (declared above).
     vision_backend: str = "off"
 
     # === v0.12.1: per-provider tier signals ===
@@ -224,15 +227,13 @@ class Config:
     groq_vision_model: str = ""
     groq_analyze_model: str = ""
 
-    # === v0.12.1: Claude Code plugin extract-only mode ===
-    # When True AND vision_backend is set, pipeline_v02 extracts keyframes
+    # === Keyframe extraction for visual reports (Mode 1) ===
+    # Vision always runs in extract-only mode: pipeline_v02 extracts keyframes
     # via ffmpeg and writes keyframes/manifest.json (timestamps + frame paths
-    # + transcript snippets) but SKIPS the vision-LLM API call. Claude Code
-    # reads the manifest in chat directly (Claude has vision natively, the
-    # user already pays for their subscription — no extra API quota burn).
-    # Auto-set to True in transcribe.py when $CLAUDE_PLUGIN_ROOT is detected;
-    # users can opt out via --no-claude-extract.
-    vision_extract_only: bool = False
+    # + transcript snippets); Claude reads the manifest in chat (native vision,
+    # no API call). Retained for back-compat with stored configs; the pipeline
+    # extracts keyframes whenever vision_backend != "off" regardless.
+    vision_extract_only: bool = True
 
     # === v0.13.0: forced-onboarding gate ===
     # True only after the user explicitly completes /setup or the

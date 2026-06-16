@@ -44,11 +44,10 @@ _FALLBACK_OPTIONS: dict[str, str] = {
     "3": "gemini",
 }
 
-# Stage 2: vision backend
+# Stage 2: visual reports (Mode 1 only — agent reads keyframes in chat)
 _VISION_CHOICES = [
-    ("groq",   "Groq Llama-4-Scout — fast per-frame, 1000 RPD free, accurate Cyrillic OCR.  RECOMMENDED."),
-    ("gemini", "Gemini 2.5-flash — better Russian OCR but 250 RPD free tier.  Key required."),
-    ("off",    "Skip vision pipeline (audio-only transcripts).  No vision API calls."),
+    ("on",  "Visual reports — extract keyframes; Claude reads them in chat and writes the illustrated guide (Mode 1, no API key, no quota)."),
+    ("off", "Skip visuals (audio-only transcripts)."),
 ]
 
 # Stage 3: analyze backend (LLM that processes transcripts via `analyze`/
@@ -71,8 +70,9 @@ _KEY_GUIDE: dict[str, str] = {
 }
 _CLOUD_BACKENDS = set(_KEY_GUIDE.keys())
 
-# Backends usable in each stage that need an API key.
-_VISION_NEEDS_KEY = {"groq", "gemini"}
+# Backends usable in each stage that need an API key. Visual reports are
+# Mode-1 only (offline keyframe extraction), so vision never needs a key.
+_VISION_NEEDS_KEY: set[str] = set()
 _ANALYZE_NEEDS_KEY = {"groq", "gemini"}
 
 # v0.12.1: tier choices per provider
@@ -160,11 +160,13 @@ def run_wizard() -> None:
         )
         cfg.fallback_backend = _FALLBACK_OPTIONS[fb_choice]  # type: ignore[assignment]
 
-    # === Stage 2: vision backend ===
+    # === Stage 2: visual reports (Mode 1 only) ===
     vision_backend = _ask_choice(
         console,
-        "\n[bold]Step 2 / 4:[/bold] Vision backend for `--with-visuals` (keyframe descriptions)?",
-        _VISION_CHOICES, default_idx=1,
+        "\n[bold]Step 2 / 4:[/bold] Visual reports (illustrated guides)? "
+        "These run in Mode 1 — Claude reads the keyframes in chat and writes "
+        "the report. No API key, no quota.",
+        _VISION_CHOICES, default_idx=0,
     )
     cfg.vision_backend = vision_backend
 

@@ -133,15 +133,13 @@ def cli() -> None:
 @click.option("--beam-size", type=int, default=None)
 @click.option("--vad/--no-vad", default=None)
 @click.option("--verbose", is_flag=True)
-@click.option("--with-visuals", is_flag=True, help="Shortcut for vision: Gemini when configured, else Groq (v0.21).")
-@click.option("--vision-backend", "vision_backend_opt", type=click.Choice(["off", "groq", "gemini"]), default=None,
-              help="Visual mode backend. off = audio only. groq = Llama-4-Scout (recommended).")
-@click.option("--claude-extract/--no-claude-extract", "claude_extract_opt", default=None,
-              help="When running through Claude Code, extract keyframes + write manifest "
-                   "and let Claude read them in chat (no vision API call). Auto-on when "
-                   "$CLAUDE_PLUGIN_ROOT is set.")
+@click.option("--with-visuals", is_flag=True,
+              help="Extract keyframes for an illustrated report — Claude reads "
+                   "them in chat (Mode 1, offline, no API key).")
+@click.option("--vision-backend", "vision_backend_opt", type=click.Choice(["off", "on"]), default=None,
+              help="Visual reports: on = extract keyframes for the agent; off = audio only.")
 @click.option("--detect-method", "detect_method_opt",
-              type=click.Choice(["keywords_only", "semantic", "hybrid", "llm_full_pass", "llm_first"]),
+              type=click.Choice(["keywords_only", "semantic", "hybrid"]),
               default=None, help="How to find visual moments.")
 @click.option("--frames-per-window", "frames_per_window_opt", type=int, default=None)
 @click.option("--max-windows", "max_windows_opt", type=int, default=None)
@@ -272,33 +270,14 @@ def transcribe_cmd(audio_or_url: str | None, **opts) -> None:
     if opts.get("vision_backend_opt") is not None:
         cli_overrides["vision_backend"] = opts["vision_backend_opt"]
     if opts.get("with_visuals"):
-        # v0.21: --with-visuals defaults to the key-aware best vision backend
-        # (Gemini when configured — best on dense UI; else Groq). Explicit
-        # --vision-backend above still wins.
+        # Visual reports are Mode-1 only (agent-driven): --with-visuals
+        # extracts keyframes + writes a manifest Claude reads in chat. There is
+        # no autonomous "describe" backend (the old agentless path was removed).
         cli_overrides["vision_backend"] = _default_vision_backend()
-
-    # v0.12.1: Claude Code extract-only mode. CLAUDE_PLUGIN_ROOT is set
-    # in env when neurolearn runs as a plugin inside Claude Code. We
-    # default to extract-only mode so we don't burn external vision API
-    # quota — Claude has native vision and reads keyframes from
-    # manifest.json in chat directly. Override with --no-claude-extract.
-    if opts.get("claude_extract_opt") is True:
+    # Vision is ALWAYS extract-only — keyframes for the agent, never an API
+    # describe call. Frame extraction is offline (ffmpeg + local CV).
+    if cli_overrides.get("vision_backend") not in (None, "off"):
         cli_overrides["vision_extract_only"] = True
-    elif opts.get("claude_extract_opt") is False:
-        cli_overrides["vision_extract_only"] = False
-    elif os.environ.get("CLAUDE_PLUGIN_ROOT") and cli_overrides.get("vision_backend") not in (None, "off"):
-        cli_overrides["vision_extract_only"] = True
-    # v0.21 Mode-2 autonomous moment selection (see _autonomous_llm_first).
-    # Explicit --detect-method below still wins.
-    if _autonomous_llm_first(opts, cli_overrides):
-        cli_overrides["detect_method"] = "llm_first"
-    # v0.21 Mode-2: Gemini vision spends API requests per moment — warn about
-    # the per-day free-tier limit (extract-only Mode-1 makes no API call).
-    if (
-        cli_overrides.get("vision_backend") == "gemini"
-        and not cli_overrides.get("vision_extract_only")
-    ):
-        _warn_gemini_vision_quota(console)
     if opts.get("detect_method_opt") is not None:
         cli_overrides["detect_method"] = opts["detect_method_opt"]
     if opts.get("frames_per_window_opt") is not None:
@@ -357,6 +336,7 @@ def transcribe_cmd(audio_or_url: str | None, **opts) -> None:
         external_config_path=Path(config_path_opt) if config_path_opt else None,
         cli_overrides=cli_overrides,
     )
+    _ensure_vision_window_budget(cfg_v02)
     for msg in info_msgs:
         console.print(msg, style="dim")
 
@@ -379,7 +359,7 @@ def transcribe_cmd(audio_or_url: str | None, **opts) -> None:
     # in addition to gemini. Both backends need keyframes extracted from
     # mp4, so we download whenever a non-off vision backend is configured.
     needs_video = (
-        cfg_v02.get("vision_backend") in ("gemini", "groq")
+        cfg_v02.get("vision_backend", "off") != "off"
         and is_url(target.url)
     )
 
@@ -417,7 +397,7 @@ def transcribe_cmd(audio_or_url: str | None, **opts) -> None:
             # Local file path — use directly (already on disk).
             local_video_path = (
                 Path(target.url).expanduser().resolve()
-                if not is_url(target.url) and cfg_v02.get("vision_backend") in ("gemini", "groq")
+                if not is_url(target.url) and cfg_v02.get("vision_backend", "off") != "off"
                 else None
             )
             post_stage.update("Running quality / detection passes...")
@@ -942,46 +922,24 @@ def _api_key_for_backend(backend: str) -> str | None:
 
 
 def _default_vision_backend() -> str:
-    """Key-aware default for `--with-visuals` (v0.21): Gemini gives the best
-    vision on dense UI, so prefer it when its key is set; fall back to Groq
-    when only that key exists; otherwise return 'gemini' so the unconfigured
-    path surfaces a clear 'set GEMINI_API_KEY' hint rather than silently
-    picking a backend the user can't use."""
-    if get_api_key("gemini"):
-        return "gemini"
-    if get_api_key("groq"):
-        return "groq"
-    return "gemini"
+    """Vision is Mode-1 only — `--with-visuals` extracts keyframes for the
+    agent to read in chat (no API key, no describe backend). Returns the
+    sentinel "on"; any non-"off" value enables offline keyframe extraction."""
+    return "on"
 
 
-def _warn_gemini_vision_quota(console) -> None:
-    """Mode-2 reminder: Gemini vision spends one API request per moment, and
-    the free tier is request-limited PER DAY (≈250/day on gemini-2.5-flash,
-    far fewer on preview models like 3.x). For heavy use enable billing
-    (Tier 1 → 1500/day) or use the agent-driven Mode 1 (no API)."""
-    console.print(
-        "[yellow]⚠ Gemini free tier is request-limited per day[/yellow] "
-        "(~250/day on 2.5-flash). Heavy use → enable billing, or use the "
-        "agent-driven flow (`frames` + read them yourself, no API).",
-        style="dim",
-    )
-
-
-def _autonomous_llm_first(opts: dict, cli_overrides: dict) -> bool:
-    """v0.21 Mode-2: should `--with-visuals` auto-select LLM moment selection?
-
-    Yes when visuals run the full pipeline themselves (NOT extract-only, where
-    an in-editor agent picks the moments), the user gave no explicit
-    `--detect-method`, and Gemini is configured. The `llm_first` method falls
-    back to trigger detection on its own, so a missing key is handled there —
-    but we only opt in when a key exists to avoid a guaranteed-wasted LLM call.
-    """
-    return bool(
-        opts.get("with_visuals")
-        and opts.get("detect_method_opt") is None
-        and not cli_overrides.get("vision_extract_only")
-        and get_api_key("gemini")
-    )
+def _ensure_vision_window_budget(cfg: dict) -> None:
+    """The smart/eco presets keep ``max_windows_per_video = 0`` because vision
+    is off by default there. When vision is turned on via ``--with-visuals`` (or
+    an explicit ``--vision-backend``) on top of such a preset, that leftover 0
+    makes ``select_windows_by_budget`` drop EVERY detected window → an empty
+    visual report (Mode 2 produced 0 moments before this guard). Restore a sane
+    budget whenever vision is active but the budget resolved to 0."""
+    if (
+        cfg.get("vision_backend", "off") != "off"
+        and int(cfg.get("max_windows_per_video", 0) or 0) <= 0
+    ):
+        cfg["max_windows_per_video"] = 20
 
 
 # ---------------------------------------------------------------------------
@@ -1120,7 +1078,7 @@ def _run_batch_pipeline(
         no_default_triggers_opt = bool(opts.get("no_default_triggers"))
 
         needs_video = (
-            cfg_v02.get("vision_backend") in ("gemini", "groq")
+            cfg_v02.get("vision_backend", "off") != "off"
             and is_url(target.url)
         )
         if needs_video:
@@ -1149,7 +1107,7 @@ def _run_batch_pipeline(
         else:
             local_video_path = (
                 Path(target.url).expanduser().resolve()
-                if not is_url(target.url) and cfg_v02.get("vision_backend") in ("gemini", "groq")
+                if not is_url(target.url) and cfg_v02.get("vision_backend", "off") != "off"
                 else None
             )
             result = apply_v02_stages(
@@ -1620,33 +1578,14 @@ def batch_cmd(
     if opts.get("vision_backend_opt") is not None:
         cli_overrides["vision_backend"] = opts["vision_backend_opt"]
     if opts.get("with_visuals"):
-        # v0.21: --with-visuals defaults to the key-aware best vision backend
-        # (Gemini when configured — best on dense UI; else Groq). Explicit
-        # --vision-backend above still wins.
+        # Visual reports are Mode-1 only (agent-driven): --with-visuals
+        # extracts keyframes + writes a manifest Claude reads in chat. There is
+        # no autonomous "describe" backend (the old agentless path was removed).
         cli_overrides["vision_backend"] = _default_vision_backend()
-
-    # v0.12.1: Claude Code extract-only mode. CLAUDE_PLUGIN_ROOT is set
-    # in env when neurolearn runs as a plugin inside Claude Code. We
-    # default to extract-only mode so we don't burn external vision API
-    # quota — Claude has native vision and reads keyframes from
-    # manifest.json in chat directly. Override with --no-claude-extract.
-    if opts.get("claude_extract_opt") is True:
+    # Vision is ALWAYS extract-only — keyframes for the agent, never an API
+    # describe call. Frame extraction is offline (ffmpeg + local CV).
+    if cli_overrides.get("vision_backend") not in (None, "off"):
         cli_overrides["vision_extract_only"] = True
-    elif opts.get("claude_extract_opt") is False:
-        cli_overrides["vision_extract_only"] = False
-    elif os.environ.get("CLAUDE_PLUGIN_ROOT") and cli_overrides.get("vision_backend") not in (None, "off"):
-        cli_overrides["vision_extract_only"] = True
-    # v0.21 Mode-2 autonomous moment selection (see _autonomous_llm_first).
-    # Explicit --detect-method below still wins.
-    if _autonomous_llm_first(opts, cli_overrides):
-        cli_overrides["detect_method"] = "llm_first"
-    # v0.21 Mode-2: Gemini vision spends API requests per moment — warn about
-    # the per-day free-tier limit (extract-only Mode-1 makes no API call).
-    if (
-        cli_overrides.get("vision_backend") == "gemini"
-        and not cli_overrides.get("vision_extract_only")
-    ):
-        _warn_gemini_vision_quota(console)
     if opts.get("detect_method_opt") is not None:
         cli_overrides["detect_method"] = opts["detect_method_opt"]
     if opts.get("frames_per_window_opt") is not None:
@@ -1688,6 +1627,7 @@ def batch_cmd(
         external_config_path=Path(config_path_opt) if config_path_opt else None,
         cli_overrides=cli_overrides,
     )
+    _ensure_vision_window_budget(cfg_v02)
     for msg in info_msgs:
         console.print(msg, style="dim")
 
@@ -3187,74 +3127,6 @@ def crop_cmd(image, box_csv, out_path, pad):
     console.print(str(out))
 
 
-# === v0.21: agent-orchestrated vision step (Mode 1) ===
-@cli.command(name="vision-report")
-@click.argument("batch_dir", required=True, type=click.Path(path_type=Path))
-@click.option("--moments", "moments_csv", required=True,
-              help="Comma-separated timestamps (MM:SS or seconds) the agent "
-                   "chose from the transcript, e.g. '6:00,18:30,23:00'.")
-@click.option("--ask", "ask", default="",
-              help="Your focus — what to pay attention to. Takes priority "
-                   "over the default per-type inspection.")
-@click.option("--depth", "depth", type=click.Choice(["standard", "deep"]),
-              default="standard", show_default=True,
-              help="standard = key moments; deep = exhaustive beginner guide.")
-@click.option("--video-index", "video_index", type=int, default=0,
-              show_default=True)
-def vision_report_cmd(batch_dir, moments_csv, ask, depth, video_index):
-    """Describe chosen video moments with Gemini vision, grounded in the
-    transcript (Mode-2 building block: Gemini does the looking).
-
-    Timestamps are yours (from the transcript) — Gemini never supplies them.
-    If Gemini isn't configured, frames are still extracted and you should read
-    them yourself (that's the agent-driven Mode 1). Writes structured results
-    to <batch>/vision-report.json.
-    """
-    console = make_console()
-    cfg = load_config(CONFIG_PATH)
-    if get_api_key("gemini"):
-        _warn_gemini_vision_quota(console)
-    from skills.neurolearn.frames_cmd import parse_timestamp
-    try:
-        moments = [parse_timestamp(s) for s in moments_csv.split(",") if s.strip()]
-    except ValueError as e:
-        console.print(f"[red]Bad --moments value: {e}[/red]")
-        sys.exit(2)
-    if not moments:
-        console.print("[red]--moments is empty.[/red]")
-        sys.exit(2)
-
-    from skills.neurolearn.vision_report_cmd import build_vision_report
-    try:
-        report = build_vision_report(
-            Path(batch_dir).resolve(), moments,
-            video_index=video_index, depth=depth, ask=ask, cfg=cfg,
-        )
-    except (FileNotFoundError, ValueError, IndexError) as e:
-        console.print(f"[red]{e}[/red]")
-        sys.exit(3)
-
-    console.print(f"[green]vision-report — {report['vision_engine']}[/green]")
-    for m in report["moments"]:
-        ts = m["timestamp"]
-        hh, mm, ss = int(ts) // 3600, (int(ts) % 3600) // 60, int(ts) % 60
-        label = f"{hh}:{mm:02d}:{ss:02d}" if hh else f"{mm}:{ss:02d}"
-        frames = ", ".join(m.get("frames") or []) or "(none)"
-        console.print(f"\n[bold][{label}][/bold] frames: {frames}")
-        if m.get("description"):
-            console.print(f"  {m['description']}")
-        else:
-            ctx = (m.get("transcript_context") or "")[:160]
-            console.print(
-                "  [yellow](read these frames yourself)[/yellow]"
-                + (f" — context: {ctx}" if ctx else "")
-            )
-    console.print(
-        f"\n[dim]structured JSON: "
-        f"{Path(batch_dir).resolve() / 'vision-report.json'}[/dim]"
-    )
-
-
 # === v0.10.2: report command ===
 @cli.command(name="report")
 @click.argument("batch_dir", required=False,
@@ -3310,12 +3182,18 @@ def vision_report_cmd(batch_dir, moments_csv, ask, depth, video_index):
                    "pointing at frames/ inside the batch. Needs BATCH_DIR or "
                    "--latest to resolve those images.")
 @click.option("--verify/--no-verify", "verify_opt", default=False,
-              help="Grounding check (with --from-markdown): OCR each embedded "
-                   "frame and flag caption claims (stats / numbers / terms) "
-                   "not visible on it. Needs the `ocr` extra.")
+              help="Grounding check (with --from-markdown): diff each caption's "
+                   "claims (numbers / URLs / quoted on-screen terms) against "
+                   "the frame's blind-extracted atoms. Fabricated numbers/URLs "
+                   "block the render; unconfirmed terms warn.")
+@click.option("--verify-backend", "verify_backend_opt",
+              type=click.Choice(["agent", "gemini"]), default="agent",
+              help="Atom source for --verify: 'agent' reads <frame>.atoms.json "
+                   "written by the blind sub-agent (Mode 1, no API); 'gemini' "
+                   "extracts atoms via Gemini (Mode 2).")
 @click.option("--strict", "strict_opt", is_flag=True, default=False,
-              help="With --verify: exit non-zero (don't render) while any "
-                   "grounding issue remains.")
+              help="With --verify: also block the render on unconfirmed terms "
+                   "(not just fabricated numbers/URLs).")
 def report_cmd(
     batch_dir: Path | None,
     latest: bool,
@@ -3336,6 +3214,7 @@ def report_cmd(
     ollama_host_opt: str | None,
     from_markdown_file: Path | None,
     verify_opt: bool,
+    verify_backend_opt: str,
     strict_opt: bool,
 ) -> None:
     """Render a PDF report from a transcribed batch directory."""
@@ -3379,36 +3258,78 @@ def report_cmd(
         from skills.neurolearn.report.renderer import render_markdown_pdf
         md_text = from_markdown_file.read_text(encoding="utf-8")
 
-        # Grounding check (before render so --strict can abort): does each
-        # caption's claims actually appear on its (cropped) frame?
+        # Grounding check (before render so it can abort): diff each caption's
+        # claims against the frame's blind-extracted atoms. Fabricated
+        # numbers/URLs always block; unconfirmed terms warn (block on --strict).
         if verify_opt:
             from skills.neurolearn.report.grounding import (
-                verify_markdown_grounding,
+                verify_markdown_grounding, make_gemini_atoms_fn,
             )
-            console.print("[dim]Grounding check (OCR per frame)…[/dim]")
+            atoms_fn = None
+            if verify_backend_opt == "gemini":
+                key = get_api_key("gemini")
+                if not key:
+                    console.print(
+                        "[red]--verify-backend gemini needs a Gemini API key "
+                        "(neurolearn config set-key gemini …).[/red]"
+                    )
+                    sys.exit(4)
+                atoms_fn = make_gemini_atoms_fn(key)
+                console.print("[dim]Grounding check (blind Gemini extraction "
+                              "per frame)…[/dim]")
+            else:
+                console.print("[dim]Grounding check (blind atom extraction "
+                              "per frame)…[/dim]")
+            # Transcript outranks vision: a fact the author states isn't a
+            # fabrication even if the frame draws rather than labels it. The
+            # batch's *.txt transcripts are that second grounding source.
+            transcript = "\n".join(
+                p.read_text(encoding="utf-8", errors="ignore")
+                for p in sorted(rb.glob("*.txt"))
+            )
             try:
-                issues = verify_markdown_grounding(md_text, rb)
+                issues = verify_markdown_grounding(
+                    md_text, rb, atoms_fn=atoms_fn, strict=strict_opt,
+                    transcript=transcript or None,
+                )
             except RuntimeError as e:
                 console.print(f"[red]{e}[/red]")
                 sys.exit(4)
             if issues:
-                console.print(
-                    f"[yellow]⚠ Grounding: {len(issues)} image(s) with "
-                    f"caption claims not found on the frame — review each "
-                    f"(fix the crop/text, or confirm it's a cross-step "
-                    f"reference):[/yellow]"
-                )
+                blocking = [it for it in issues if it.is_blocking(strict_opt)]
                 for it in issues:
-                    console.print(f"  [bold]{it.image}[/bold] — missing: "
-                                  f"{', '.join(it.missing)}")
+                    if it.hallucinations:
+                        console.print(f"  [red]❌ {it.image}[/red] — not on "
+                                      f"frame: {', '.join(it.hallucinations)}")
+                    if it.transcript_grounded:
+                        console.print(f"  [yellow]⚠ {it.image}[/yellow] — "
+                                      f"stated in transcript but not shown on "
+                                      f"frame: "
+                                      f"{', '.join(it.transcript_grounded)}")
+                    if it.unconfirmed:
+                        console.print(f"  [yellow]⚠ {it.image}[/yellow] — "
+                                      f"unconfirmed: "
+                                      f"{', '.join(it.unconfirmed)}")
                     console.print(f"    caption: {it.caption}", style="dim")
-                    if it.ocr_excerpt:
-                        console.print(f"    on-frame (OCR): {it.ocr_excerpt}",
+                    if it.atoms_excerpt:
+                        console.print(f"    on-frame: {it.atoms_excerpt}",
                                       style="dim")
-                if strict_opt:
-                    console.print("[red]--strict: not rendering until claims "
-                                  "are grounded.[/red]")
+                if blocking:
+                    console.print(
+                        "[red]Grounding: fabricated facts (numbers/URLs on "
+                        "neither the frame nor the transcript)"
+                        + (" or unconfirmed/transcript-only claims under "
+                           "--strict" if strict_opt else "")
+                        + " — not rendering. Fix the crop/text, then "
+                        "re-run.[/red]"
+                    )
                     sys.exit(5)
+                console.print(
+                    "[yellow]⚠ Grounding: the warnings above are advisory "
+                    "(an unconfirmed term may be a clipped crop; a "
+                    "transcript-grounded number is spoken but not shown on the "
+                    "frame). Review, or use --strict to block on them.[/yellow]"
+                )
             else:
                 console.print("[green]✓ Grounding: every caption claim was "
                               "found on its frame.[/green]")

@@ -95,46 +95,9 @@ def test_with_visuals_triggers_download_video(tmp_path, monkeypatch):
         f"video_path was None. Output:\n{res.output}"
 
 
-def test_default_vision_backend_is_key_aware(monkeypatch):
-    """v0.21: --with-visuals picks Gemini when its key exists, else Groq,
-    else Gemini (so the unconfigured path gives a clear setup hint)."""
+def test_default_vision_backend_is_mode1_on(monkeypatch):
+    """Vision is Mode-1 only: --with-visuals enables offline keyframe
+    extraction (sentinel "on"), independent of any API key."""
     from skills.neurolearn import transcribe as tr
-    monkeypatch.setattr(tr, "get_api_key",
-                        lambda b, env_path=None: "k" if b == "gemini" else None)
-    assert tr._default_vision_backend() == "gemini"
-    monkeypatch.setattr(tr, "get_api_key",
-                        lambda b, env_path=None: "k" if b == "groq" else None)
-    assert tr._default_vision_backend() == "groq"
     monkeypatch.setattr(tr, "get_api_key", lambda b, env_path=None: None)
-    assert tr._default_vision_backend() == "gemini"
-
-
-def test_autonomous_llm_first_gating(monkeypatch):
-    """v0.21 Mode-2: --with-visuals auto-selects llm_first only when Gemini is
-    configured, no explicit --detect-method was given, and we're not in
-    extract-only mode (where an in-editor agent picks the moments)."""
-    from skills.neurolearn import transcribe as tr
-    monkeypatch.setattr(tr, "get_api_key",
-                        lambda b, env_path=None: "k" if b == "gemini" else None)
-
-    # Happy path: with-visuals, no explicit method, full pipeline, key present.
-    assert tr._autonomous_llm_first(
-        {"with_visuals": True, "detect_method_opt": None}, {}) is True
-
-    # Explicit --detect-method wins → no auto-select.
-    assert tr._autonomous_llm_first(
-        {"with_visuals": True, "detect_method_opt": "hybrid"}, {}) is False
-
-    # Extract-only (in-editor agent picks moments) → no auto-select.
-    assert tr._autonomous_llm_first(
-        {"with_visuals": True, "detect_method_opt": None},
-        {"vision_extract_only": True}) is False
-
-    # No --with-visuals → no auto-select.
-    assert tr._autonomous_llm_first(
-        {"with_visuals": False, "detect_method_opt": None}, {}) is False
-
-    # No Gemini key → no auto-select (trigger path used instead).
-    monkeypatch.setattr(tr, "get_api_key", lambda b, env_path=None: None)
-    assert tr._autonomous_llm_first(
-        {"with_visuals": True, "detect_method_opt": None}, {}) is False
+    assert tr._default_vision_backend() == "on"

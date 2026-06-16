@@ -57,7 +57,9 @@ def test_vision_skipped_when_off():
     assert out.visual_segments == []
 
 
-def test_vision_runs_when_gemini_and_video_path(tmp_path):
+def test_vision_extracts_keyframe_manifest_mode1(tmp_path):
+    """Vision is Mode-1 only: the stage extracts keyframes and writes a
+    manifest for the agent — no autonomous describe backend."""
     cfg = {
         "quality_check": False,
         "vision_backend": "gemini",
@@ -66,26 +68,20 @@ def test_vision_runs_when_gemini_and_video_path(tmp_path):
         "max_windows_per_video": 5,
     }
     result = _result(text="look here")
-    fake_visual = MagicMock()
-    fake_visual.start = 0.0
-    fake_visual.end = 5.0
-
     with patch(
         "skills.neurolearn.pipeline_v02.find_detection_windows",
         return_value=[MagicMock(start=0.0, end=5.0, reason="universal", score=0.7,
                                 weight=1.0, phrase="look here", priority_score=0.7)],
     ), patch(
-        "skills.neurolearn.pipeline_v02.GeminiVisionBackend"
-    ) as mock_vis, patch(
-        "skills.neurolearn.config.get_api_key",
-        return_value="fake_key",
-    ):
-        mock_vis.return_value.annotate_segments.return_value = [fake_visual]
+        "skills.neurolearn.pipeline_v02._write_keyframes_manifest",
+        return_value={"keyframes": []},
+    ) as mock_manifest:
         out = apply_v02_stages(
             result=result, cfg=cfg, video_path=tmp_path / "v.mp4",
             video_id="x", out_dir=tmp_path, source="whisper",
         )
-    assert len(out.visual_segments) == 1
+    mock_manifest.assert_called_once()
+    assert getattr(out, "vision_extract_manifest", None) == {"keyframes": []}
 
 
 def test_window_transcript_context_grounds_vision_prompt():

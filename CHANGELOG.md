@@ -3,6 +3,43 @@
 All notable changes to neurolearn will be documented here.
 The format is loosely based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.25.0] — 2026-06-16
+
+### Removed
+
+- **Autonomous vision ("Mode 2") removed entirely.** The Gemini / Groq / OpenAI
+  vision backends, the `vision-report` command, and LLM moment-selection
+  (`detect_method = "llm_first" / "llm_full_pass"`) are gone, along with
+  `backends/vision_base.py` and `detection/llm_classify.py`. Visual reports are
+  now **agent-driven only (Mode 1)**: `--with-visuals` always extracts keyframes
+  with ffmpeg, writes `keyframes/manifest.json` offline (no API key), and Claude
+  reads the frames with native vision in chat to author the report. Rationale:
+  the autonomous path hallucinated descriptions without an agent and the Gemini
+  free tier (~20 req/day) made it unreliable. Gemini survives only as the
+  grounding gate's optional blind extractor (`report --verify --verify-backend
+  gemini`). `--vision-backend` is now an on/off gate (legacy `groq`/`gemini`
+  treated as `on`); `--detect-method` choices are `keywords_only | semantic |
+  hybrid`.
+- **`low_content` grounding guard removed.** Flagging frames with fewer than 6
+  blind-extracted atoms as "non-slide" false-positived on legitimate but
+  text-sparse visual frames (a graph, a digit on a grid). Frame content-ness is
+  now decided up front by the content-aware ranker at selection time, with a
+  stronger CV signal than an atom count.
+
+### Added
+
+- **Content-aware keyframe ranking.** The keyframe ranker scores candidates by
+  slide-likeness (colour-discreteness + entropy-flatness) plus inter-frame
+  stability, minus a face penalty, with sharpness demoted to a **tie-breaker**.
+  The old sharpness-only ranker reliably grabbed talking-heads, memes, and
+  motion-blurred transitions over the actual slide.
+- **Transcript grounding layer (text outranks vision).** The `--verify` gate now
+  diffs each caption claim against the frame's atoms **and** the spoken
+  transcript. A number/URL the author states but the frame draws rather than
+  labels (so the blind extractor misses it) is a non-blocking
+  `transcript_grounded` warning — a spoken fact is not a fabrication. A
+  number/URL on neither the frame nor the transcript still blocks the render.
+
 ## [0.24.2] — 2026-06-15
 
 ### Changed

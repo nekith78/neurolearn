@@ -82,6 +82,3 @@ def test_legacy_synthesizer_produces_loadable_segments(tmp_path):
     v = _pick_video(_load_manifest(tmp_path), 0)
     assert "srt" in v["files"]
     assert len(_segments_from_video_entry(tmp_path, v)) == 2
-
-    from skills.neurolearn.vision_report_cmd import _load_segments
-    assert len(_load_segments(tmp_path, v)) == 2

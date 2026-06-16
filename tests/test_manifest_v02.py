@@ -8,7 +8,6 @@ from skills.neurolearn.utils.output_writer import (
     BatchVideoStatus,
     write_manifest_json,
 )
-from skills.neurolearn.backends.vision_base import VisualSegment
 from skills.neurolearn.quality.base import QualityReport
 
 
@@ -33,28 +32,6 @@ def test_manifest_includes_quality_field(tmp_path):
     data = json.loads((tmp_path / "manifest.json").read_text("utf-8"))
     assert data["videos"][0]["quality"]["score"] == 0.8
     assert data["videos"][0]["quality"]["recommendation"] == "use_as_is"
-
-
-def test_manifest_includes_visual_segments(tmp_path):
-    v = BatchVideoStatus(
-        index=1, url="https://x", video_id="x", title="X",
-        upload_date=date(2026, 4, 1), duration_sec=60, channel="C",
-        language_detected="en",
-        text="hi", files={"txt": "X.txt"}, status="ok",
-        visual_segments=[
-            VisualSegment(
-                start=10.0, end=15.0, description="d",
-                keyframes=["frames/x.jpg"], importance="high",
-                detected_objects=["a"], trigger_reason="raw",
-            ),
-        ],
-    )
-    write_manifest_json([v], [], _meta(), tmp_path)
-    data = json.loads((tmp_path / "manifest.json").read_text("utf-8"))
-    vs = data["videos"][0]["visual_segments"][0]
-    assert vs["start"] == 10.0
-    assert vs["importance"] == "high"
-    assert vs["keyframes"] == ["frames/x.jpg"]
 
 
 def test_manifest_no_quality_field_when_none(tmp_path):

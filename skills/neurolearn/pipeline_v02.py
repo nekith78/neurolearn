@@ -12,7 +12,6 @@ from typing import Any, Literal
 import skills.neurolearn.config as _config_mod
 from skills.neurolearn.backends.base import TranscriptionResult
 from skills.neurolearn.detection.base import DetectionWindow
-from skills.neurolearn.detection.llm_classify import find_visual_moments_via_llm
 from skills.neurolearn.detection.matcher import match_segment
 from skills.neurolearn.detection.scene import find_scene_boundaries
 from skills.neurolearn.detection.triggers import load_triggers, TriggerConfig
@@ -22,10 +21,6 @@ from skills.neurolearn.detection.window_merge import (
     select_windows_by_budget,
 )
 from skills.neurolearn.quality.heuristic_checker import HeuristicChecker
-from skills.neurolearn.vision.gemini import GeminiVisionBackend
-from skills.neurolearn.vision.prompts import (
-    DEFAULT_VIDEO_TYPE, format_prompt, load_prompt,
-)
 
 
 def _window_transcript_context(
@@ -67,48 +62,6 @@ def _attach_transcript_context(windows: list, segments) -> list:
     return out
 
 
-def _autodetect_video_type(result) -> str:
-    """Auto-detect video type from transcript segments. Defensive — any
-    failure falls back to 'generic' so the pipeline never breaks."""
-    try:
-        from skills.neurolearn.detection.video_type_detect import (
-            detect_video_type,
-        )
-        sig = detect_video_type(result.segments)
-        return sig.video_type
-    except Exception:
-        return DEFAULT_VIDEO_TYPE
-
-
-def _resolve_vision_prompt(cfg: dict[str, Any], video_type: str) -> str:
-    """Resolve the vision-prompt template to send to the LLM.
-
-    Priority:
-      1. `vision_prompt_path` cfg option / `--prompt-file` CLI flag —
-         loads the file verbatim and (by default) prepends the global
-         prefix from prompts_default.toml.
-      2. Otherwise look up `prompts.<video_type>` via load_prompt(), which
-         honors user overrides at ~/.neurolearn/prompts.toml.
-
-    Path errors fall back to the generic built-in template; bad config
-    shouldn't break the pipeline.
-    """
-    path_str = (cfg.get("vision_prompt_path") or "").strip()
-    use_global = not cfg.get("no_global_prefix", False)
-    if path_str:
-        try:
-            custom = Path(path_str).expanduser().read_text(encoding="utf-8")
-        except Exception:
-            spec = load_prompt(video_type, use_global_prefix=use_global)
-            return spec.template
-        spec = load_prompt(
-            video_type, custom_template=custom, use_global_prefix=use_global,
-        )
-        return spec.template
-    spec = load_prompt(video_type, use_global_prefix=use_global)
-    return spec.template
-
-
 Source = Literal["youtube_manual", "youtube_auto", "whisper", "external_asr"]
 
 
@@ -117,42 +70,15 @@ def find_detection_windows(
     video_path: Path | None,
     triggers: TriggerConfig,
     detect_method: str,
-    *,
-    api_key: str | None = None,
 ) -> list[DetectionWindow]:
-    """Build list of windows from triggers + scenes + LLM classify (per spec §5).
+    """Build the list of keyframe-extraction windows from the transcript.
 
     Stages activated per detect_method:
-      keywords_only / semantic: triggers only
-      hybrid: triggers + scenes
-      llm_full_pass: triggers + scenes + LLM classifier
-      llm_first (v0.21, Mode-2 autonomous): LLM picks the moments; triggers
-        are the fallback when the LLM can't run (no key / error / empty).
-    """
-    # v0.21 Mode-2: let the LLM read the whole transcript and choose the
-    # moments worth a visual look. This is the autonomous counterpart to an
-    # agent picking moments in Mode-1. Unlike llm_full_pass (which ADDS LLM
-    # windows on top of triggers+scenes), llm_first uses the LLM's judgment
-    # ALONE and only falls back to triggers when the LLM is unavailable.
-    if detect_method == "llm_first":
-        # find_visual_moments_via_llm is Gemini-only, so fetch the Gemini key
-        # explicitly rather than reusing the vision-backend `api_key` (which
-        # could be a Groq/OpenAI key — sending it to Google is wrong).
-        gemini_key = _config_mod.get_api_key("gemini")
-        if gemini_key:
-            try:
-                llm_windows = find_visual_moments_via_llm(
-                    result.segments,
-                    api_key=gemini_key,
-                    language=result.language_detected or "en",
-                )
-            except Exception:
-                llm_windows = []
-            if llm_windows:
-                return llm_windows
-        # LLM unavailable / returned nothing → fall back to trigger windows.
-        detect_method = "keywords_only"
+      keywords_only / semantic: trigger phrases only
+      hybrid: trigger phrases + scene-change boundaries
 
+    Fully offline (no API). The agent reads the resulting keyframes in chat.
+    """
     windows: list[DetectionWindow] = []
 
     # 1. Trigger-based windows from transcript
@@ -170,8 +96,8 @@ def find_detection_windows(
                 phrase=m.phrase,
             ))
 
-    # 2. Scene-change boundaries (only for hybrid / llm_full_pass)
-    if detect_method in ("hybrid", "llm_full_pass") and video_path is not None:
+    # 2. Scene-change boundaries (hybrid only)
+    if detect_method == "hybrid" and video_path is not None:
         try:
             boundaries = find_scene_boundaries(video_path)
             for t in boundaries:
@@ -183,18 +109,6 @@ def find_detection_windows(
                     weight=1.0,
                     phrase="",
                 ))
-        except Exception:
-            pass
-
-    # 3. LLM-classify pass (only for llm_full_pass)
-    if detect_method == "llm_full_pass" and api_key:
-        try:
-            llm_windows = find_visual_moments_via_llm(
-                result.segments,
-                api_key=api_key,
-                language=result.language_detected or "en",
-            )
-            windows.extend(llm_windows)
         except Exception:
             pass
 
@@ -320,37 +234,29 @@ def apply_v02_stages(
                 except Exception:
                     pass
 
-    # === Visual detection + annotation ===
-    # v0.12.0: Anthropic API is no longer a backend choice. When the user
-    # works through Claude Code (plugin mode), Claude reads the extracted
-    # keyframes directly in chat — no extra API call. Standalone CLI uses
-    # Groq Llama-4-Scout (primary) or Gemini (fallback). See
-    # feedback_no_anthropic_api memory.
+    # === Visual keyframe extraction (Mode 1 — agent reads frames in chat) ===
+    # Visual reports are agent-driven only. We detect the moments worth a
+    # visual look, extract their keyframes, and write a manifest.json mapping
+    # frames → moments. Claude (in chat) then reads those frames with native
+    # vision and authors the illustrated report. There is NO autonomous
+    # "describe" backend — that path (the old agentless "Mode 2") was removed:
+    # without an agent the descriptions hallucinated, and the Gemini free tier
+    # (~20 requests/day) made it unreliable. Frame extraction is fully offline
+    # (ffmpeg + local CV) and needs no API key.
     vision_backend_name = cfg.get("vision_backend", "off")
-    if vision_backend_name in ("gemini", "groq", "openai") and video_path is not None:
-        # Each multimodal backend uses its own API key.
-        api_key_lookup = {
-            "gemini": "gemini",
-            "groq": "groq",
-            "openai": "openai",
-        }[vision_backend_name]
-        api_key = _config_mod.get_api_key(api_key_lookup)
-        if not api_key:
-            return result
-
+    if vision_backend_name != "off" and video_path is not None:
         triggers = load_triggers(
             user_path=triggers_path if triggers_path else None,
             force_replace=no_default_triggers,
         ) if triggers_path or no_default_triggers else load_triggers()
         detect_method = cfg.get("detect_method", "keywords_only")
         windows = find_detection_windows(
-            result, video_path, triggers, detect_method, api_key=api_key,
+            result, video_path, triggers, detect_method,
         )
         windows = merge_overlapping_windows(windows, max_gap=1.0)
 
-        # Frame-diff refinement (spec §5 brick C) — hybrid / llm_full_pass only.
-        # Drops static talking-head windows, boosts visually-rich ones.
-        if detect_method in ("hybrid", "llm_full_pass") and windows:
+        # Frame-diff refinement — drops static talking-head windows.
+        if detect_method == "hybrid" and windows:
             windows = refine_with_frame_diff(windows, video_path)
 
         video_duration = result.segments[-1].end if result.segments else 0.0
@@ -360,120 +266,24 @@ def apply_v02_stages(
             video_duration=video_duration,
         )
 
-        # Attach the surrounding transcript to each window so the vision
-        # annotator (Groq/Gemini/OpenAI) — or Claude in extract-only mode —
-        # knows what the speaker is talking about at that moment and
-        # describes the referenced on-screen content, not just whatever is
-        # visually salient (e.g. a webcam inset).
+        # Attach the surrounding transcript to each window so the agent reading
+        # the manifest knows what the speaker is talking about at that moment.
         windows = _attach_transcript_context(windows, result.segments)
 
         if windows:
-            fpw = cfg.get("frames_per_window", 3)
-            asym = bool(cfg.get("asymmetric_frames", False))
-            # v0.10.1: resolve video_type → prompt. CLI / preset can pin
-            # it; otherwise auto-detect from the transcript.
-            video_type = cfg.get("video_type") or _autodetect_video_type(result)
-            prompt_template = _resolve_vision_prompt(cfg, video_type)
-
-            # v0.12.1: Claude Code extract-only mode. When the user is
-            # running neurolearn from inside Claude Code (CLAUDE_PLUGIN_ROOT
-            # detected by transcribe.py) and opted into vision, we extract
-            # the keyframes via ffmpeg and write a manifest.json that
-            # describes which frames map to which windows. Claude in chat
-            # then reads those frames itself (it has native vision) — no
-            # external API call, no extra quota burn for the user.
-            if cfg.get("vision_extract_only", False):
-                manifest = _write_keyframes_manifest(
-                    windows=windows,
-                    video_path=video_path,
-                    out_dir=out_dir,
-                    video_id=video_id,
-                    fpw=fpw,
-                    use_asymmetric=asym,
-                )
-                # Stash manifest in result so the writer can mention it
-                # in the manifest.json / combined.md output.
-                try:
-                    object.__setattr__(result, "vision_extract_manifest", manifest)
-                except Exception:
-                    pass
-                return result
-
-            if vision_backend_name == "groq":
-                # v0.12.0 primary: GroqVisionBackend (Llama-4-Scout, batch≤3).
-                # Loaded lazily so users without GROQ_API_KEY don't pay
-                # the import.
-                from skills.neurolearn.vision.groq_vision import (
-                    GroqVisionBackend,
-                )
-                backend = GroqVisionBackend(api_key=api_key, frames_per_window=fpw)
-            elif vision_backend_name == "openai":
-                from skills.neurolearn.vision.openai_vision import (
-                    OpenAIVisionBackend,
-                )
-                backend = OpenAIVisionBackend(api_key=api_key, frames_per_window=fpw)
-            else:  # gemini
-                from skills.neurolearn.vision.gemini import concurrency_for_tier
-                tier = cfg.get("gemini_tier") or "free"
-                backend = GeminiVisionBackend(
-                    api_key=api_key,
-                    frames_per_window=fpw,
-                    use_asymmetric_offsets=asym,
-                    max_concurrent=concurrency_for_tier(tier),
-                )
-            visuals = backend.annotate_segments(
-                video_path=video_path,
+            manifest = _write_keyframes_manifest(
                 windows=windows,
-                prompt_template=prompt_template,
-                language=result.language_detected or "en",
-                video_id=video_id,
+                video_path=video_path,
                 out_dir=out_dir,
+                video_id=video_id,
+                fpw=cfg.get("frames_per_window", 3),
+                use_asymmetric=bool(cfg.get("asymmetric_frames", False)),
             )
-            result.visual_segments = visuals
-
-            # Capture Gemini token usage into the BudgetTracker so it
-            # surfaces in manifest.json. Only Gemini backend exposes the
-            # `last_run_usage` field (#8); Claude/OpenAI report usage via
-            # their own SDKs — wire those when we add per-model tracking.
+            # Stash manifest so the writer can mention it in the output.
             try:
-                last_usage = getattr(backend, "last_run_usage", [])
+                object.__setattr__(result, "vision_extract_manifest", manifest)
             except Exception:
-                last_usage = []
-            if last_usage:
-                from skills.neurolearn.budget import BudgetTracker
-                tracker = getattr(result, "budget", None) or BudgetTracker()
-                # Label the stage by the actual backend (was hardcoded
-                # "vision_gemini", so Groq/OpenAI cost was mis-attributed),
-                # and price by the backend's real model id (no stale default).
-                model_name = getattr(backend, "model", "") or vision_backend_name
-                stage = {
-                    "groq": "vision_groq",
-                    "gemini": "vision_gemini",
-                    "openai": "vision_openai",
-                }.get(vision_backend_name, "vision_gemini")
-                for usage in last_usage:
-                    # v0.15.2: GroqTokenUsage doesn't expose `cached_tokens`
-                    # (Groq doesn't offer prompt caching the way Gemini did
-                    # pre-v0.12.0). Fall back to 0 when the attribute is
-                    # missing so the vision pipeline doesn't AttributeError
-                    # when the backend is Groq.
-                    tracker.record(
-                        stage, model_name,
-                        prompt_tokens=usage.prompt_tokens,
-                        output_tokens=usage.output_tokens,
-                        cached_tokens=getattr(usage, "cached_tokens", 0),
-                    )
-                # Attach to the result so the writer can serialize it.
-                try:
-                    object.__setattr__(result, "budget", tracker)
-                except Exception:
-                    pass
-
-            # v0.12.0: removed Claude-based low-confidence refinement.
-            # The `claude_fallback` preset option no longer activates a
-            # Claude API call — users wanting Claude refinement should
-            # run neurolearn through Claude Code and let Claude itself
-            # read the keyframes from manifest.json (see SKILL.md).
+                pass
 
         # === v0.2: OCR (opt-in) ===
         if cfg.get("ocr") and result.visual_segments:

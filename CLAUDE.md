@@ -136,13 +136,18 @@ PATH; the key never enters chat history. The positional form
 terminal. Per memory rule (the failure mode that motivated v0.13.0):
 chat-paste leaves the key in conversation logs.
 
-**Vision pipeline (v0.12+).** Default vision backend is **Groq**
-(`vision/groq_vision.GroqVisionBackend`, Llama-4-Scout); Gemini is the
-fallback. Inside Claude Code (`$CLAUDE_PLUGIN_ROOT` env var set),
-`--with-visuals` auto-enables extract-only mode: ffmpeg pulls keyframes,
-`pipeline_v02._write_keyframes_manifest` writes
-`<batch>/keyframes/manifest.json`, no external vision API call. Claude
-reads frames with native vision in the chat.
+**Vision pipeline — agent-driven only (visual reports are Mode 1).** There is
+NO autonomous "describe" backend: the old Gemini/Groq/OpenAI vision backends,
+the `vision-report` command, and LLM moment-selection (`llm_first` /
+`llm_full_pass`) were removed (descriptions hallucinated without an agent, and
+the Gemini free tier ~20 req/day made it unreliable). `--with-visuals` always
+runs extract-only: ffmpeg pulls keyframes, `pipeline_v02._write_keyframes_manifest`
+writes `<batch>/keyframes/manifest.json` (offline, no API key), and Claude reads
+the frames with native vision in chat and authors the report. `vision_backend`
+is now just an on/off gate (`"on"`/`"off"`; legacy `"groq"`/`"gemini"` are
+treated as `"on"`). The only place Gemini remains usable is the grounding
+gate's optional blind-extractor fallback (`report --verify --verify-backend
+gemini`).
 
 **Whisper-local: two physical implementations.** On macOS arm64 we use
 `mlx-whisper`; everywhere else `faster-whisper`. The choice is

@@ -57,7 +57,7 @@ def _run_wizard(tmp_path: Path, monkeypatch, prompts: list[str]):
 
 # Audio menu: 1=smart, 2=groq, 3=whisper-local, 4=subtitles, 5=gemini,
 #             6=openai, 7=deepgram, 8=assemblyai, 9=custom.
-# Vision menu: 1=groq, 2=gemini, 3=off.
+# Vision menu (Mode-1 visual reports): 1=on, 2=off.
 # Analyze menu: 1=groq, 2=gemini, 3=ollama, 4=skip.
 # Tier menus: 1=free, 2=paid (groq) / 2=paid 3=paid-tier2 4=paid-tier3 (gemini).
 
@@ -72,7 +72,7 @@ def test_wizard_pure_local_path(tmp_path: Path, monkeypatch):
     cfg = _run_wizard(
         tmp_path, monkeypatch,
         prompts=[
-            "3", "3", "4",  # whisper-local / vision off / analyze skip
+            "3", "2", "4",  # whisper-local / vision off / analyze skip
             "4",            # v0.15.0 step 4: platforms = local files only
         ],
     )
@@ -95,7 +95,7 @@ def test_wizard_smart_path_with_groq_everywhere(tmp_path: Path, monkeypatch):
         prompts=[
             "1",   # audio: smart
             "1",   # smart fallback: groq
-            "1",   # vision: groq
+            "1",   # vision: on (Mode-1 visual reports)
             "1",   # analyze: groq
             "4",   # v0.15.0 step 4: platforms = local-only (skip cookies)
             "1",   # groq tier: free
@@ -104,7 +104,7 @@ def test_wizard_smart_path_with_groq_everywhere(tmp_path: Path, monkeypatch):
     )
     assert cfg.default_backend == "smart"
     assert cfg.fallback_backend == "groq"
-    assert cfg.vision_backend == "groq"
+    assert cfg.vision_backend == "on"
     assert cfg.analyze_backend == "groq"
     assert cfg.groq_tier == "free"
 
@@ -119,7 +119,7 @@ def test_wizard_gemini_audio_triggers_tier_prompt(tmp_path: Path, monkeypatch):
         tmp_path, monkeypatch,
         prompts=[
             "5",         # audio: gemini
-            "3",         # vision: off
+            "2",         # vision: off
             "4",         # analyze: skip
             "4",         # v0.15.0 step 4: platforms = local-only
             "1",         # gemini tier: free
@@ -143,7 +143,7 @@ def test_wizard_paid_gemini_unlocks_model_overrides(tmp_path: Path, monkeypatch)
         tmp_path, monkeypatch,
         prompts=[
             "5",                  # audio: gemini
-            "3",                  # vision: off
+            "2",                  # vision: off
             "4",                  # analyze: skip
             "4",                  # v0.15.0 step 4: platforms = local-only
             "2",                  # gemini tier: paid (Tier 1)
@@ -170,7 +170,7 @@ def test_wizard_free_gemini_skips_model_overrides(tmp_path: Path, monkeypatch):
         tmp_path, monkeypatch,
         prompts=[
             "5",        # audio: gemini
-            "3",        # vision: off
+            "2",        # vision: off
             "4",        # analyze: skip
             "4",        # v0.15.0 step 4: platforms = local-only
             "1",        # gemini tier: free
@@ -210,7 +210,7 @@ def test_wizard_calls_detect_platform_once(tmp_path: Path, monkeypatch):
     monkeypatch.setattr("sys.stdin.isatty", lambda: True)  # v0.12.2 guard
     with (
         patch("skills.neurolearn.wizard.detect_platform", return_value=_FAKE_PLATFORM) as mock_dp,
-        patch("rich.prompt.Prompt.ask", side_effect=["3", "3", "4", "4"]),
+        patch("rich.prompt.Prompt.ask", side_effect=["3", "2", "4", "4"]),
     ):
         from skills.neurolearn.wizard import run_wizard
         run_wizard()
@@ -251,7 +251,7 @@ def test_wizard_config_persisted_to_disk(tmp_path: Path, monkeypatch):
     monkeypatch.setattr("sys.stdin.isatty", lambda: True)  # v0.12.2 guard
     with (
         patch("skills.neurolearn.wizard.detect_platform", return_value=_FAKE_PLATFORM),
-        patch("rich.prompt.Prompt.ask", side_effect=["3", "3", "4", "4"]),
+        patch("rich.prompt.Prompt.ask", side_effect=["3", "2", "4", "4"]),
     ):
         from skills.neurolearn.wizard import run_wizard
         run_wizard()

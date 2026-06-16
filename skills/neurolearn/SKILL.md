@@ -238,14 +238,12 @@ A visual report turns a transcribed video into a picture-rich guide: pick
 the moments worth a look, describe what's ON SCREEN at each, assemble.
 **Which mode you use is decided by who's driving — not by an env var:**
 
-- **Mode 1 — agent-driven (you, the agent, do the vision).** No Gemini at
-  all. You read the transcript, pick the moments, extract frames, and read
-  them with YOUR OWN native vision, then assemble the report. Use this
-  whenever an agent (Claude, Codex, any) is in the loop — it's free (no
-  API), accurate, and you already have vision.
-- **Mode 2 — fully autonomous (no agent).** Gemini does the vision. The
-  user runs `transcribe --with-visuals` then `report`; the tool picks the
-  moments, describes them, and renders the PDF by itself.
+**Visual reports are agent-driven — you, the agent, do the vision.** No
+Gemini, no autonomous "describe" backend (that path was removed). You read
+the transcript, pick the moments, extract frames, read them with YOUR OWN
+native vision, and assemble the report. It's free (no API key, no quota),
+accurate, and you already have vision. `transcribe --with-visuals` just
+extracts keyframes + writes a `keyframes/manifest.json` for you to read.
 
 **Ask the report language.** Before writing a guide, confirm what language
 the user wants it in — it is NOT necessarily the video's language. Write
@@ -273,8 +271,8 @@ yours. Building blocks, in order:
 
    Tell the two apart by the transcript: stepwise narration (sequential
    connectives + several actions) = procedure. (`detection.moment_kind.
-   classify_moment_kind` is the same heuristic the autonomous mode uses,
-   if you want a programmatic hint — but your own reading is better.)
+   classify_moment_kind` gives a programmatic hint — but your own reading
+   is better.)
 
 2. **Extract frames.**
    - Showcase → `neurolearn frames <batch> --best --at 6:00` — `--best`
@@ -304,15 +302,24 @@ yours. Building blocks, in order:
 
    **Translate your explanations, NOT the on-screen terms.** Your narration —
    what you understood the author to mean — goes in the user's language. But
-   any term that appears on screen or is named from the source — item names,
-   stat / affix / property names, ability names, UI labels, mechanics — stays
-   **verbatim in its original form, as a proper name** (`Energy Shield`,
+   terms that name game content — item names, stat / affix / property names,
+   ability and named-keyword names, content tooltip/panel labels — stay
+   **verbatim in their original form, as proper names** (`Energy Shield`,
    `Spirit`, `Critical Hit Chance`, `Arcane Surge`, `Cast on Dodge`, `Jewel
-   Socket`, `Passive Skill Tree`, `Well of Souls`, item names). Don't render
-   them in the user's language ("энергощит", "шанс крита") — that loses the
-   exact term the reader needs to find in-game AND blinds the grounding check.
-   Test: is it shown on the frame / spoken as a game term? → keep original. Is
-   it your own explanation? → translate.
+   Socket`, `Passive Skill Tree`, `Well of Souls`, item names), **even if a
+   term already happens to be in the user's language.** Translating them
+   ("энергощит" for "Energy Shield", "шанс крита" for "Critical Hit Chance")
+   loses the exact in-game term the reader needs AND blinds the grounding
+   check.
+   - **Borderline word** that's both ordinary and a possible label (clear,
+     build, socket, roll, tier): **if the exact word appears as a label/
+     tooltip on the crop → keep it verbatim (and quote it, see below); if it's
+     only in your narration as a common word → translate.**
+   - **How something works** is always your explanation → translate it (e.g.
+     "Quality boosts the caster mod" — narration), even though the term
+     `Quality` itself stays verbatim.
+   - **Chrome** (OK / Cancel / Settings / Inventory) isn't game content —
+     translating it is fine.
 
    **Ground the text in the image, and read the whole tooltip.** Three rules
    that catch the usual mistakes:
@@ -340,61 +347,72 @@ yours. Building blocks, in order:
    or pick the frame where the property IS visible — it may be elsewhere in
    the same frame, like a reveal/options panel) or fix the text.
 
-   **Layer 2 — `neurolearn report … --from-markdown <file.md> --verify`** —
-   the mechanical floor: OCRs each crop and flags caption game-terms/numbers
-   not found on it. It catches "stat cut off by the crop", "+4 over a +3
-   frame", "placement the tooltip doesn't support". Resolve every flag
-   (`--strict` blocks the render until none remain). Needs the `ocr` extra.
-   **Layer 2 only sees claims you wrote as on-screen English terms or
-   numbers** — that's exactly why Layer 1 (you looking) is not optional. Then
-   it renders to PDF (embeds + downscales frames, alt-text → `<figcaption>`,
-   image+caption never split across a page break).
+   **Layer 2 — blind atom extraction, then `--verify`.** The mechanical floor
+   is language-agnostic and works for ANY video language (no OCR, no language
+   list). Two steps:
+
+   1. **Extract atoms blind.** Spawn ONE *fresh sub-agent* (it must NOT have
+      your report/captions in its context — that blindness is load-bearing;
+      a model defending its own caption rubber-stamps it). Give it only the
+      list of cropped frame paths and this instruction: *"For each image, read
+      ONLY what is literally visible — do not infer. Write `<frame>.atoms.json`
+      next to each, JSON `{numbers, urls, terms}`: every number/stat/% verbatim,
+      every URL, every on-screen text label verbatim, in the original
+      script."* The atoms are cached and reused.
+   2. **Diff:** `neurolearn report … --from-markdown <file.md> --verify`. It
+      diffs each caption's claims (numbers / URLs / quoted terms) against that
+      frame's atoms **and** the spoken transcript. A number or URL on **neither**
+      the frame nor the transcript is a **fabricated fact → blocks the render**
+      (this is the "+4 over a +3 frame", the invented `arxiv.org/…` citation). A
+      number/URL the author *states* but the frame draws rather than labels (so
+      the blind extractor misses it) is a **warning, not a block** — the
+      transcript outranks vision, a spoken fact isn't a fabrication (`--strict`
+      blocks it). An unconfirmed quoted term is a **warning** too (a crop may
+      have clipped it); `--strict` blocks on those. Resolve every blocking flag,
+      then it renders to PDF (embeds + downscales frames, alt-text →
+      `<figcaption>`, image+caption never split across a page break).
+
+   Layer 2 only checks numbers, URLs, and the terms you **quote** — that's why
+   Layer 1 (you looking) is not optional.
 
 **Protocol:** confirm language → read transcript → **classify each moment
 (showcase vs procedure)** → `frames` (`--best` for showcase, per-step for
 procedure) → read frames → `crop` the keepers → write Markdown (flowing
 prose, captions, numbered steps for procedures, in the user's language) →
 **Layer 1: re-open every crop and confirm its caption is fully visible on it**
-→ **Layer 2: `report --from-markdown --verify`, clear every flag** → PDF.
-Apply the epistemic stance (below): describe what's actually on the frame,
-don't parrot the transcript.
+→ **Layer 2: spawn the blind sub-agent to write `<frame>.atoms.json`, then
+`report --from-markdown --verify`, clear every flag** → PDF. Apply the
+epistemic stance (below): describe what's actually on the frame, don't parrot
+the transcript.
 
 **Caption precision (keeps the grounding gate green):** a caption states
 only what's visible on ITS OWN frame; put cross-step references ("up from
-+3", "the wand from §2") in the body prose, not the caption. When you make a
-placement or stat claim, include the exact on-screen English term (e.g.
-"Passive Skill Tree", "Arcane Surge") so it's checkable against the image.
++3", "the wand from §2") in the body prose, not the caption. **Wrap exact
+on-screen text in guillemets** — «Passive Skill Tree», «Arcane Surge»,
+«Векторная БД» — so the gate can check the term against the frame regardless
+of language; numbers and URLs are checked whether quoted or not.
 
 ---
 
-### Mode 2 — fully autonomous (no agent driving)
+### Autonomous keyframe extraction (still agent-driven for the report)
 
-Plain CLI, no agent to read frames, so **Gemini does the vision**:
+`transcribe --with-visuals` (or `batch --with-visuals`) runs the offline
+pipeline: it picks moments from the transcript (keyword / scene triggers),
+extracts their keyframes, and writes `keyframes/manifest.json` mapping
+frames → moments. You then read those frames and author the report exactly
+as above. There is **no autonomous "describe" step** — frame extraction is
+offline (ffmpeg + local CV), needs no API key, and the *looking* is always
+yours. (You can also pick moments yourself with `frames --at`.)
 
-- `transcribe --with-visuals` runs the whole pipeline: pick moments,
-  describe them with Gemini (keyframe stills sent inline, grounded in the
-  transcript, auto-cropped to the relevant region via the model's `box_2d`),
-  store results. Then `neurolearn report <batch>` renders the PDF.
-- **Moment selection** defaults to `llm_first` when Gemini is configured:
-  the LLM reads the transcript and chooses the moments, trigger detection
-  as the fallback. Override with `--detect-method
-  keywords_only|hybrid|llm_full_pass|llm_first`.
-- **Heads-up — Gemini free tier is request-limited per day** (≈250/day on
-  `gemini-2.5-flash`, far fewer on preview models; the CLI prints a
-  reminder). Each moment = one request. For heavy use enable billing
-  (Tier 1 → 1500/day) — or just use Mode 1 (no API). This is why an agent
-  in the loop should prefer Mode 1.
-
-**`vision-report` (Mode-2 building block).** `neurolearn vision-report
-<batch> --moments "6:00,18:30"` is the standalone Gemini-describe step
-(`--ask`, `--depth standard|deep`, `--video-index`). It writes
-`<batch>/vision-report.json` and auto-crops frames to the region Gemini
-flags. If no Gemini key, it falls back to extracting frames for an agent to
-read — i.e. it degrades into Mode 1.
+**Grounding fallback (Gemini).** The Layer-2 gate normally uses your own
+blind atom extraction. When you can't (no agent in the loop), Gemini can
+stand in as the blind extractor: `report … --from-markdown <file.md>
+--verify --verify-backend gemini` (one request per frame, cached). This is
+the only place Gemini is used in the visual flow.
 
 **Note.** `transcribe` (single) and `batch` both write a canonical
-`manifest.json` (v0.21), so `frames` / `crop` / `vision-report` / `report`
-all work on any transcribe or batch output with no extra steps.
+`manifest.json`, so `frames` / `crop` / `report` all work on any transcribe
+or batch output with no extra steps.
 
 ## Consuming neurolearn output — epistemic stance
 
