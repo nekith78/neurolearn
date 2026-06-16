@@ -176,6 +176,118 @@ def frame_sharpness(path: Path) -> float:
         return 0.0
 
 
+# --- content-aware candidate ranking (Phase A) ---------------------------
+# Variance-of-Laplacian alone favours faces / photos / memes over flat
+# diagrams (they carry more high-frequency detail), so a sharpness-only picker
+# lands on talking-heads and spliced clips. We instead rank candidates by
+# content-type (slide-likeness) and stability (a settled diagram is static; a
+# moving head / camera-pan / mid-draw is not), with a face penalty, and use
+# sharpness only as a TIE-BREAKER. Every signal is computed on the already-
+# decoded candidate JPEGs with the bundled OpenCV toolkit — fully offline, no
+# model, no download. Any failure degrades to sharpness-only (returns None) so
+# the pipeline never breaks.
+
+_FACE_CASCADE = None
+
+
+def _face_cascade():
+    global _FACE_CASCADE
+    if _FACE_CASCADE is None:
+        import cv2
+        _FACE_CASCADE = cv2.CascadeClassifier(
+            cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
+        )
+    return _FACE_CASCADE
+
+
+def _slide_likeness(bgr) -> float:
+    """1.0 = slide-like (few flat colours, low entropy), 0.0 = photographic.
+    Colour-discreteness is the strongest single separator of diagram/slide from
+    photo/face; intensity entropy backs it up. Edge density is deliberately NOT
+    used — text-heavy slides are edge-dense and would be misread as photos."""
+    import cv2
+    import numpy as np
+    small = cv2.resize(bgr, (96, 96), interpolation=cv2.INTER_AREA)
+    q = (small // 32).reshape(-1, 3)            # 8 levels / channel
+    uniq = int(np.unique(q, axis=0).shape[0])
+    colour = max(0.0, 1.0 - uniq / 200.0)       # slide: tens; photo: hundreds
+    gray = cv2.cvtColor(small, cv2.COLOR_BGR2GRAY)
+    hist = np.bincount(gray.reshape(-1), minlength=256).astype(float)
+    p = hist[hist > 0] / float(gray.size)
+    entropy = float(-(p * np.log2(p)).sum())    # 0..8 bits
+    flatness = max(0.0, 1.0 - entropy / 8.0)
+    return 0.7 * colour + 0.3 * flatness
+
+
+def _has_large_face(gray) -> bool:
+    """A frontal face filling a meaningful share of the frame — the talking-
+    head signal. Bundled Haar cascade (offline); minSize gates out tiny
+    face-like patterns in diagrams. Used as a penalty, not a hard gate."""
+    try:
+        h, w = gray.shape[:2]
+        faces = _face_cascade().detectMultiScale(
+            gray, scaleFactor=1.1, minNeighbors=6,
+            minSize=(max(1, w // 8), max(1, h // 8)),
+        )
+        return len(faces) > 0
+    except Exception:
+        return False
+
+
+def _stability(grays: list) -> list[float]:
+    """Per-candidate 1 - mean|Δ| against neighbouring candidates (on a common
+    small grid). A settled diagram barely changes between samples; a moving
+    head or a mid-draw diagram does. Returns [0,1], 1 = most static."""
+    import cv2
+    import numpy as np
+    smalls = [
+        None if g is None else cv2.resize(g, (64, 64)).astype(np.float32)
+        for g in grays
+    ]
+    out: list[float] = []
+    for i, s in enumerate(smalls):
+        if s is None:
+            out.append(0.0)
+            continue
+        diffs = [
+            float(np.abs(s - smalls[j]).mean()) / 255.0
+            for j in (i - 1, i + 1)
+            if 0 <= j < len(smalls) and smalls[j] is not None
+        ]
+        out.append(1.0 - (sum(diffs) / len(diffs) if diffs else 0.0))
+    return out
+
+
+def _rank_candidates(paths: list[Path]) -> list[float] | None:
+    """Composite content-aware score per candidate (higher = better). Returns
+    None if the CV toolkit is unavailable, so the caller falls back to
+    sharpness-only ranking."""
+    try:
+        import cv2
+    except Exception:
+        return None
+    try:
+        bgrs = [cv2.imread(str(p)) for p in paths]
+        grays = [None if b is None else cv2.cvtColor(b, cv2.COLOR_BGR2GRAY)
+                 for b in bgrs]
+        stab = _stability(grays)
+        sharps = [frame_sharpness(p) for p in paths]
+        smax = max(sharps) or 1.0
+        scores: list[float] = []
+        for i, b in enumerate(bgrs):
+            if b is None:
+                scores.append(-1e9)
+                continue
+            slide = _slide_likeness(b)
+            face = 1.0 if _has_large_face(grays[i]) else 0.0
+            scores.append(
+                slide + 0.5 * stab[i] - 1.0 * face + 0.15 * (sharps[i] / smax)
+            )
+        return scores
+    except Exception:
+        return None
+
+
 def extract_sharpest_frame(
     video_path: Path,
     event_ts: float,
@@ -203,7 +315,7 @@ def extract_sharpest_frame(
     start = max(0.0, event_ts - window * 0.4)
     n = max(2, samples)
     cands = [start + window * i / (n - 1) for i in range(n)]
-    scored: list[tuple[float, Path]] = []
+    cand_paths: list[Path] = []
     for i, ts in enumerate(cands):
         tmp = out_dir / f".cand_{video_id}_{int(ts * 1000):08d}_{i}.jpg"
         cmd = [
@@ -217,13 +329,19 @@ def extract_sharpest_frame(
         except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
             continue
         if tmp.exists() and tmp.stat().st_size > 0:
-            scored.append((frame_sharpness(tmp), tmp))
-    if not scored:
+            cand_paths.append(tmp)
+    if not cand_paths:
         return None
-    scored.sort(key=lambda s: s[0], reverse=True)
-    best = scored[0][1]
-    best.replace(final)
-    for _, t in scored[1:]:
+    # Content-aware ranking (slide-likeness + stability − face, sharpness as
+    # tie-breaker); falls back to sharpness-only if the CV toolkit is absent.
+    scores = _rank_candidates(cand_paths)
+    if scores is None:
+        scores = [frame_sharpness(p) for p in cand_paths]
+    best_idx = max(range(len(cand_paths)), key=lambda k: scores[k])
+    cand_paths[best_idx].replace(final)
+    for k, t in enumerate(cand_paths):
+        if k == best_idx:
+            continue
         try:
             t.unlink()
         except OSError:
