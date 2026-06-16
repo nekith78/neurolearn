@@ -30,6 +30,18 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/).
   now decided up front by the content-aware ranker at selection time, with a
   stronger CV signal than an atom count.
 
+### Fixed
+
+- **Grounding flagged comma-separated numbers as fabricated.** A caption like
+  "Requires Level 78, 40 Str" parsed "78, 40" as a single number "7840" and
+  blocked the render even though both numbers were on the frame. Number parsing
+  now only joins digit runs across a separator when it is followed by digits, so
+  thousands groups ("124 750", "4,88") still merge but "78, 40" stays two.
+- **`.visual.md` claimed "No visual moments detected" in Mode 1.** The per-video
+  summary read the removed `visual_segments` field; it now summarises the
+  keyframe manifest (window count, per-window timestamps/triggers, pointer to
+  `keyframes/manifest.json`) when keyframe extraction ran.
+
 ### Added
 
 - **Content-aware keyframe ranking.** The keyframe ranker scores candidates by
