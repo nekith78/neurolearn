@@ -26,15 +26,14 @@ def test_load_smart_preset_defaults():
 
 
 def test_standard_preset_still_has_vision_on():
-    """v0.10.6 sanity (updated for v0.12.0): richer presets (standard /
-    premium / tutorial) remain deliberate vision-on opt-ins. The
-    tutorial preset now defaults to vision_backend='groq' (Llama-4-Scout
-    is faster + has 1000 free RPD vs Gemini's 250); standard/premium
-    keep gemini for backwards compat."""
+    """The richer presets (standard / premium / tutorial) remain deliberate
+    vision-on opt-ins. Since Mode 2 was removed, vision_backend is now the
+    on/off gate — all three request vision via 'on' (keyless Mode 1 keyframe
+    extraction); the agent reads the frames in chat."""
     expected = {
-        "standard": "gemini",
-        "premium": "gemini",
-        "tutorial": "groq",  # v0.12.0: tutorial moved to Groq
+        "standard": "on",
+        "premium": "on",
+        "tutorial": "on",
     }
     for preset_name, want in expected.items():
         vals = load_preset_values(

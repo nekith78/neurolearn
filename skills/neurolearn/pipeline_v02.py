@@ -285,24 +285,6 @@ def apply_v02_stages(
             except Exception:
                 pass
 
-        # === v0.2: OCR (opt-in) ===
-        if cfg.get("ocr") and result.visual_segments:
-            from dataclasses import replace
-            from skills.neurolearn.vision.ocr import ocr_keyframes
-            new_visuals = []
-            for vs in result.visual_segments:
-                kf_paths = [out_dir / kf for kf in vs.keyframes]
-                ocr_texts = ocr_keyframes(kf_paths)
-                additions = [f"ocr:{t[:200]}" for t in ocr_texts if t]
-                if additions:
-                    new_visuals.append(replace(
-                        vs,
-                        detected_objects=list(vs.detected_objects) + additions,
-                    ))
-                else:
-                    new_visuals.append(vs)
-            result.visual_segments = new_visuals
-
     return result
 
 

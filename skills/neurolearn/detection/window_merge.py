@@ -61,10 +61,10 @@ def refine_with_frame_diff(
         detect_frame_changes_in_window,
     )
 
-    # High-confidence signals — never drop, never re-score. The user (raw/strict
-    # exact-match triggers) or an LLM (llm_full_pass) explicitly flagged these
-    # moments as worth capturing; frame_diff shouldn't second-guess that.
-    _STRONG_REASONS = ("raw", "strict:", "llm_full_pass:")
+    # High-confidence signals — never drop, never re-score. The user's raw/strict
+    # exact-match triggers explicitly flagged these moments as worth capturing;
+    # frame_diff shouldn't second-guess that.
+    _STRONG_REASONS = ("raw", "strict:")
 
     out: list[DetectionWindow] = []
     for w in windows:

@@ -70,7 +70,7 @@ REGISTRY: list[OptionField] = [
     OptionField(
         key="detect_method", type=str, default="keywords_only",
         choices=[
-            "keywords_only", "semantic", "hybrid", "llm_full_pass", "llm_first",
+            "keywords_only", "semantic", "hybrid",
         ],
         description="Method for finding visually important moments.",
         section="detection",

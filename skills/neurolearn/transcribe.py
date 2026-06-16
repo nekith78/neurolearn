@@ -143,7 +143,6 @@ def cli() -> None:
               default=None, help="How to find visual moments.")
 @click.option("--frames-per-window", "frames_per_window_opt", type=int, default=None)
 @click.option("--max-windows", "max_windows_opt", type=int, default=None)
-@click.option("--ocr", "ocr_opt", is_flag=True, default=None, help="Run OCR on keyframes (--ocr opt-in).")
 @click.option("--check-quality", is_flag=True, default=None,
               help="Force quality check + write to manifest.")
 @click.option("--no-quality-check", is_flag=True, default=None,
@@ -284,8 +283,6 @@ def transcribe_cmd(audio_or_url: str | None, **opts) -> None:
         cli_overrides["frames_per_window"] = opts["frames_per_window_opt"]
     if opts.get("max_windows_opt") is not None:
         cli_overrides["max_windows_per_video"] = opts["max_windows_opt"]
-    if opts.get("ocr_opt") is True:
-        cli_overrides["ocr"] = True
     if opts.get("check_quality") is True:
         cli_overrides["quality_check"] = True
     if opts.get("no_quality_check") is True:
@@ -1394,19 +1391,17 @@ def _run_batch_pipeline(
 @click.option("--beam-size", type=int, default=None)
 @click.option("--vad/--no-vad", default=None)
 @click.option("--verbose", is_flag=True)
-@click.option("--with-visuals", is_flag=True, help="Shortcut for vision: Gemini when configured, else Groq (v0.21).")
+@click.option("--with-visuals", is_flag=True,
+              help="Extract keyframes for an illustrated report — Claude reads "
+                   "them in chat (Mode 1, offline, no API key).")
 @click.option("--vision-backend", "vision_backend_opt",
-              type=click.Choice(["off", "groq", "gemini"]), default=None,
-              help="Visual mode backend. off = audio only. groq = Llama-4-Scout.")
-@click.option("--claude-extract/--no-claude-extract", "claude_extract_opt", default=None,
-              help="Claude Code extract-only mode (auto-on with $CLAUDE_PLUGIN_ROOT).")
+              type=click.Choice(["off", "on"]), default=None,
+              help="Visual reports: on = extract keyframes for the agent; off = audio only.")
 @click.option("--detect-method", "detect_method_opt",
-              type=click.Choice(["keywords_only", "semantic", "hybrid", "llm_full_pass", "llm_first"]),
+              type=click.Choice(["keywords_only", "semantic", "hybrid"]),
               default=None, help="How to find visual moments.")
 @click.option("--frames-per-window", "frames_per_window_opt", type=int, default=None)
 @click.option("--max-windows", "max_windows_opt", type=int, default=None)
-@click.option("--ocr", "ocr_opt", is_flag=True, default=None,
-              help="Run OCR on keyframes (--ocr opt-in).")
 @click.option("--check-quality", is_flag=True, default=None,
               help="Force quality check + write to manifest.")
 @click.option("--no-quality-check", is_flag=True, default=None,
@@ -1506,8 +1501,7 @@ def _run_batch_pipeline(
     help="With --learn-into: control the memory-diff mode. Auto-on when "
          "$CLAUDE_PLUGIN_ROOT is set (Claude in chat does the diff "
          "natively, no Groq call). Use --no-learn-claude-extract to "
-         "force the Groq path. v0.16.2+. (Distinct from the vision-"
-         "scoped --claude-extract flag.)",
+         "force the Groq path. v0.16.2+.",
 )
 def batch_cmd(
     inputs: tuple[str, ...],
@@ -1592,8 +1586,6 @@ def batch_cmd(
         cli_overrides["frames_per_window"] = opts["frames_per_window_opt"]
     if opts.get("max_windows_opt") is not None:
         cli_overrides["max_windows_per_video"] = opts["max_windows_opt"]
-    if opts.get("ocr_opt") is True:
-        cli_overrides["ocr"] = True
     if opts.get("check_quality") is True:
         cli_overrides["quality_check"] = True
     if opts.get("no_quality_check") is True:

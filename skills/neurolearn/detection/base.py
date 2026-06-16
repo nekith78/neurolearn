@@ -10,7 +10,7 @@ from typing import Protocol
 class DetectionWindow:
     start: float       # seconds
     end: float
-    reason: str        # "raw" | "strict:ru" | "soft:ru" | "universal" | "scene_change" | "llm_full_pass"
+    reason: str        # "raw" | "strict:ru" | "soft:ru" | "universal" | "scene_change"
     score: float       # 0..1
     weight: float = 1.0
     phrase: str = ""   # the phrase that fired (for trigger-windows)

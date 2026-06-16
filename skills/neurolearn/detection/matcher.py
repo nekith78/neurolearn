@@ -190,8 +190,8 @@ def _detect_lang(text: str) -> str:
         return "en"
 
 
-_MODES_WITH_PER_LANG = ("keywords_only", "hybrid", "llm_full_pass")
-_MODES_WITH_UNIVERSAL = ("semantic", "hybrid", "llm_full_pass")
+_MODES_WITH_PER_LANG = ("keywords_only", "hybrid")
+_MODES_WITH_UNIVERSAL = ("semantic", "hybrid")
 
 
 def match_segment(
@@ -204,15 +204,14 @@ def match_segment(
 
     Priority within a mode:
       1. raw (any lang, exact) — runs in all modes
-      2. languages.<seg_lang>.strict (per-lang exact) — keywords_only / hybrid / llm_full_pass
-      3. languages.<seg_lang>.soft (per-lang lemmatized) — keywords_only / hybrid / llm_full_pass
-      4. universal (cross-lingual embeddings) — semantic / hybrid / llm_full_pass
+      2. languages.<seg_lang>.strict (per-lang exact) — keywords_only / hybrid
+      3. languages.<seg_lang>.soft (per-lang lemmatized) — keywords_only / hybrid
+      4. universal (cross-lingual embeddings) — semantic / hybrid
 
     Modes per spec §5:
       - keywords_only: raw + per-lang only (no universal — saves 118MB MiniLM load)
       - semantic: raw + universal only (no per-lang)
       - hybrid: all four matchers
-      - llm_full_pass: all four matchers (LLM-classify pass added in pipeline_v02)
     """
     seg_lang = _detect_lang(text)
 

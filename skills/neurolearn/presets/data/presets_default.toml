@@ -33,7 +33,7 @@ max_windows_per_video = 0
 # === STANDARD ===
 [presets.standard]
 transcribe_backend = "whisper-local"
-vision_backend = "gemini"
+vision_backend = "on"
 detect_method = "hybrid"
 frames_per_window = 3
 max_windows_per_video = 30
@@ -41,8 +41,8 @@ max_windows_per_video = 30
 # === PREMIUM ===
 [presets.premium]
 transcribe_backend = "whisper-local"
-vision_backend = "gemini"
-detect_method = "llm_full_pass"
+vision_backend = "on"
+detect_method = "hybrid"
 frames_per_window = 5
 max_windows_per_video = 50
 quality_check = true
@@ -58,7 +58,7 @@ quality_perplexity = true
 # density of action triggers; set --preset tutorial to force.
 [presets.tutorial]
 transcribe_backend = "smart"
-vision_backend = "groq"
+vision_backend = "on"
 detect_method = "keywords_only"
 frames_per_window = 3
 max_windows_per_video = 30

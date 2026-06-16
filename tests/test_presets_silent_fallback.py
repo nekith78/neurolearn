@@ -1,17 +1,16 @@
-"""When vision_backend=gemini but no API key — silent fallback to off.
+"""Mode 1 visual reports are keyless — a vision-on preset needs no API key.
 
-v0.10.6 note: the `smart` preset no longer has vision_backend=gemini by
-default, so these tests exercise the `standard` preset (which still
-does). The fallback logic itself is preset-agnostic — any preset that
-requests a vision backend without the matching API key will silently
-fall back to "off" with an info message.
+Mode 2 (autonomous Gemini/Groq vision) was removed, so vision_backend is now
+an on/off gate and keyframe extraction is offline. A preset that requests
+vision ('on') therefore resolves to 'on' whether or not any API key is set,
+with no fallback message. Presets with vision off stay off and emit nothing.
 """
 import pytest
 
 from skills.neurolearn.presets.loader import resolve_with_env_checks
 
 
-def test_standard_preset_gemini_without_key_falls_back(monkeypatch):
+def test_standard_preset_vision_on_without_key(monkeypatch):
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     monkeypatch.setattr(
         "skills.neurolearn.config.get_api_key",
@@ -19,14 +18,14 @@ def test_standard_preset_gemini_without_key_falls_back(monkeypatch):
     )
 
     vals, info_messages = resolve_with_env_checks("standard")
-    assert vals["vision_backend"] == "off"
-    assert any("GEMINI_API_KEY" in m for m in info_messages)
+    assert vals["vision_backend"] == "on"  # keyless — Mode 1 needs no key
+    assert not any("GEMINI_API_KEY" in m for m in info_messages)
 
 
-def test_standard_preset_gemini_with_key_kept(monkeypatch):
+def test_standard_preset_vision_on_with_key(monkeypatch):
     monkeypatch.setenv("GEMINI_API_KEY", "fake-key-123")
     vals, info_messages = resolve_with_env_checks("standard")
-    assert vals["vision_backend"] == "gemini"
+    assert vals["vision_backend"] == "on"
     assert info_messages == []
 
 

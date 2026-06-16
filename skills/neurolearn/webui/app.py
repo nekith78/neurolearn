@@ -162,7 +162,7 @@ def build_ui():
     ]
     DETECT_CHOICES = [
         "(preset default)",
-        "keywords_only", "semantic", "hybrid", "llm_full_pass",
+        "keywords_only", "semantic", "hybrid",
     ]
 
     with gr.Blocks(title="neurolearn") as demo:

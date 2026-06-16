@@ -275,12 +275,6 @@ def _ask_gemini_tier_and_models(
         default="gemini-3.5-flash",
         suggestions="gemini-3.5-flash, gemini-3.5-pro, gemini-3-pro-preview",
     )
-    if vision_backend == "gemini":
-        cfg.gemini_vision_model = _ask_model_override(
-            "Gemini model for VISION",
-            default="gemini-2.5-flash",
-            suggestions="gemini-2.5-flash, gemini-2.5-pro, gemini-3.5-flash",
-        )
     if analyze_backend == "gemini":
         cfg.gemini_analyze_model = _ask_model_override(
             "Gemini model for ANALYZE",
@@ -318,12 +312,6 @@ def _ask_groq_tier_and_models(
         default="whisper-large-v3-turbo",
         suggestions="whisper-large-v3-turbo, whisper-large-v3",
     )
-    if vision_backend == "groq":
-        cfg.groq_vision_model = _ask_model_override(
-            "Groq model for VISION",
-            default="meta-llama/llama-4-scout-17b-16e-instruct",
-            suggestions="meta-llama/llama-4-scout-17b-16e-instruct, meta-llama/llama-4-maverick-17b-128e-instruct",
-        )
     if analyze_backend == "groq":
         cfg.groq_analyze_model = _ask_model_override(
             "Groq model for ANALYZE",

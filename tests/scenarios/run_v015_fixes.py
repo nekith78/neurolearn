@@ -503,43 +503,6 @@ def _scenario_word_variety_keeps_real_speech(s: Scenario) -> Outcome:
 
 
 # ---------------------------------------------------------------------------
-# v0.15.2 fix #3 — GroqTokenUsage.cached_tokens AttributeError no longer fires
-# ---------------------------------------------------------------------------
-
-def _scenario_groq_token_usage_no_attribute_error(s: Scenario) -> Outcome:
-    """Build a GroqTokenUsage (which has no cached_tokens attribute),
-    invoke the same getattr() defensive call site pipeline_v02 uses.
-    Used to crash with AttributeError; v0.15.1 fix is the getattr default."""
-    from skills.neurolearn.vision.groq_vision import GroqTokenUsage
-
-    usage = GroqTokenUsage(prompt_tokens=100, output_tokens=50, total_tokens=150)
-
-    # The exact call pattern pipeline_v02.py uses after the fix:
-    try:
-        cached = getattr(usage, "cached_tokens", 0)
-        crashed = False
-    except AttributeError:
-        cached = -1
-        crashed = True
-
-    no_attribute_directly = not hasattr(usage, "cached_tokens")
-
-    passed = (
-        no_attribute_directly  # confirms the original bug condition exists
-        and not crashed         # confirms the getattr() guard works
-        and cached == 0         # defaults to 0 as the fix specifies
-    )
-    return Outcome(
-        passed=passed,
-        summary=(
-            f"GroqTokenUsage has no cached_tokens attribute: {no_attribute_directly}; "
-            f"getattr(default=0) crashed: {crashed}; "
-            f"resolved value: {cached}"
-        ),
-    )
-
-
-# ---------------------------------------------------------------------------
 # Scenarios
 # ---------------------------------------------------------------------------
 
@@ -562,15 +525,6 @@ SCENARIOS = [
                     "reproduce the auto-switch decision from research/pipeline.py; "
                     "verify result + warning + source file.",
         runner=_scenario_research_auto_switch,
-    ),
-    Scenario(
-        name="v0.15.2 fix #3 — GroqTokenUsage.cached_tokens guarded",
-        fix_version="v0.15.2",
-        bug_summary="vision pipeline crashed on usage.cached_tokens AttributeError",
-        description="Construct a GroqTokenUsage (no cached_tokens attribute); "
-                    "invoke the v0.15.1-fixed getattr() call site; verify it "
-                    "returns 0 instead of raising.",
-        runner=_scenario_groq_token_usage_no_attribute_error,
     ),
     Scenario(
         name="v0.15.2 fix #4 — report synthesizes manifest for single-video output",

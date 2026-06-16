@@ -122,14 +122,15 @@ def test_strict_lang_window_never_dropped():
     assert len(out) == 1
 
 
-def test_llm_window_never_dropped():
-    """LLM classifier saw the transcript and judged this moment worth capturing
-    — frame_diff shouldn't override that, even if visuals are static."""
-    w_llm = _w(0, 5, score=0.9, reason="llm_full_pass:code on screen", phrase="")
+def test_strong_reason_window_never_dropped():
+    """A strong-reason window (the user's exact strict-match trigger flagged
+    this moment) is never dropped — frame_diff shouldn't override that, even if
+    visuals are static."""
+    w_strong = _w(0, 5, score=0.9, reason="strict:en", phrase="")
     with patch(
         "skills.neurolearn.detection.frame_diff.detect_frame_changes_in_window",
         return_value=[],
     ):
-        out = refine_with_frame_diff([w_llm], Path("fake.mp4"))
+        out = refine_with_frame_diff([w_strong], Path("fake.mp4"))
     assert len(out) == 1
     assert out[0].score == 0.9

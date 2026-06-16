@@ -80,13 +80,13 @@ def resolve_with_env_checks(
     external_config_path: Path | None = None,
     cli_overrides: dict[str, Any] | None = None,
 ) -> tuple[dict[str, Any], list[str]]:
-    """Same as load_preset_values, but applies silent fallbacks for missing API keys.
+    """Resolve preset values for the CLI.
 
-    Returns (values, info_messages). Info messages should be printed to stderr
-    so user knows why visual mode is off.
+    Returns (values, info_messages). Mode 1 visual reports are keyless (offline
+    keyframe extraction), so there is no API-key gate to resolve here — info is
+    empty. Kept as the resolver entry point and for the (values, info) contract
+    its callers rely on.
     """
-    from skills.neurolearn.config import get_api_key
-
     values = load_preset_values(
         preset_name,
         user_config_path=user_config_path,
@@ -94,21 +94,4 @@ def resolve_with_env_checks(
         cli_overrides=cli_overrides,
     )
     info: list[str] = []
-
-    vb = values.get("vision_backend")
-    # v0.12.0: 'claude' removed from this map; Anthropic API not used.
-    _VISION_KEY_MAP = {
-        "groq": ("groq", "GROQ_API_KEY"),
-        "gemini": ("gemini", "GEMINI_API_KEY"),
-        "openai": ("openai", "OPENAI_API_KEY"),
-    }
-    if vb in _VISION_KEY_MAP:
-        backend_key, env_var = _VISION_KEY_MAP[vb]
-        if not get_api_key(backend_key):
-            values["vision_backend"] = "off"
-            info.append(
-                f"ℹ Visual mode disabled: {env_var} not set. "
-                f"Add to ~/.neurolearn/.env to enable."
-            )
-
     return values, info

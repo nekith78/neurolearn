@@ -13,7 +13,6 @@ def test_cli_help_shows_v02_flags():
     assert "--detect-method" in res.output
     assert "--preset" in res.output
     assert "--config" in res.output
-    assert "--ocr" in res.output
 
 
 def test_cli_triggers_subgroup_registered():
