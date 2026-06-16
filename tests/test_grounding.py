@@ -218,6 +218,17 @@ def test_missing_image_file_flagged(tmp_path):
     assert len(issues) == 1 and "not found" in issues[0].hallucinations[0]
 
 
+def test_path_traversal_rejected(tmp_path):
+    """A caption src escaping the batch dir is rejected, not read."""
+    batch = tmp_path / "batch"
+    batch.mkdir()
+    (tmp_path / "secret.jpg").write_bytes(b"x")  # exists, but outside batch
+    md = "![cap](../secret.jpg)\n"
+    issues = verify_markdown_grounding(md, batch, atoms_fn=_fake_atoms({}))
+    assert len(issues) == 1
+    assert "traversal" in issues[0].hallucinations[0]
+
+
 def test_data_uri_and_captionless_skipped(tmp_path):
     md = (
         "![](frames/x.jpg)\n"                    # no caption → skip

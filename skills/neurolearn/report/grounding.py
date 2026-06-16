@@ -92,7 +92,11 @@ class GroundingIssue:
 
     @property
     def severity(self) -> str:
-        return "hallucination" if self.hallucinations else "unconfirmed"
+        if self.hallucinations:
+            return "hallucination"
+        if self.transcript_grounded:
+            return "transcript_grounded"
+        return "unconfirmed"
 
     def is_blocking(self, strict: bool) -> bool:
         # transcript_grounded / unconfirmed are advisory by default (the author
@@ -252,6 +256,7 @@ def verify_markdown_grounding(
     for the Gemini fallback. Raises RuntimeError if a frame has no atoms yet
     (the blind extraction step hasn't run)."""
     batch_dir = Path(batch_dir)
+    root = batch_dir.resolve()
     get_atoms = atoms_fn or load_frame_atoms
     # The transcript becomes a second atom source: a claim the author speaks is
     # grounded even when the blind frame-extractor didn't emit it. Parse its
@@ -267,7 +272,15 @@ def verify_markdown_grounding(
         caption, src = m.group(1).strip(), m.group(2).strip()
         if src.startswith("data:") or not caption:
             continue
-        img_path = batch_dir / src
+        # Contain the path: a caption's src is author-supplied text and the
+        # Markdown may come from an untrusted batch — never read outside root.
+        img_path = (batch_dir / src).resolve()
+        if not img_path.is_relative_to(root):
+            issues.append(GroundingIssue(
+                image=src, caption=caption,
+                hallucinations=["<path traversal rejected>"],
+            ))
+            continue
         if not img_path.exists():
             issues.append(GroundingIssue(
                 image=src, caption=caption,
