@@ -481,11 +481,15 @@ def write_visual_md(
     title: str | None = None,
     url: str | None = None,
     quality: object | None = None,
+    extract_manifest: dict | None = None,
 ) -> Path:
     """Write per-video .visual.md for single-mode transcribe.
 
     Mirrors the per-video block of combined.md's `### Visual moments` section,
     but as a standalone file so single-mode users see the visual annotations.
+    In Mode 1 (extract-only) there are no `visual_segments`; the keyframe
+    `extract_manifest` is summarised instead so the file reflects the windows
+    actually extracted rather than claiming none exist.
     """
     parts: list[str] = []
     parts.append(f"# {title or '(untitled)'}\n\n")
@@ -499,8 +503,25 @@ def write_visual_md(
             f"(score={quality.score:.2f}, flags=[{flags_str}])\n\n"
         )
 
-    if not visual_segments:
-        parts.append("_No visual moments detected._\n")
+    windows = (extract_manifest or {}).get("windows") or []
+    if not visual_segments and windows:
+        parts.append("## Visual keyframes (Mode 1 — agent-authored report)\n\n")
+        parts.append(
+            f"{len(windows)} keyframe window(s) extracted for an illustrated "
+            f"report. Open the frames and write the report in chat; the "
+            f"machine-readable index is `keyframes/manifest.json`.\n\n"
+        )
+        for w in windows:
+            ts = _format_timestamp_dotted(w.get("start", 0.0))
+            n = len(w.get("keyframes") or [])
+            reason = w.get("trigger_reason", "")
+            line = f"- **{ts}** — {n} frame(s)"
+            if reason:
+                line += f", trigger `{reason}`"
+            parts.append(line + "\n")
+        parts.append("\n")
+    elif not visual_segments:
+        parts.append("_No keyframes extracted._\n")
     else:
         parts.append("## Visual moments\n\n")
         for vs in visual_segments:

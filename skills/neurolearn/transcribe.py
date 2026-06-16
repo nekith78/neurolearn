@@ -441,10 +441,14 @@ def transcribe_cmd(audio_or_url: str | None, **opts) -> None:
             visual_segments=list(getattr(result, "visual_segments", []) or []),
         )
 
-    # === v0.2: write .visual.md if visual stage produced any segments ===
+    # === v0.2: write .visual.md if the visual stage ran ===
+    # Mode 1 (extract-only) populates no visual_segments — it leaves a keyframe
+    # manifest on the result; summarise that so the file reflects reality.
     visual_path: Path | None = None
     visual_segments = list(getattr(result, "visual_segments", []) or [])
-    if visual_segments or getattr(result, "quality", None) is not None:
+    extract_manifest = getattr(result, "vision_extract_manifest", None)
+    extract_windows = (extract_manifest or {}).get("windows") or []
+    if visual_segments or extract_windows or getattr(result, "quality", None) is not None:
         visual_path = output_dir / f"{base_name}.visual.md"
         write_visual_md(
             visual_segments,
@@ -452,6 +456,7 @@ def transcribe_cmd(audio_or_url: str | None, **opts) -> None:
             title=target.title,
             url=target.url,
             quality=getattr(result, "quality", None),
+            extract_manifest=extract_manifest,
         )
 
     # === v0.21: write a canonical 1-video manifest.json so that report /
@@ -501,8 +506,9 @@ def transcribe_cmd(audio_or_url: str | None, **opts) -> None:
     if write_json_pick:
         console.print(f"  [bold]{json_path}[/bold]")
     if visual_path is not None:
+        n_visual = len(visual_segments) or len(extract_windows)
         console.print(f"  [bold]{visual_path}[/bold] "
-                      f"({len(visual_segments)} visual moments)")
+                      f"({n_visual} visual moments)")
 
 
 def _derive_basename(target: ResolvedTarget) -> str:

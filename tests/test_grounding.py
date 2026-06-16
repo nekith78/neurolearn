@@ -29,6 +29,22 @@ def test_extract_claims_numbers_urls_terms():
     assert "Arcane Surge" in claims.terms
 
 
+def test_comma_separated_numbers_not_merged():
+    """'Level 78, 40 Str' is two numbers, not one '7840' — a comma followed by
+    a space must not glue the digit runs (regression: scepter tooltip caption)."""
+    claims = extract_caption_claims("Requires Level 78, 40 Str, 102 Int")
+    canon = {n.replace(" ", "").replace(",", "") for n in claims.numbers}
+    assert "78" in claims.numbers and "40" in claims.numbers and "102" in claims.numbers
+    assert "7840" not in canon and "40102" not in canon
+
+
+def test_thousands_group_still_one_number():
+    """A real thousands group (space- or comma-grouped) stays a single number."""
+    claims = extract_caption_claims("дроп 124 750 золота и цена 4,88 дивайна")
+    assert "124 750" in claims.numbers
+    assert any(n.replace(",", ".") == "4.88" or n == "4,88" for n in claims.numbers)
+
+
 def test_url_digits_not_double_counted_as_numbers():
     """A citation's digits stay part of the URL, not standalone number claims."""
     claims = extract_caption_claims("см. arxiv.org/abs/2512.24601")

@@ -48,8 +48,12 @@ _MD_IMAGE_RE = re.compile(r"!\[([^\]]*)\]\(([^)]+)\)")
 
 # --- Caption claim extraction (language-agnostic) ------------------------
 # Numbers / stats / percentages as written: +4, 36%, 0.1, 4.88, 124 750.
+# A separator (space / comma / dot) only joins digit runs when it is itself
+# followed by digits — so a thousands group ("124 750", "4,88") stays one
+# number, but two distinct numbers written "78, 40" (comma THEN space) do NOT
+# merge into "7840" (the comma isn't followed by a digit, so the match stops).
 _NUMBER_RE = re.compile(
-    r"(?<![\w.])(?:[+\-]?\d[\d\s.,]*\d|[+\-]?\d)%?(?![\w])",
+    r"(?<![\w.])[+\-]?\d+(?:[.,\s]\d+)*%?(?![\w])",
     re.UNICODE,
 )
 # A URL/citation: a scheme, or a domain with a path (the dangerous case —

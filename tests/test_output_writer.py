@@ -173,3 +173,34 @@ def test_write_errors_log_format(tmp_path):
     assert "Stage: download" in text
     assert "Reason: HTTP 403" in text
     assert "Hint: try --cookies-from-browser chrome" in text
+
+
+def test_write_visual_md_mode1_summarises_keyframe_manifest(tmp_path):
+    """Mode 1 (extract-only) has no visual_segments — the .visual.md must
+    summarise the keyframe manifest windows, not claim none were detected."""
+    from skills.neurolearn.utils.output_writer import write_visual_md
+    manifest = {
+        "video_id": "vid",
+        "windows": [
+            {"start": 36.9, "end": 54.6, "trigger_reason": "scene_change",
+             "keyframes": ["frames/a.jpg", "frames/b.jpg", "frames/c.jpg"]},
+            {"start": 114.8, "end": 122.4, "trigger_reason": "scene_change",
+             "keyframes": ["frames/d.jpg"]},
+        ],
+    }
+    out = tmp_path / "v.visual.md"
+    write_visual_md([], out, title="T", url="u", extract_manifest=manifest)
+    text = out.read_text(encoding="utf-8")
+    assert "No visual moments detected" not in text
+    assert "2 keyframe window(s)" in text
+    assert "keyframes/manifest.json" in text
+    assert "scene_change" in text
+
+
+def test_write_visual_md_no_manifest_no_segments(tmp_path):
+    """With neither segments nor a manifest, say so plainly (not the old
+    Mode-2 'no visual moments' wording)."""
+    from skills.neurolearn.utils.output_writer import write_visual_md
+    out = tmp_path / "v.visual.md"
+    write_visual_md([], out, title="T")
+    assert "_No keyframes extracted._" in out.read_text(encoding="utf-8")
