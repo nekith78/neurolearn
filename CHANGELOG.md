@@ -18,8 +18,12 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/).
   free tier (~20 req/day) made it unreliable. Gemini survives only as the
   grounding gate's optional blind extractor (`report --verify --verify-backend
   gemini`). `--vision-backend` is now an on/off gate (legacy `groq`/`gemini`
-  treated as `on`); `--detect-method` choices are `keywords_only | semantic |
-  hybrid`.
+  treated as `on`) on both `transcribe` and `batch`; `--detect-method` choices
+  are `keywords_only | semantic | hybrid` (dropped `llm_first`/`llm_full_pass`).
+  The `standard`/`premium`/`tutorial` presets now request keyless vision via
+  `on` (Mode 1 needs no API key), and `premium` moves from `llm_full_pass` to
+  `hybrid` (it now gets the scene-change windows it was meant to have). The
+  dead `--ocr` flag and the unused `batch --claude-extract` flag are removed.
 - **`low_content` grounding guard removed.** Flagging frames with fewer than 6
   blind-extracted atoms as "non-slide" false-positived on legitimate but
   text-sparse visual frames (a graph, a digit on a grid). Frame content-ness is
