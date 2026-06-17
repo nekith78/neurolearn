@@ -355,9 +355,12 @@ yours. Building blocks, in order:
       your report/captions in its context — that blindness is load-bearing;
       a model defending its own caption rubber-stamps it). Give it only the
       list of cropped frame paths and this instruction: *"For each image, read
-      ONLY what is literally visible — do not infer. Write `<frame>.atoms.json`
-      next to each, JSON `{numbers, urls, terms}`: every number/stat/% verbatim,
-      every URL, every on-screen text label verbatim, in the original
+      ONLY what is literally visible — do not infer. Write the atoms next to each
+      frame as `<full-frame-filename>.atoms.json` — append `.atoms.json` to the
+      WHOLE filename including the `.jpg` (e.g. `x_crop.jpg` →
+      `x_crop.jpg.atoms.json`, NOT `x_crop.atoms.json`); that exact name is what
+      `--verify` reads. JSON `{numbers, urls, terms}`: every number/stat/%
+      verbatim, every URL, every on-screen text label verbatim, in the original
       script."* The atoms are cached and reused.
    2. **Diff:** `neurolearn report … --from-markdown <file.md> --verify`. It
       diffs each caption's claims (numbers / URLs / quoted terms) against that
@@ -380,8 +383,9 @@ yours. Building blocks, in order:
 procedure) → read frames → `crop` the keepers → write Markdown (flowing
 prose, captions, numbered steps for procedures, in the user's language) →
 **Layer 1: re-open every crop and confirm its caption is fully visible on it**
-→ **Layer 2: spawn the blind sub-agent to write `<frame>.atoms.json`, then
-`report --from-markdown --verify`, clear every flag** → PDF. Apply the
+→ **Layer 2: spawn the blind sub-agent to write `<full-frame-filename>.atoms.json`
+(incl. the `.jpg`), then `report --from-markdown --verify`, clear every flag** →
+PDF. Apply the
 epistemic stance (below): describe what's actually on the frame, don't parrot
 the transcript.
 

@@ -424,8 +424,9 @@ def download_video(
     """Download mp4 (audio+video) from URL via yt-dlp. Returns path to mp4.
 
     Same v0.15.0 cascade semantics as `download_audio`: pass `cfg` to
-    opt into the anti-block cascade. Used by visual mode
-    (--with-visuals) — Gemini multimodal needs both frames and audio.
+    opt into the anti-block cascade. Used by visual mode (--with-visuals):
+    the mp4 supplies the video frames the agent reads for the report (its
+    audio track also serves transcription).
 
     `max_height` caps resolution (default 720). The visual-report frame path
     passes 1080 for sharper cropped tooltips.
