@@ -36,6 +36,47 @@ _DEFAULT_JPEG_QUALITY = 2
 _DEFAULT_MAX_WIDTH = 1920
 
 
+# A window's frames are deduped before they reach the manifest: when the scene
+# barely changes across a short window (a static slide/tooltip), its 3 frames
+# are near-identical and the agent shouldn't have to read all of them. Distance
+# is the Hamming distance of a 64-bit perceptual hash; ≤5 (~92% similar) reads
+# as "the same shot". Conservative so genuinely distinct procedure frames
+# (before / click / after) survive — reasoning-based, not empirically tuned.
+_DEDUP_PHASH_MAX_DISTANCE = 5
+
+
+def dedup_near_identical(
+    paths: list[Path], max_distance: int = _DEDUP_PHASH_MAX_DISTANCE,
+) -> list[Path]:
+    """Drop near-duplicate frames within one window, keeping the first of each
+    near-identical cluster and every visually distinct frame (order preserved).
+
+    Pure nicety: it only cuts how many frames the agent must look at. On any
+    failure (imagehash/Pillow absent, an unreadable image) the input is returned
+    unchanged — never a correctness gate, never raises.
+    """
+    if len(paths) < 2:
+        return paths
+    try:
+        import imagehash
+        from PIL import Image
+    except Exception:
+        return paths
+    kept: list[Path] = []
+    hashes: list = []
+    for p in paths:
+        try:
+            h = imagehash.phash(Image.open(p))
+        except Exception:
+            kept.append(p)  # can't hash → keep it, don't risk dropping signal
+            continue
+        if any((h - kh) <= max_distance for kh in hashes):
+            continue  # near-duplicate of a frame we already kept
+        kept.append(p)
+        hashes.append(h)
+    return kept
+
+
 def _tmp_pattern(out_dir: Path) -> Path:
     """Pattern for ffmpeg output files (overridable in tests)."""
     return out_dir / "tmp_%04d.jpg"

@@ -84,6 +84,34 @@ def _pick_video(manifest: dict, video_index: int) -> dict:
     return videos[video_index]
 
 
+def cached_source_path(batch_dir: Path) -> Path | None:
+    """Return an already-downloaded source video under `<batch>/source/`, or
+    None. Any media file counts (yt-dlp names by its own template)."""
+    source_dir = Path(batch_dir) / _SOURCE_DIRNAME
+    if source_dir.is_dir():
+        for p in sorted(source_dir.iterdir()):
+            if p.is_file() and p.suffix.lower() in _VIDEO_SUFFIXES:
+                return p
+    return None
+
+
+def download_source_to_cache(batch_dir: Path, url: str, *, cfg=None) -> Path:
+    """Download the source video into `<batch>/source/` (the shared cache used
+    by `frames --at`), reusing an existing cached file if present. Pulls 1080p
+    so cropped tooltip text stays sharp (general transcription stays 720p).
+
+    This is what lets `transcribe --with-visuals` and a later `frames --at`
+    share ONE download instead of fetching the same video twice.
+    """
+    cached = cached_source_path(batch_dir)
+    if cached is not None:
+        return cached
+    source_dir = Path(batch_dir) / _SOURCE_DIRNAME
+    source_dir.mkdir(parents=True, exist_ok=True)
+    from skills.neurolearn.utils.downloader import download_video
+    return download_video(url, source_dir, cfg=cfg, max_height=1080)
+
+
 def resolve_source_video(
     batch_dir: Path, *, video_index: int = 0, cfg=None,
 ) -> Path:
@@ -94,12 +122,9 @@ def resolve_source_video(
     (e.g. it was built from a local-file input we no longer have).
     """
     batch_dir = Path(batch_dir)
-    source_dir = batch_dir / _SOURCE_DIRNAME
-    # Reuse a cached download if present (any media file yt-dlp left here).
-    if source_dir.is_dir():
-        for p in sorted(source_dir.iterdir()):
-            if p.is_file() and p.suffix.lower() in _VIDEO_SUFFIXES:
-                return p
+    cached = cached_source_path(batch_dir)
+    if cached is not None:
+        return cached
 
     manifest = _load_manifest(batch_dir)
     video = _pick_video(manifest, video_index)
@@ -110,11 +135,7 @@ def resolve_source_video(
             "input). Cannot fetch frames on demand — re-run with the "
             "original video available."
         )
-    from skills.neurolearn.utils.downloader import download_video
-    source_dir.mkdir(parents=True, exist_ok=True)
-    # Visual reports need sharp tooltip text in cropped screenshots → pull
-    # 1080p here (the general transcription path stays at the 720p default).
-    return download_video(url, source_dir, cfg=cfg, max_height=1080)
+    return download_source_to_cache(batch_dir, url, cfg=cfg)
 
 
 def extract_frames_at(

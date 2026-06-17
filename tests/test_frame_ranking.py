@@ -63,3 +63,36 @@ def test_stability_high_for_static_low_for_changing():
     # b sits between an identical frame and a very different one;
     # a sits next to an identical frame → a more stable than c.
     assert stab[0] > stab[2]
+
+
+# --- A3: near-identical frame dedup within a window -----------------------
+
+def _write_jpg(path, arr):
+    import cv2 as _cv2
+    _cv2.imwrite(str(path), arr)
+
+
+def test_dedup_drops_near_identical_keeps_distinct(tmp_path):
+    """Two byte-identical frames + one visually distinct → the duplicate is
+    dropped, the distinct one survives (order preserved)."""
+    a = np.zeros((180, 280, 3), np.uint8)
+    a[40:140, 40:240] = (200, 50, 50)            # a solid block (structure)
+    checker = np.indices((180, 280)).sum(axis=0) % 20 < 10
+    c = (checker[..., None] * np.uint8(255)).repeat(3, axis=2).astype(np.uint8)
+
+    pa = tmp_path / "w_0.jpg"; _write_jpg(pa, a)
+    pb = tmp_path / "w_1.jpg"; _write_jpg(pb, a)   # identical to A
+    pc = tmp_path / "w_2.jpg"; _write_jpg(pc, c)   # different structure
+
+    pytest.importorskip("imagehash")
+    kept = F.dedup_near_identical([pa, pb, pc])
+    assert kept == [pa, pc]                        # B dropped, order kept
+
+
+def test_dedup_passthrough_single_or_unreadable(tmp_path):
+    """<2 frames → unchanged; unreadable images → kept (never drops signal)."""
+    one = tmp_path / "only.jpg"
+    one.write_bytes(b"not-an-image")
+    assert F.dedup_near_identical([one]) == [one]
+    two = tmp_path / "x.jpg"; two.write_bytes(b"also-bad")
+    assert F.dedup_near_identical([one, two]) == [one, two]

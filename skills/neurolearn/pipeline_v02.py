@@ -335,6 +335,7 @@ def _write_keyframes_manifest(
     from skills.neurolearn.vision.frames import (
         extract_keyframes,
         extract_keyframes_asymmetric,
+        dedup_near_identical,
     )
 
     out_dir = Path(out_dir)
@@ -363,6 +364,9 @@ def _write_keyframes_manifest(
             frames = []
         if not frames:
             continue
+        # Drop near-identical frames so the agent doesn't re-read the same
+        # static shot 3× (distinct procedure frames survive — see frames.py).
+        frames = dedup_near_identical(frames)
         # Store paths relative to out_dir so manifest is portable.
         rel_frames = [str(p.relative_to(out_dir)) for p in frames]
         entries.append({

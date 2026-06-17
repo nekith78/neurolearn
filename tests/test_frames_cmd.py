@@ -7,6 +7,7 @@ import pytest
 
 from skills.neurolearn.frames_cmd import (
     parse_timestamp, extract_frames_at, resolve_source_video, crop_image,
+    cached_source_path, download_source_to_cache,
 )
 
 
@@ -205,3 +206,39 @@ def test_extract_keyframes_asymmetric_skips_existing(tmp_path):
         )
     run.assert_not_called()
     assert len(paths) == 3
+
+
+# --- A4: shared source cache (transcribe --with-visuals ⇄ frames --at) -----
+
+def test_cached_source_path_finds_media_or_none(tmp_path):
+    batch = tmp_path / "b"
+    assert cached_source_path(batch) is None          # no source/ yet
+    src = batch / "source"; src.mkdir(parents=True)
+    assert cached_source_path(batch) is None          # empty source/
+    f = src / "clip.webm"; f.write_bytes(b"\x00")
+    assert cached_source_path(batch) == f             # any media file counts
+
+
+def test_download_source_to_cache_reuses_existing(tmp_path):
+    """If <batch>/source/ already holds the video, no second download fires —
+    this is the dedup that stops --with-visuals + frames --at downloading twice."""
+    batch = tmp_path / "b"
+    src = batch / "source"; src.mkdir(parents=True)
+    cached = src / "video.mp4"; cached.write_bytes(b"\x00")
+    with patch("skills.neurolearn.utils.downloader.download_video") as dl:
+        out = download_source_to_cache(batch, "https://youtu.be/x")
+    assert out == cached
+    dl.assert_not_called()
+
+
+def test_download_source_to_cache_downloads_1080_when_absent(tmp_path):
+    batch = tmp_path / "b"
+    def fake_dl(url, output_dir, **kw):
+        p = Path(output_dir) / "video.mp4"; p.write_bytes(b"\x00")
+        return p
+    with patch("skills.neurolearn.utils.downloader.download_video",
+               side_effect=fake_dl) as dl:
+        out = download_source_to_cache(batch, "https://youtu.be/x")
+    dl.assert_called_once()
+    assert dl.call_args.kwargs.get("max_height") == 1080      # sharp tooltips
+    assert out.parent == batch / "source"                     # cached, not temp

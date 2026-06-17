@@ -366,30 +366,31 @@ def transcribe_cmd(audio_or_url: str | None, **opts) -> None:
         initial="Post-processing...",
     ) as post_stage:
         if needs_video:
-            import tempfile
-            from skills.neurolearn.utils.downloader import download_video
-            with tempfile.TemporaryDirectory(prefix="yt-visual-") as visual_tmp:
-                post_stage.update("Downloading video for visual analysis...")
-                try:
-                    # v0.15.0: pass cfg to opt into the anti-block cascade.
-                    video_path = download_video(
-                        target.url, Path(visual_tmp), cfg=cfg,
-                    )
-                except Exception as e:
-                    console.print(f"[yellow]⚠ Visual mode disabled — mp4 download failed:[/yellow] {e}",
-                                  style="dim")
-                    video_path = None
-                post_stage.update("Analyzing visuals...")
-                result = apply_v02_stages(
-                    result=result,
-                    cfg=cfg_v02,
-                    video_path=video_path,
-                    video_id=video_id,
-                    out_dir=output_dir,
-                    source=source,
-                    triggers_path=Path(triggers_path_opt) if triggers_path_opt else None,
-                    no_default_triggers=bool(opts.get("no_default_triggers")),
+            # v0.25.1: cache the source under <batch>/source/ (1080p) instead of
+            # a throwaway temp dir, so a later `frames --at` on the same batch
+            # reuses this download instead of fetching the whole video again.
+            from skills.neurolearn.frames_cmd import download_source_to_cache
+            post_stage.update("Downloading video for visual analysis...")
+            try:
+                # cfg carries the anti-block cascade opt-in (v0.15.0).
+                video_path = download_source_to_cache(
+                    output_dir, target.url, cfg=cfg,
                 )
+            except Exception as e:
+                console.print(f"[yellow]⚠ Visual mode disabled — mp4 download failed:[/yellow] {e}",
+                              style="dim")
+                video_path = None
+            post_stage.update("Analyzing visuals...")
+            result = apply_v02_stages(
+                result=result,
+                cfg=cfg_v02,
+                video_path=video_path,
+                video_id=video_id,
+                out_dir=output_dir,
+                source=source,
+                triggers_path=Path(triggers_path_opt) if triggers_path_opt else None,
+                no_default_triggers=bool(opts.get("no_default_triggers")),
+            )
         else:
             # Local file path — use directly (already on disk).
             local_video_path = (
