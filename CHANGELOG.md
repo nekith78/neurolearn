@@ -3,6 +3,31 @@
 All notable changes to neurolearn will be documented here.
 The format is loosely based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.25.1] — 2026-06-18
+
+### Changed
+
+- **Visual reports: one source download, fewer frames for the agent to read.**
+  Two quality-neutral speedups for the agent-driven report flow (the grounding
+  gate and 1080p frames are untouched):
+  - `transcribe --with-visuals` now caches the source video under
+    `<batch>/source/` (1080p) — the same cache `frames --at` uses — instead of
+    a throwaway temp dir, so the common "extract, then pull extra frames" flow
+    no longer downloads the whole video twice. (The mp4 now persists under the
+    batch, as `frames --at` already did. The `batch` command is unchanged.)
+  - Auto-extracted keyframes are deduped per window by perceptual hash, so a
+    static slide/tooltip isn't handed to the agent three times; a conservative
+    threshold keeps genuinely distinct procedure frames (before/click/after).
+
+### Fixed
+
+- **Atoms filename ambiguity in SKILL.md.** The blind-extraction step now spells
+  out that atoms are written as `<full-frame-filename>.atoms.json` (including the
+  `.jpg`), matching what `--verify` reads — the old `<frame>.atoms.json` wording
+  could be read as dropping the extension and cost a wasted verify run.
+- Stale "Gemini multimodal" reference in the `download_video` docstring (Mode 2
+  was removed).
+
 ## [0.25.0] — 2026-06-16
 
 ### Removed
