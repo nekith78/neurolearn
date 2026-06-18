@@ -374,7 +374,7 @@ def transcribe_cmd(audio_or_url: str | None, **opts) -> None:
             try:
                 # cfg carries the anti-block cascade opt-in (v0.15.0).
                 video_path = download_source_to_cache(
-                    output_dir, target.url, cfg=cfg,
+                    output_dir, target.url, video_id=video_id, cfg=cfg,
                 )
             except Exception as e:
                 console.print(f"[yellow]⚠ Visual mode disabled — mp4 download failed:[/yellow] {e}",
@@ -1086,28 +1086,30 @@ def _run_batch_pipeline(
             and is_url(target.url)
         )
         if needs_video:
-            import tempfile
-            from skills.neurolearn.utils.downloader import download_video
-            with tempfile.TemporaryDirectory(prefix=f"yt-visual-{i}-") as v_tmp:
-                try:
-                    # v0.15.0: cfg → anti-block cascade
-                    v_path = download_video(target.url, Path(v_tmp), cfg=cfg)
-                except Exception as e:
-                    console.print(
-                        f"[yellow]⚠ Video {i}: visual mode disabled — {e}[/yellow]",
-                        style="dim",
-                    )
-                    v_path = None
-                result = apply_v02_stages(
-                    result=result,
-                    cfg=cfg_v02,
-                    video_path=v_path,
-                    video_id=v02_video_id,
-                    out_dir=batch_dir,
-                    source=v02_source,
-                    triggers_path=Path(triggers_path_opt) if triggers_path_opt else None,
-                    no_default_triggers=no_default_triggers_opt,
+            # v0.25.2: cache each video under <batch>/source/ (keyed by id, 1080p)
+            # instead of a throwaway temp, so a later `frames --at <batch> -i N`
+            # reuses this download instead of fetching the whole video again.
+            from skills.neurolearn.frames_cmd import download_source_to_cache
+            try:
+                v_path = download_source_to_cache(
+                    batch_dir, target.url, video_id=v02_video_id, cfg=cfg,
                 )
+            except Exception as e:
+                console.print(
+                    f"[yellow]⚠ Video {i}: visual mode disabled — {e}[/yellow]",
+                    style="dim",
+                )
+                v_path = None
+            result = apply_v02_stages(
+                result=result,
+                cfg=cfg_v02,
+                video_path=v_path,
+                video_id=v02_video_id,
+                out_dir=batch_dir,
+                source=v02_source,
+                triggers_path=Path(triggers_path_opt) if triggers_path_opt else None,
+                no_default_triggers=no_default_triggers_opt,
+            )
         else:
             local_video_path = (
                 Path(target.url).expanduser().resolve()

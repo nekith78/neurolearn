@@ -112,16 +112,49 @@ def _write_manifest(batch: Path, *, url="https://www.youtube.com/watch?v=vid123"
 
 def test_resolve_source_video_uses_cache(tmp_path):
     batch = tmp_path / "batch"
-    _write_manifest(batch)
+    _write_manifest(batch)  # video_id="vid123"
     src = batch / "source"
     src.mkdir(parents=True)
-    cached = src / "video.mp4"
+    cached = src / "video_vid123.mp4"  # yt-dlp's video_<id>.mp4 naming
     cached.write_bytes(b"\x00")
-    # Cached file present → no download attempted.
+    # Cached file for this id present → no download attempted.
     with patch("skills.neurolearn.utils.downloader.download_video") as dl:
         out = resolve_source_video(batch)
     assert out == cached
     dl.assert_not_called()
+
+
+def test_resolve_source_video_picks_right_video_in_multivideo_batch(tmp_path):
+    """A batch shares one source/ dir; frames on video N must return video N's
+    file, not whichever was cached first."""
+    batch = tmp_path / "batch"
+    batch.mkdir(parents=True)
+    (batch / "manifest.json").write_text(json.dumps({"videos": [
+        {"index": 0, "url": "https://youtu.be/AAA", "video_id": "AAA", "files": {}},
+        {"index": 1, "url": "https://youtu.be/BBB", "video_id": "BBB", "files": {}},
+    ]}), encoding="utf-8")
+    src = batch / "source"; src.mkdir()
+    (src / "video_AAA.mp4").write_bytes(b"\x00")
+    (src / "video_BBB.mp4").write_bytes(b"\x00")
+    with patch("skills.neurolearn.utils.downloader.download_video") as dl:
+        assert resolve_source_video(batch, video_index=1).name == "video_BBB.mp4"
+        assert resolve_source_video(batch, video_index=0).name == "video_AAA.mp4"
+    dl.assert_not_called()
+
+
+def test_download_source_to_cache_by_id_no_collision(tmp_path):
+    """During a batch, caching video BBB must not reuse video AAA's file."""
+    batch = tmp_path / "batch"
+    src = batch / "source"; src.mkdir(parents=True)
+    (src / "video_AAA.mp4").write_bytes(b"\x00")  # video 0 already cached
+    def fake_dl(url, output_dir, **kw):
+        p = Path(output_dir) / "video_BBB.mp4"; p.write_bytes(b"\x00")
+        return p
+    with patch("skills.neurolearn.utils.downloader.download_video",
+               side_effect=fake_dl) as dl:
+        out = download_source_to_cache(batch, "https://youtu.be/BBB", video_id="BBB")
+    dl.assert_called_once()                 # did NOT reuse AAA
+    assert out.name == "video_BBB.mp4"
 
 
 def test_resolve_source_video_lazy_downloads(tmp_path):
@@ -149,7 +182,7 @@ def test_extract_frames_at_dedups_and_returns_relative_paths(tmp_path):
     batch = tmp_path / "batch"
     _write_manifest(batch)
     (batch / "source").mkdir(parents=True)
-    (batch / "source" / "video.mp4").write_bytes(b"\x00")
+    (batch / "source" / "video_vid123.mp4").write_bytes(b"\x00")
 
     def fake_extract(*, video_path, event_ts, out_dir, video_id, offsets):
         out_dir = Path(out_dir)

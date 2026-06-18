@@ -84,26 +84,43 @@ def _pick_video(manifest: dict, video_index: int) -> dict:
     return videos[video_index]
 
 
-def cached_source_path(batch_dir: Path) -> Path | None:
+def cached_source_path(batch_dir: Path, video_id: str | None = None) -> Path | None:
     """Return an already-downloaded source video under `<batch>/source/`, or
-    None. Any media file counts (yt-dlp names by its own template)."""
+    None. yt-dlp names files `video_<id>.<ext>`, so a `batch` puts several
+    videos in one shared `source/` dir.
+
+    With a `video_id`, return the file whose name carries that id (and None if
+    that specific video isn't cached yet) — so a multi-video batch never hands
+    back the wrong video. Without a `video_id`, return the single cached file
+    (back-compat for the single-video flow); the first one if several exist.
+    """
     source_dir = Path(batch_dir) / _SOURCE_DIRNAME
-    if source_dir.is_dir():
-        for p in sorted(source_dir.iterdir()):
-            if p.is_file() and p.suffix.lower() in _VIDEO_SUFFIXES:
-                return p
-    return None
+    if not source_dir.is_dir():
+        return None
+    media = [
+        p for p in sorted(source_dir.iterdir())
+        if p.is_file() and p.suffix.lower() in _VIDEO_SUFFIXES
+    ]
+    if not media:
+        return None
+    if video_id:
+        return next((p for p in media if video_id in p.stem), None)
+    return media[0]
 
 
-def download_source_to_cache(batch_dir: Path, url: str, *, cfg=None) -> Path:
+def download_source_to_cache(
+    batch_dir: Path, url: str, *, video_id: str | None = None, cfg=None,
+) -> Path:
     """Download the source video into `<batch>/source/` (the shared cache used
     by `frames --at`), reusing an existing cached file if present. Pulls 1080p
     so cropped tooltip text stays sharp (general transcription stays 720p).
 
     This is what lets `transcribe --with-visuals` and a later `frames --at`
-    share ONE download instead of fetching the same video twice.
+    share ONE download instead of fetching the same video twice. Pass
+    `video_id` in a multi-video `batch` so each video caches/reuses its own
+    file rather than colliding in the shared `source/` dir.
     """
-    cached = cached_source_path(batch_dir)
+    cached = cached_source_path(batch_dir, video_id)
     if cached is not None:
         return cached
     source_dir = Path(batch_dir) / _SOURCE_DIRNAME
@@ -116,18 +133,19 @@ def resolve_source_video(
     batch_dir: Path, *, video_index: int = 0, cfg=None,
 ) -> Path:
     """Return a local path to the batch's source video, downloading+caching
-    it under `<batch>/source/` on first use.
+    it under `<batch>/source/` on first use. Resolves the cache by the picked
+    video's id, so `frames --at` on video N of a batch returns video N's file.
 
     Raises BackendError-style ValueError if the batch has no usable URL
     (e.g. it was built from a local-file input we no longer have).
     """
     batch_dir = Path(batch_dir)
-    cached = cached_source_path(batch_dir)
-    if cached is not None:
-        return cached
-
     manifest = _load_manifest(batch_dir)
     video = _pick_video(manifest, video_index)
+    video_id = video.get("video_id") or None
+    cached = cached_source_path(batch_dir, video_id)
+    if cached is not None:
+        return cached
     url = video.get("url") or ""
     if not url:
         raise ValueError(
@@ -135,7 +153,7 @@ def resolve_source_video(
             "input). Cannot fetch frames on demand — re-run with the "
             "original video available."
         )
-    return download_source_to_cache(batch_dir, url, cfg=cfg)
+    return download_source_to_cache(batch_dir, url, video_id=video_id, cfg=cfg)
 
 
 def extract_frames_at(
