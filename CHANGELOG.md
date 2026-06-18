@@ -3,6 +3,23 @@
 All notable changes to neurolearn will be documented here.
 The format is loosely based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.25.2] — 2026-06-18
+
+### Changed
+
+- **`batch --with-visuals` shares the source-video cache too.** Each video is
+  now cached under the batch's `<batch>/source/` (1080p) instead of a throwaway
+  temp dir, so `frames <batch> --at … --video-index N` reuses the download
+  rather than refetching the whole video (the same speedup 0.25.1 brought to the
+  single `transcribe` flow).
+
+### Fixed
+
+- **Wrong video returned for `frames --video-index N` in a multi-video batch.**
+  The source cache is now video-aware (yt-dlp names files `video_<id>.<ext>`);
+  `frames` resolves the cached file by the picked video's id instead of always
+  returning whichever was cached first. Single-video flow is unchanged.
+
 ## [0.25.1] — 2026-06-18
 
 ### Changed
