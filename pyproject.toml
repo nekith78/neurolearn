@@ -66,7 +66,11 @@ dependencies = [
     # === v0.6: interactive picker for `analyze` command ===
     "questionary>=2.0",
     # === v0.2: Detection ===
-    "scenedetect>=0.6.4",
+    # [opencv] extra is REQUIRED: scenedetect's own __init__ hard-imports cv2
+    # and dies without it. The venv used to carry a hand-installed
+    # opencv-python that a lockfile sync prunes — declare it so a fresh
+    # clone's `uv sync` + pytest are green from the lock alone (2026-07-10).
+    "scenedetect[opencv]>=0.6.4",
     "imagehash>=4.3.1",
 ]
 
@@ -137,6 +141,18 @@ neurolearn = "skills.neurolearn.transcribe:cli"
 [build-system]
 requires = ["hatchling>=1.24"]
 build-backend = "hatchling.build"
+
+[tool.uv]
+# numba arrives transitively (mlx-whisper on Apple Silicon) with no floor.
+# Modern numba (0.61–0.65) caps numpy<2.5, so once numpy 2.5 hit PyPI
+# (2026-06) a FRESH universal resolution prefers the new numpy, discards
+# every modern numba, and falls through to ancient numba 0.53.1 — whose
+# sdist metadata hides its real limits and which cannot build on py3.12
+# (llvmlite 0.36 has no wheels). The floor keeps resolution on a buildable
+# numba and lets numpy follow numba's own cap; drop it when numba supports
+# numpy>=2.5. Constraint, not a dependency: applies only where something
+# else already pulls numba.
+constraint-dependencies = ["numba>=0.61"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["skills"]

@@ -42,8 +42,11 @@ test-output*/
 !README*
 !skills/**/data/*.txt
 
-# uv lock — intentionally not committed (cross-platform skill, let users resolve)
-uv.lock
+# uv.lock IS committed (reversed 2026-07-10). The old "let users resolve"
+# policy made every fresh clone a PyPI lottery: numpy 2.5 flipped fresh
+# resolutions onto unbuildable numba 0.53.1 while lock-protected clones
+# kept working. uv locks are universal (all OS/py in one file), so the
+# cross-platform concern that motivated ignoring it does not apply.
 .python-version
 
 # graphify — keep graph.json + GRAPH_REPORT.md for agents on fresh clone,
