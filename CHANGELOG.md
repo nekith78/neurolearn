@@ -3,6 +3,12 @@
 All notable changes to neurolearn will be documented here.
 The format is loosely based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.25.3] — 2026-07-12
+
+### Added
+
+- Internal: optional local extension hook around subscribes read/write (inert by default).
+
 ## [0.25.2] — 2026-06-18
 
 ### Changed
