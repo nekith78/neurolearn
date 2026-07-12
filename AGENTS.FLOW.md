@@ -103,7 +103,7 @@
 3. **Per-channel fetch** — YouTube (v0.20+): `_fetch_youtube_entries` routes by `mode` (auto/videos-only/shorts-only/shorts-and-videos). Each stream is an early-exit walk over a channel tab (`_fetch_videos`→`/videos`, `_fetch_shorts`→`/shorts` via shared `_fetch_tab`): flat-list IDs newest-first → per-id extract for date → stop at first out-of-window. RSS retired (it leaked livestreams + was empty for some channels); `--no-rss` is a deprecated no-op. IG/TikTok always via yt-dlp + cookies (`_fetch_via_yt_dlp`).
 4. **State-aware window** — default: per-channel `published > last_seen_published`. With `--days`/`--since`/`--until` override → global window, state NOT updated (INV-009 mutex still applies).
 5. **Batch pipeline** — `batch_pipeline._run_batch_pipeline` on the gathered videos.
-6. **Update state** — only when no override flags were used; persists `last_seen_video_id` + `last_seen_published` back to `subscribes.toml` via `store.update_seen_state`.
+6. **Update state** — only when no override flags were used; persists `last_seen_video_id` + `last_seen_published` back to `subscribes.toml` via `subscribes/state.py:update_last_seen` (which calls `store.save_subscribes`).
 7. **Optional analyze + learn-into** — INV-012 auto-detect respected.
 
 **Termination:** state updated (exit 0) OR exit 2 (`SubscribesError`) / 3 (cookies missing for IG/TT).
