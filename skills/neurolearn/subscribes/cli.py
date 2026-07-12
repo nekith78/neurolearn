@@ -18,6 +18,7 @@ from skills.neurolearn.subscribes.store import (
     Channel, MODES, DEFAULT_MODE, add_channel, load_subscribes,
     remove_channel, update_channel_mode,
 )
+from skills.neurolearn.subscribes._sync_hook import maybe_sync
 from skills.neurolearn.subscribes.group import filter_by_group
 from skills.neurolearn.subscribes.channel_resolver import (
     resolve_channel,
@@ -36,6 +37,7 @@ _console = make_console()
 @click.group(name="subscribes")
 def subscribes_group() -> None:
     """Manage and run subscribes (channel list + incremental update)."""
+    maybe_sync("on_read")   # optional local state pull at group entry (inert unless opted in)
 
 
 @subscribes_group.command(name="add")
@@ -234,6 +236,7 @@ def edit_cmd() -> None:
     except subprocess.CalledProcessError as e:
         if e.returncode != 0:
             _console.print(f"[yellow]Editor exited with {e.returncode}[/yellow]")
+    maybe_sync("on_write", SUBSCRIBES_PATH)   # `edit` writes past store.py — sync the manual edit
 
 
 def _default_editor() -> str:

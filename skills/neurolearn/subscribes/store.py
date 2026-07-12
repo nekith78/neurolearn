@@ -8,6 +8,8 @@ from pathlib import Path
 
 import tomlkit
 
+from skills.neurolearn.subscribes._sync_hook import maybe_sync
+
 
 PLATFORMS = ("youtube", "instagram", "tiktok")
 
@@ -15,6 +17,15 @@ PLATFORMS = ("youtube", "instagram", "tiktok")
 # (no separate /shorts tab there). See docs/specs/v0.17-subscribes-shorts.md.
 MODES = ("auto", "videos-only", "shorts-only", "shorts-and-videos")
 DEFAULT_MODE = "auto"
+
+
+def _write_doc(path: Path, doc) -> None:
+    """Single write chokepoint for subscribes.toml — every mutation routes through here, so
+    the optional local sync hook fires exactly once per write (inert unless the user opted in).
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(tomlkit.dumps(doc), encoding="utf-8")
+    maybe_sync("on_write", path)
 
 
 @dataclass
@@ -66,8 +77,7 @@ def save_subscribes(path: Path, channels: list[Channel]) -> None:
                 tbl[k] = v
         arr.append(tbl)
     doc["channels"] = arr
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(tomlkit.dumps(doc), encoding="utf-8")
+    _write_doc(path, doc)
 
 
 def add_channel(path: Path, channel: Channel) -> None:
@@ -92,7 +102,7 @@ def add_channel(path: Path, channel: Channel) -> None:
             for k, v in _to_dict(channel).items():
                 if v is not None:
                     entry[k] = v
-            path.write_text(tomlkit.dumps(doc), encoding="utf-8")
+            _write_doc(path, doc)
             return
 
     tbl = tomlkit.table()
@@ -100,8 +110,7 @@ def add_channel(path: Path, channel: Channel) -> None:
         if v is not None:
             tbl[k] = v
     arr.append(tbl)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(tomlkit.dumps(doc), encoding="utf-8")
+    _write_doc(path, doc)
 
 
 def remove_channel(path: Path, identifier: str) -> bool:
@@ -115,7 +124,7 @@ def remove_channel(path: Path, identifier: str) -> bool:
             entry.get("url") == identifier or
             entry.get("channel_id") == identifier):
             del arr[i]
-            path.write_text(tomlkit.dumps(doc), encoding="utf-8")
+            _write_doc(path, doc)
             return True
     return False
 
@@ -198,6 +207,6 @@ def update_channel_mode(path: Path, identifier: str, mode: str) -> bool:
                     del entry["mode"]
             else:
                 entry["mode"] = mode
-            path.write_text(tomlkit.dumps(doc), encoding="utf-8")
+            _write_doc(path, doc)
             return True
     return False
