@@ -3,6 +3,44 @@
 All notable changes to neurolearn will be documented here.
 The format is loosely based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.26.0] — 2026-10-29
+
+### Added
+
+- Daily, per-environment update checks for YouTube dependencies, with stderr
+  notifications and weekly reminders. Metadata retrieval has a five-second
+  total timeout; offline attempts are cached and never stop transcription.
+- `check-updates [--json]` for an immediate check and `update-deps` for a
+  targeted uv lock/environment update after explicit confirmation. Scripted
+  updates require `--yes`; existing installed extras are retained.
+
+### Changed
+
+- Refresh the YouTube stack: yt-dlp 2026.10.26, bgutil 2.0.2,
+  youtube-transcript-api 1.2.4, curl-cffi 0.17.0, matching EJS 0.8.0,
+  and bundled Deno 2.9.8. Updated TLS dependencies accompany this refresh.
+- Remove the legacy unattended `yt-dlp -U` path; the old configuration flag
+  remains accepted but is inert.
+- Correct bgutil setup guidance: pinned Docker provider on localhost, or
+  official native setup with Node 22+. A Docker provider does not require
+  host Node.
+
+### Fixed
+
+- Serialize only yt-dlp client construction to prevent duplicate PO Token
+  provider registration during parallel batch metadata probes.
+- Detect old/incompatible bgutil servers using their version response instead
+  of reporting readiness from an open port; setup still requires approval.
+- Isolate cookie CLI tests from the user's actual cookie files and settings.
+
+### Validation
+
+- Two live Hermes Agent searches and three successful transcripts (English
+  and Russian), through audio download and Groq fallback. YouTube subtitle
+  IP/rate-limit blocks still occurred; this release does not claim to remove
+  all platform blocking. All three SRTs have ordered, valid intervals and
+  reach the end of the videos; word-level accuracy was not benchmarked.
+
 ## [0.25.3] — 2026-07-12
 
 ### Added
