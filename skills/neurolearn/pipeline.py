@@ -18,7 +18,7 @@ from skills.neurolearn.config import Config
 from skills.neurolearn.utils.downloader import (
     download_audio,
     is_url,
-    maybe_auto_update_ytdlp,
+    is_youtube_url,
 )
 from skills.neurolearn.utils.resolver import ResolvedTarget
 
@@ -70,6 +70,11 @@ def run_pipeline(
             backend_name, path, cfg, language=cfg.language, on_stage=notify,
         )
 
+    # Advisory only: cached daily and never installs packages.
+    if is_youtube_url(target.url):
+        from skills.neurolearn.updates import maybe_notify_updates
+        maybe_notify_updates(cfg)
+
     # URL paths
     if backend_name in ("subtitles", "smart"):
         # Subtitles handles URL directly without download.
@@ -82,7 +87,6 @@ def run_pipeline(
         )
 
     # All other backends need local audio. Download → transcribe → cleanup.
-    maybe_auto_update_ytdlp(cfg.yt_dlp_auto_update)
     with _audio_workdir(keep_audio=cfg.keep_audio, persist_to=keep_audio_to) as tmp:
         notify("Downloading audio...")
         # v0.15.0: pass cfg to opt into the anti-block cascade (per-

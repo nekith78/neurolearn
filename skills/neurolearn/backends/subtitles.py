@@ -59,12 +59,12 @@ def _ytdlp_caption_langs(url: str, cookies_file: str | None) -> list[str]:
     """Caption language codes from yt-dlp metadata, original-first. Works
     with cookies / PO Token even when the timedtext endpoint is IP-blocked
     (which is exactly when the transcript-api listing fails)."""
-    from yt_dlp import YoutubeDL
+    from skills.neurolearn.utils.ytdlp import create_ytdlp
 
     opts = {"quiet": True, "no_warnings": True, "skip_download": True}
     if cookies_file:
         opts["cookiefile"] = cookies_file
-    with YoutubeDL(opts) as ydl:
+    with create_ytdlp(opts) as ydl:
         info = ydl.extract_info(url, download=False) or {}
     manual = list((info.get("subtitles") or {}).keys())
     auto = list((info.get("automatic_captions") or {}).keys())

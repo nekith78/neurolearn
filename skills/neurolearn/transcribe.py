@@ -107,6 +107,10 @@ def cli() -> None:
     pass
 
 
+from skills.neurolearn.updates import check_updates_cmd, update_deps_cmd
+cli.add_command(check_updates_cmd)
+cli.add_command(update_deps_cmd)
+
 @cli.command(name="transcribe")
 @click.argument("audio_or_url", required=False)
 @click.option("--backend", type=click.Choice(BACKEND_CHOICES), default=None,
@@ -1835,13 +1839,13 @@ def _build_doctor_payload() -> dict:
     ready_for_fast_use = has_fast_audio
 
     # v0.15.0: anti-block readiness signals.
-    # Node.js gates the bgutil-ytdlp-pot-provider plugin's ability to
-    # actually generate PO Tokens. The Python plugin shim auto-loads
-    # via yt-dlp's plugin discovery; the Node helper is what produces
-    # the cryptographic token YouTube wants.
+    # The provider may use its own runtime inside Docker; host Node is
+    # only relevant when setting up a native provider.
     # v0.18.1: PO Token readiness via the shared probe (also used by the
     # setup wizard) so doctor + wizard never drift.
-    from skills.neurolearn.utils.po_token import status as _pot_status
+    from skills.neurolearn.utils.po_token import (
+        status as _pot_status, DOCKER_RUN_CMD, NATIVE_SETUP_URL, NODE_MIN_MAJOR,
+    )
     _pt = _pot_status()
     node_available = _pt["node_available"]
     node_version = _pt["node_version"]
@@ -1874,12 +1878,13 @@ def _build_doctor_payload() -> dict:
     anti_block = {
         "node_available": node_available,
         "node_version": node_version,
-        "node_ok": node_ok,  # Node >= 20 (bgutil requirement)
+        "node_ok": node_ok,  # Native provider runtime requirement
         "po_token_plugin_installed": po_token_plugin_installed,
         "po_token_server_reachable": pot_server_reachable,
-        # Honest readiness: a token only mints when the plugin shim AND a
-        # reachable provider are both present. Node presence alone is not it.
-        "po_token_can_generate": po_token_plugin_installed and pot_server_reachable,
+        "po_token_plugin_version": _pt.get("po_token_plugin_version"),
+        "po_token_server_version": _pt.get("po_token_server_version"),
+        "po_token_server_compatible": _pt.get("po_token_server_compatible", False),
+        "po_token_can_generate": _pt["po_token_can_generate"],
         "cookies": cookies_section,
         "selected_platforms": list(cfg.selected_platforms),
         "research_volume": {
@@ -1911,25 +1916,31 @@ def _build_doctor_payload() -> dict:
             "command": "neurolearn config set-cookies --from-file <fresh-cookies.txt>",
         })
 
-    if not node_ok:
+    if pot_server_reachable and po_token_plugin_installed and not _pt["po_token_can_generate"]:
         recommended_setup.append({
-            "step": "install-nodejs-20-for-po-token",
-            "why": f"PO Token generation (bgutil) needs Node.js >= 20; detected "
-                   f"{node_version or 'none'}. Without it YouTube's anti-bot "
-                   f"tokens can't be minted and anonymous/heavy use gets "
-                   f"rate-limited sooner. Cookies alone may suffice for light use.",
-            "command": "brew install node  # macOS; or apt/choco/winget — need >= 20",
+            "step": "update-po-token-provider",
+            "why": f"The provider is reachable but its version "
+                   f"({_pt.get('po_token_server_version') or 'unverified'}) is not "
+                   f"compatible with plugin {_pt.get('po_token_plugin_version') or 'unknown'}. "
+                   "Update the provider separately after approval; see " + NATIVE_SETUP_URL,
+            "command": "neurolearn config wizard",
+        })
+    elif not node_ok and not pot_server_reachable:
+        recommended_setup.append({
+            "step": "set-up-po-token-provider",
+            "why": f"No local provider is reachable. Use Docker, or follow "
+                   f"{NATIVE_SETUP_URL} for native Node.js >= {NODE_MIN_MAJOR} "
+                   f"or Deno setup. Host Node detected: {node_version or 'none'}.",
+            "command": DOCKER_RUN_CMD,
         })
     elif po_token_plugin_installed and not pot_server_reachable:
         recommended_setup.append({
             "step": "start-po-token-server",
-            "why": "Node >= 20 and the PO Token plugin are present, but no "
+            "why": "The native runtime and PO Token plugin are present, but no "
                    "provider is reachable on 127.0.0.1:4416 — so tokens are NOT "
                    "actually being minted (the plugin only registers). Start the "
                    "bgutil HTTP server so tokens generate.",
-            "command": "docker run --name bgutil-provider -d --init -p 4416:4416 "
-                       "brainicism/bgutil-ytdlp-pot-provider   "
-                       "# cross-OS; or: npx bgutil-ytdlp-pot-provider (needs Node >= 20)",
+            "command": DOCKER_RUN_CMD,
         })
 
     return {
@@ -2038,13 +2049,13 @@ def doctor_cmd(as_json: bool) -> None:
         server = ab.get("po_token_server_reachable")
         plugin = ab.get("po_token_plugin_installed")
         can_gen = ab.get("po_token_can_generate")
-        # Node line at parity with the JSON: show version + the >= 20 verdict
-        # (bgutil needs Node >= 20). Node presence alone is NOT readiness.
+        from skills.neurolearn.utils.po_token import NODE_MIN_MAJOR
+        # Host Node is optional when the provider runs in Docker.
         if node_ok:
-            node_mark, node_msg = "[green]✓[/green]", f"{node_version} (>= 20)"
+            node_mark, node_msg = "[green]✓[/green]", f"{node_version} (>= {NODE_MIN_MAJOR})"
         elif node:
             node_mark = "[yellow]~[/yellow]"
-            node_msg = f"{node_version or 'present'} — need >= 20 for PO Token"
+            node_msg = f"{node_version or 'present'} — native provider needs >= {NODE_MIN_MAJOR}"
         else:
             node_mark, node_msg = "[red]✗[/red]", "not on PATH"
         console.print(f"  {node_mark} Node.js: {node_msg}")

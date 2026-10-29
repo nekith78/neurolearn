@@ -238,7 +238,7 @@ def fix_instruction(diag: ErrorDiagnosis, *, has_cookies: bool) -> str:
     plat = diag.platform
 
     if plat == "youtube":
-        from skills.neurolearn.utils.po_token import DOCKER_RUN_CMD
+        from skills.neurolearn.utils.po_token import DOCKER_RUN_CMD, NATIVE_SETUP_URL
         if not has_cookies:
             return (
                 "YouTube blocked the request (anti-bot / rate limit).\n"
@@ -248,7 +248,7 @@ def fix_instruction(diag: ErrorDiagnosis, *, has_cookies: bool) -> str:
                 "    3. neurolearn config set-cookies --from-file <path-to-cookies.txt>\n"
                 "  For fewer blocks, also start the PO Token provider (one-time):\n"
                 f"    {DOCKER_RUN_CMD}\n"
-                "    (or `npx --yes bgutil-ytdlp-pot-provider` with Node >= 20)\n"
+                f"    Native setup (Node >= 22 or Deno): {NATIVE_SETUP_URL}\n"
                 "  Verify: neurolearn doctor --json → anti_block.po_token_can_generate."
             )
         # Had cookies, still blocked

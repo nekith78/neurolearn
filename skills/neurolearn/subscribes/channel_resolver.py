@@ -216,11 +216,11 @@ def _extract_handle(url: str) -> str | None:
 
 def _extract_flat(url: str) -> dict:
     """yt-dlp wrapper — isolated for tests to mock."""
-    from yt_dlp import YoutubeDL
+    from skills.neurolearn.utils.ytdlp import create_ytdlp
     opts = {
         "quiet": True, "no_warnings": True,
         "extract_flat": True, "skip_download": True,
         "playlist_items": "0",  # only metadata, don't enumerate uploads
     }
-    with YoutubeDL(opts) as ydl:
+    with create_ytdlp(opts) as ydl:
         return ydl.extract_info(url, download=False) or {}

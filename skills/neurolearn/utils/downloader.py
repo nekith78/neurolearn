@@ -1,17 +1,14 @@
-"""Wrapper around yt-dlp with cookies, retries, friendly errors, and auto-update.
+"""Wrapper around yt-dlp with cookies, retries, friendly errors.
 Also exposes probe_input + expand_channel_or_playlist for the Resolver (Task 7B)."""
 from __future__ import annotations
 
-import json
 import re
 import shutil
 import subprocess
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta
+from datetime import date
 from pathlib import Path
 from typing import Literal
-
-from skills.neurolearn.config import CONFIG_DIR
 
 
 class DownloadError(Exception):
@@ -36,7 +33,6 @@ _INSTAGRAM_RE = re.compile(
     r"^(?:https?://)?(?:www\.)?instagram\.com/(?:p|reel|tv|reels)/([\w\-]+)",
     re.IGNORECASE,
 )
-_STATE_PATH = CONFIG_DIR / "state.json"
 
 
 def is_url(s: str) -> bool:
@@ -170,49 +166,6 @@ def build_ytdlp_command(
         cmd += ["--cookies", cookies_file]
     cmd.append(url)
     return cmd
-
-
-def _load_state() -> dict:
-    if not _STATE_PATH.exists():
-        return {}
-    try:
-        return json.loads(_STATE_PATH.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError):
-        return {}
-
-
-def _save_state(state: dict) -> None:
-    _STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
-    _STATE_PATH.write_text(json.dumps(state, indent=2), encoding="utf-8")
-
-
-def maybe_auto_update_ytdlp(enabled: bool, *, max_age_hours: int = 24) -> bool:
-    """If `enabled` and last update was >max_age_hours ago, run `yt-dlp -U`.
-    Returns True if an update was attempted."""
-    if not enabled:
-        return False
-    state = _load_state()
-    last_iso = state.get("yt_dlp_last_update")
-    if last_iso:
-        try:
-            last = datetime.fromisoformat(last_iso)
-            if datetime.now() - last < timedelta(hours=max_age_hours):
-                return False
-        except ValueError:
-            pass
-
-    try:
-        subprocess.run(
-            ["yt-dlp", "-U"],
-            capture_output=True,
-            timeout=60,
-            check=False,
-        )
-        state["yt_dlp_last_update"] = datetime.now().isoformat()
-        _save_state(state)
-        return True
-    except (FileNotFoundError, subprocess.TimeoutExpired):
-        return False
 
 
 def _diagnose_ytdlp_error(stderr: str) -> str:
@@ -498,7 +451,7 @@ def _extract_flat(
     cookies into process memory. See the project memory file
     `feedback_cookies_strict_file_only.md` for the rationale.
     """
-    from yt_dlp import YoutubeDL  # local import — yt-dlp is heavy
+    from skills.neurolearn.utils.ytdlp import create_ytdlp
     from yt_dlp.utils import DownloadError as YtDlpDownloadError
     opts: dict = {
         "quiet": True,
@@ -510,7 +463,7 @@ def _extract_flat(
     if cookies_file:
         opts["cookiefile"] = cookies_file
     try:
-        with YoutubeDL(opts) as ydl:
+        with create_ytdlp(opts) as ydl:
             return ydl.extract_info(url, download=False)
     except YtDlpDownloadError as e:
         raise DownloadError(_diagnose_ytdlp_error(str(e))) from e

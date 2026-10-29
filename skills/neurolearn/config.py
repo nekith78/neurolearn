@@ -149,7 +149,9 @@ class Config:
     # silent supply-chain widening (a `curl | sh`-installed yt-dlp could
     # get opportunistically upgraded). When you do hit YouTube extractor
     # breakage, run `neurolearn update-deps` manually instead.
+    # Deprecated compatibility field; never authorizes automatic installation.
     yt_dlp_auto_update: bool = False
+    update_check_enabled: bool = True
     # Path to a Netscape cookies.txt file used by yt-dlp for YouTube
     # downloads that require sign-in (age-restricted, member-only, etc.).
     # By design we DO NOT support `--cookies-from-browser` — that flag
@@ -336,6 +338,7 @@ def _to_toml_dict(cfg: Config) -> dict:
         "behavior": {
             "keep_audio": d["keep_audio"],
             "yt_dlp_auto_update": d["yt_dlp_auto_update"],
+            "update_check_enabled": d["update_check_enabled"],
             "cookies_file": d["cookies_file"],
             "fast_path_enabled": d["fast_path_enabled"],
             "throttle": d["throttle"],
@@ -416,6 +419,7 @@ def _from_toml_dict(d: dict) -> Config:
         output_dir=out.get("output_dir", DEFAULT_CONFIG.output_dir),
         keep_audio=beh.get("keep_audio", DEFAULT_CONFIG.keep_audio),
         yt_dlp_auto_update=beh.get("yt_dlp_auto_update", DEFAULT_CONFIG.yt_dlp_auto_update),
+        update_check_enabled=beh.get("update_check_enabled", DEFAULT_CONFIG.update_check_enabled),
         # Backward-compat: pre-v0.8 configs may still have `cookies_browser`
         # — silently drop it (we no longer support `--cookies-from-browser`).
         cookies_file=beh.get("cookies_file", DEFAULT_CONFIG.cookies_file),

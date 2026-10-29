@@ -147,6 +147,43 @@ From any Claude Code chat:
 Claude picks the right neurolearn subcommand, runs it, reads the output, and
 writes the summary. The skill produces transcripts; analysis is the LLM's job.
 
+## Dependency updates
+
+YouTube changes frequently. NeuroLearn checks stable PyPI releases for its five
+YouTube dependencies when a YouTube input reaches the transcription pipeline,
+at most once per 24 hours per environment. Failed checks are cached too.
+Notifications go to stderr once per newly detected set of updates, with a
+weekly reminder. Checks never install anything and do not run for local files,
+help, or configuration commands. Network/cache failures do not block transcription.
+
+Check explicitly (use `--json` for machine-readable results):
+
+```bash
+uv run neurolearn check-updates
+```
+
+Review the target environment and approve an update interactively:
+
+```bash
+uv run neurolearn update-deps
+```
+
+Non-interactive callers must obtain user approval before passing `--yes`.
+The updater only supports this project's `.venv`: it updates `uv.lock` with
+targeted upgrades, respects project constraints, and preserves installed extras.
+Other installation methods must use their original package manager. A newer
+PyPI version is not a promise that the current project's constraints allow it.
+The bgutil provider server is separate from its Python plugin and needs a
+matching, separately approved update; `doctor` checks the running provider's
+version and reports incompatible older servers even when their port is reachable.
+
+Set `behavior.update_check_enabled = false` in the user config, or use
+`NEUROLEARN_NO_UPDATE_CHECK=1`, to disable automatic checks. Explicit
+`check-updates` still works. The legacy `yt_dlp_auto_update` flag is inert.
+The supported yt-dlp extras install matching EJS scripts and a Deno runtime
+inside the environment, including on Windows; a global Node install is not
+required for yt-dlp or a Docker-based PO Token provider.
+
 ## Documentation
 
 | | |

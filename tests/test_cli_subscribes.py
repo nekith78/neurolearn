@@ -30,10 +30,11 @@ def test_subscribes_cookies_set_accepts_youtube_platform(tmp_path: Path, monkeyp
         "# Netscape HTTP Cookie File\n.youtube.com\tTRUE\t/\tFALSE\t0\tA\tB\n"
     )
     cfg_path = tmp_path / "config.toml"
-    monkeypatch.setattr(
-        "skills.neurolearn.subscribes.cookies_onboarding.CONFIG_PATH",
-        cfg_path,
-    )
+    from functools import partial
+    from skills.neurolearn.subscribes import cookies_onboarding
+    monkeypatch.setattr(cookies_onboarding, "set_cookies_file", partial(
+        cookies_onboarding.set_cookies_file, config_path=cfg_path,
+    ))
 
     runner = CliRunner()
     result = runner.invoke(cli, [
@@ -43,8 +44,9 @@ def test_subscribes_cookies_set_accepts_youtube_platform(tmp_path: Path, monkeyp
     assert "youtube" in result.output.lower()
 
 
-def test_subscribes_cookies_clear_accepts_youtube_platform():
+def test_subscribes_cookies_clear_accepts_youtube_platform(tmp_path, monkeypatch):
     """v0.10.7: `cookies clear youtube` is accepted by the CLI Choice."""
+    monkeypatch.setattr("skills.neurolearn.config.CONFIG_PATH", tmp_path / "config.toml")
     runner = CliRunner()
     result = runner.invoke(cli, ["subscribes", "cookies", "clear", "youtube"])
     # No cookies configured → exits 0 with "No cookies file configured".

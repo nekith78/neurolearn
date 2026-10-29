@@ -298,7 +298,7 @@ def _list_tab_ids(
     surfacing first), the walk can stop early and under-report — it degrades,
     it doesn't crash.
     """
-    from yt_dlp import YoutubeDL
+    from skills.neurolearn.utils.ytdlp import create_ytdlp
     from yt_dlp.utils import DownloadError
 
     opts = {
@@ -312,7 +312,7 @@ def _list_tab_ids(
         opts["cookiefile"] = cookies_file
     tab_url = channel_url.rstrip("/") + "/" + tab
     try:
-        with YoutubeDL(opts) as ydl:
+        with create_ytdlp(opts) as ydl:
             info = ydl.extract_info(tab_url, download=False) or {}
     except DownloadError as e:
         if _looks_like_channel_not_found(str(e)):
@@ -374,7 +374,7 @@ def _extract_tab_metadata(
     exception handling: `_fetch_tab` lets them bubble up so per-channel
     failures don't poison the whole `subscribes update` run.
     """
-    from yt_dlp import YoutubeDL
+    from skills.neurolearn.utils.ytdlp import create_ytdlp
 
     opts = {
         "quiet": True,
@@ -384,7 +384,7 @@ def _extract_tab_metadata(
     }
     if cookies_file:
         opts["cookiefile"] = cookies_file
-    with YoutubeDL(opts) as ydl:
+    with create_ytdlp(opts) as ydl:
         d = ydl.extract_info(
             f"https://www.youtube.com/watch?v={video_id}", download=False,
         ) or {}

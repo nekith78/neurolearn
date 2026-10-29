@@ -131,7 +131,7 @@ def _extract(url: str, *, full: bool = False, limit: int = 20) -> dict:
     `full=False` → `extract_flat=True` (fast, no upload_date).
     `full=True`  → `extract_flat=False` (slower; needed for date refinement).
     """
-    from yt_dlp import YoutubeDL
+    from skills.neurolearn.utils.ytdlp import create_ytdlp
     opts = {
         "quiet": True, "no_warnings": True,
         "extract_flat": not full,
@@ -139,5 +139,5 @@ def _extract(url: str, *, full: bool = False, limit: int = 20) -> dict:
         "geo_bypass": True,
         "playlistend": limit,
     }
-    with YoutubeDL(opts) as ydl:
+    with create_ytdlp(opts) as ydl:
         return ydl.extract_info(url, download=False)

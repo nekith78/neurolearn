@@ -418,6 +418,14 @@ def _ask_po_token_setup(console) -> None:
         )
         return
 
+    if st["po_token_server_reachable"]:
+        console.print(
+            "[yellow]Existing PO Token server "
+            f"{st.get('po_token_server_version') or '(unverified version)'} is not "
+            f"compatible with plugin {st.get('po_token_plugin_version') or 'unknown'}. "
+            "Updating the server requires your confirmation below.[/yellow]"
+        )
+
     console.print(
         "\n[bold]Optional: PO Token provider (recommended for YouTube)[/bold]\n"
         "  [dim]Reduces 'Sign in to confirm you're not a bot' failures. Runs a\n"
@@ -446,16 +454,16 @@ def _ask_po_token_setup(console) -> None:
                     )
                 else:
                     deadline = _time.time() + 30
-                    while _time.time() < deadline and not _pot.server_reachable():
+                    while _time.time() < deadline and not _pot.status()["po_token_can_generate"]:
                         _time.sleep(2)
-                    if _pot.server_reachable():
+                    if _pot.status()["po_token_can_generate"]:
                         console.print(
                             "  [green]✓ PO Token server is up on :4416[/green] "
                             "(auto-restarts on reboot)."
                         )
                     else:
                         console.print(
-                            "  [yellow]⚠ Started, but :4416 isn't responding yet. "
+                            "  [yellow]⚠ Started, but a compatible provider isn't ready yet. "
                             "Check `docker logs bgutil-provider`.[/yellow]"
                         )
             except Exception as e:
@@ -468,13 +476,13 @@ def _ask_po_token_setup(console) -> None:
     # No Docker — give the right manual command for their environment.
     if st["node_ok"]:
         console.print(
-            "  [dim]Docker not found. With your Node, run in a separate "
-            "terminal:[/dim]\n"
-            f"    {_pot.NPX_RUN_CMD}"
+            "  [dim]Docker not found. Follow the native provider setup "
+            "instructions, then run it in a separate terminal:[/dim]\n"
+            f"    {_pot.NATIVE_SETUP_URL}"
         )
     else:
         console.print(
-            "  [dim]Docker not found and Node < 20. Install Docker (easiest) "
+            f"  [dim]Docker not found and Node < {_pot.NODE_MIN_MAJOR}. Install Docker "
             "then run:[/dim]\n"
             f"    {_pot.DOCKER_RUN_CMD}"
         )

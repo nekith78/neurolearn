@@ -16,25 +16,16 @@ dependencies = [
     # tomllib is stdlib on Python ≥3.11 — no `tomli` shim needed since requires-python = ">=3.11"
     "tomli-w>=1.0",
     "python-dotenv>=1.0",
-    "yt-dlp>=2024.10.0",
-    # v0.15.0: PO Token (Proof of Origin) plugin auto-registers with yt-dlp
-    # at import time. Without it, YouTube increasingly returns "Sign in to
-    # confirm you're not a bot" even on first request from a fresh IP.
-    # The plugin generates the per-session token YouTube expects from a
-    # real browser. Needs Node.js 16+ at runtime; if Node is missing the
-    # plugin logs a warning and yt-dlp degrades to no-PO-Token (graceful).
-    "bgutil-ytdlp-pot-provider>=1.3",
-    # v0.15.3: TLS-fingerprint impersonation for yt-dlp. YouTube increasingly
-    # distinguishes bot traffic by ClientHello fingerprint (separate from
-    # cookies and PO Token). yt-dlp's `impersonate=` extractor option uses
-    # curl_cffi to spoof real Chrome/Firefox TLS — without it you get
-    # "no impersonate target is available" warnings + 429 errors on
-    # endpoints (especially subtitles) that anti-bot the TLS layer.
-    # yt-dlp 2026.03.17 supports curl_cffi 0.5.10 OR 0.10.x-0.14.x.
-    # Pinning to 0.10-0.15 catches the modern supported range; 0.15+
-    # raises "Only curl_cffi versions X.Y are supported" at import.
-    "curl_cffi>=0.10,<0.15",
-    "youtube-transcript-api>=0.6.2",
+    "packaging>=23",
+    # Upstream extras supply matching EJS scripts and a supported Deno runtime
+    # for YouTube challenges, including on Windows and Linux.
+    "yt-dlp[default,deno]>=2026.10.26",
+    # The plugin needs a matching provider server or native script installation;
+    # installing this Python package alone does not generate PO Tokens.
+    "bgutil-ytdlp-pot-provider>=2.0.2",
+    # TLS impersonation range supported by yt-dlp 2026.10.26.
+    "curl_cffi>=0.17,<0.18",
+    "youtube-transcript-api>=1.2.4",
     # Cloud SDKs (small, install all by default)
     "google-genai>=1.0.0",                 # 0.x had unstable API; we target the stable Client/files/models pattern
     "groq>=0.11.0",
@@ -200,6 +191,14 @@ tag_message = "v{new_version}"
 # accidentally match `current_version` in this very section.
 [[tool.bumpversion.files]]
 filename = "pyproject.toml"
+search = '''name = "neurolearn"
+version = "{current_version}"'''
+replace = '''name = "neurolearn"
+version = "{new_version}"'''
+
+# Keep the editable package metadata synchronized in the committed lockfile.
+[[tool.bumpversion.files]]
+filename = "uv.lock"
 search = '''name = "neurolearn"
 version = "{current_version}"'''
 replace = '''name = "neurolearn"

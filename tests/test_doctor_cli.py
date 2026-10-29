@@ -27,6 +27,34 @@ def _wire_paths(monkeypatch, tmp_path: Path) -> None:
 
 
 class TestDoctorHumanOutput:
+    def test_old_provider_is_reported_as_needing_approved_upgrade(self, tmp_path, monkeypatch):
+        _wire_paths(monkeypatch, tmp_path)
+        monkeypatch.setattr("skills.neurolearn.utils.po_token.status", lambda: {
+            "node_available": True, "node_version": "v25.9.0", "node_ok": True,
+            "po_token_plugin_installed": True, "po_token_server_reachable": True,
+            "po_token_can_generate": False, "po_token_plugin_version": "2.0.2",
+            "po_token_server_version": "1.3.1", "po_token_server_compatible": False,
+        })
+        result = _runner().invoke(cli, ["doctor", "--json"])
+        assert result.exit_code == 0, result.output
+        data = json.loads(result.output)
+        assert data["anti_block"]["po_token_can_generate"] is False
+        steps = data["ready"]["recommended_setup"]
+        assert any(step["step"] == "update-po-token-provider" for step in steps)
+
+    def test_running_docker_provider_does_not_require_host_node(self, tmp_path, monkeypatch):
+        _wire_paths(monkeypatch, tmp_path)
+        monkeypatch.setattr("skills.neurolearn.utils.po_token.status", lambda: {
+            "node_available": False, "node_version": None, "node_ok": False,
+            "po_token_plugin_installed": True, "po_token_server_reachable": True,
+            "po_token_can_generate": True,
+        })
+        result = _runner().invoke(cli, ["doctor", "--json"])
+        assert result.exit_code == 0, result.output
+        data = json.loads(result.output)
+        steps = data["ready"]["recommended_setup"]
+        assert not any("install-nodejs" in step["step"] for step in steps)
+
     def test_doctor_runs_without_config_file(self, tmp_path, monkeypatch):
         """First-run case: no config file yet — doctor must NOT crash."""
         _wire_paths(monkeypatch, tmp_path)

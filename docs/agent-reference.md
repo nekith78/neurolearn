@@ -327,7 +327,7 @@ fallback. If the primary backend has no key, exit 4 (don't silently substitute).
 | `.env` | API keys (perms 0600 on Unix) | dotenv |
 | `subscribes.toml` | Channels you follow + per-channel state | TOML (round-tripped via tomlkit, preserves comments) |
 | `history.toml` | Append-only log of research/subscribes runs | TOML |
-| `state.json` | yt-dlp auto-update timestamp | JSON |
+| `updates/<environment-hash>.json` | Dependency-check attempts, release metadata, and notification timestamps; no automatic installation | JSON |
 
 Schemas live in code:
 
