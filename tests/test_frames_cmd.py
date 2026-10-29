@@ -202,7 +202,9 @@ def test_extract_frames_at_dedups_and_returns_relative_paths(tmp_path):
     # Paths are relative to batch_dir and live under frames/
     for paths in out.values():
         for rel in paths:
-            assert rel.startswith("frames/")
+            relative_path = Path(rel)
+            assert not relative_path.is_absolute()
+            assert relative_path.parts[0] == "frames"
             assert (batch / rel).exists()
 
 
