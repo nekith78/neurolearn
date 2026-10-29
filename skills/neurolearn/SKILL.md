@@ -200,6 +200,12 @@ Pick the backend BEFORE invoking, based on user intent + environment.
 
 If unsure: `smart` is the safe default — `subtitles → groq → whisper-local`.
 
+When `doctor` reports `youtube_proxy_configured`, caption requests recover
+from direct-access blocks using the configured rotating proxy automatically.
+This setting covers captions and language discovery only, not media downloads.
+Keep proxy credentials in the user's secret file; never print them or pass them
+in command arguments. See README's rotating-proxy section for limits/disable.
+
 ## Quota awareness (v0.12+)
 
 Default audio is **Groq Whisper-large-v3-turbo**, default vision is

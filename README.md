@@ -35,7 +35,7 @@ from the terminal **and** from a Claude Code chat.
 - **Research + subscribes** — discover videos by topic across YouTube, IG, TikTok; subscribe to channels with incremental updates (YouTube pulls the `/videos` + `/shorts` tabs, so livestreams never masquerade as the latest upload).
 - **Visual mode** — keyframes + per-moment vision-LLM annotations. Inside Claude Code, neurolearn writes a manifest and Claude reads the frames natively — no extra API call.
 - **PDF reports** — `neurolearn report --latest` renders structured PDFs (tutorial / vlog / generic layouts) from any batch.
-- **Offline-capable** — `--backend whisper-local` is fully offline. `--backend subtitles` only talks to YouTube.
+- **Offline-capable** — `--backend whisper-local` is fully offline. `--backend subtitles` retrieves YouTube captions, optionally through your configured proxy.
 
 ## Why it exists
 
@@ -146,6 +146,27 @@ From any Claude Code chat:
 
 Claude picks the right neurolearn subcommand, runs it, reads the output, and
 writes the summary. The skill produces transcripts; analysis is the LLM's job.
+
+## Rotating proxy for blocked subtitles
+
+Set the secret `NEUROLEARN_YOUTUBE_PROXY` in `~/.neurolearn/.env` to your
+authenticated HTTP(S) proxy URL. Do not put proxy credentials in chat,
+command arguments, or the repository. Configuration is per machine and
+works on macOS, Windows, and Linux; `uv run neurolearn doctor` reports only
+whether it is configured, never the endpoint or credentials.
+
+Caption fetching and automatic caption-language discovery try direct access
+first. On blocking or transient retrieval failure, each operation makes at
+most two proxy attempts with fresh sessions and no personal YouTube cookies.
+Known missing captions or unavailable languages do not trigger proxy traffic.
+Connect/read timeouts are 10/15 seconds per request, not a total deadline.
+If recovery fails, the existing yt-dlp/audio fallback continues. Audio, video,
+LLM APIs, and update checks do not use this setting. Proxy success is reported
+on stderr; this is not a guarantee that every proxy exit will work.
+
+Remove this secret to disable the fallback, or set an empty
+`NEUROLEARN_YOUTUBE_PROXY` process environment variable to disable it for
+that process. A configured proxy enables metered caption traffic automatically.
 
 ## Dependency updates
 

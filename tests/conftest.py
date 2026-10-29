@@ -24,6 +24,7 @@ def _skip_onboarding_gate(monkeypatch):
     specifically verify the gate logic re-patch it back via their own
     fixtures (see test_onboarding_gate.py)."""
     monkeypatch.setenv("NEUROLEARN_NO_UPDATE_CHECK", "1")
+    monkeypatch.setenv("NEUROLEARN_YOUTUBE_PROXY", "")
     monkeypatch.setattr(
         "skills.neurolearn.transcribe._require_onboarding_complete",
         lambda *args, **kwargs: None,

@@ -1875,7 +1875,11 @@ def _build_doctor_payload() -> dict:
         "tiktok": _cookies_entry(cfg.tiktok_cookies_file or ""),
     }
 
+    from skills.neurolearn.utils.youtube_proxy import get_proxy_url
+
     anti_block = {
+        "youtube_proxy_configured": bool(get_proxy_url()),
+        "youtube_proxy_policy": "caption-fallback-only",
         "node_available": node_available,
         "node_version": node_version,
         "node_ok": node_ok,  # Native provider runtime requirement
@@ -2043,6 +2047,11 @@ def doctor_cmd(as_json: bool) -> None:
     ab = payload.get("anti_block", {})
     if ab:
         console.print("\n[bold]Anti-block (v0.15.0):[/bold]")
+        console.print(
+            "  YouTube subtitle proxy: "
+            + ("configured (direct first; captions only)"
+               if ab.get("youtube_proxy_configured") else "not configured")
+        )
         node = ab.get("node_available")
         node_ok = ab.get("node_ok")
         node_version = ab.get("node_version")

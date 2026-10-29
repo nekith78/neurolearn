@@ -1,11 +1,8 @@
 """subtitles backend — fast path via youtube-transcript-api, no API key needed.
 
-v0.10.7 cookies support: when YouTube rate-limits (`IpBlocked`) on
-anonymous requests, the user can register a `youtube` cookies.txt via
-`neurolearn subscribes cookies set youtube <path>`. This module then
-builds a `requests.Session` from that file and hands it to
-`YouTubeTranscriptApi(http_client=...)`, which routes the request
-through the authenticated session and bypasses the IP block.
+Registered cookies are used only on the direct path; they do not guarantee
+access. An explicitly configured rotating proxy can recover blocked caption
+requests in a separate session without the user's cookies.
 """
 from __future__ import annotations
 
@@ -30,7 +27,7 @@ def _build_authenticated_session(cookies_path: str | None):
         return None
     try:
         from http.cookiejar import MozillaCookieJar
-        import requests
+        from skills.neurolearn.utils.youtube_proxy import TranscriptSession
     except ImportError:
         return None
     jar = MozillaCookieJar(cookies_path)
@@ -40,7 +37,7 @@ def _build_authenticated_session(cookies_path: str | None):
         jar.load(ignore_discard=True, ignore_expires=True)
     except (OSError, Exception):    # malformed file
         return None
-    session = requests.Session()
+    session = TranscriptSession()
     session.cookies = jar
     return session
 
@@ -85,21 +82,7 @@ class _ApiAdapter:
         self._cookies_file = cookies_file
 
     def get_transcript(self, video_id: str, languages: list[str] | None = None) -> list[dict]:
-        from youtube_transcript_api import YouTubeTranscriptApi
-
-        langs = languages or ["en"]
-        session = _build_authenticated_session(self._cookies_file)
-        api = (
-            YouTubeTranscriptApi(http_client=session)
-            if session is not None
-            else YouTubeTranscriptApi()
-        )
-        fetched = api.fetch(video_id, languages=langs)
-        # FetchedTranscript is iterable; each FetchedTranscriptSnippet has .text/.start/.duration
-        return [
-            {"start": s.start, "duration": s.duration, "text": s.text}
-            for s in fetched
-        ]
+        return self._call("fetch", video_id, languages or ["en"])
 
     def list_language_codes(self, video_id: str) -> list[str]:
         """Base (non-translation) caption languages, original-language first.
@@ -113,18 +96,67 @@ class _ApiAdapter:
         Ranking manual first would pick that translation and re-introduce the
         exact bug `auto` is meant to fix. (Within a single language the
         transcript API still prefers the manual track when we fetch it.)"""
-        from youtube_transcript_api import YouTubeTranscriptApi
+        return self._call("list", video_id)
 
-        session = _build_authenticated_session(self._cookies_file)
-        api = (
-            YouTubeTranscriptApi(http_client=session)
-            if session is not None
-            else YouTubeTranscriptApi()
+    def _call_once(self, operation: str, video_id: str, languages=None, *, proxy_url=None):
+        from youtube_transcript_api import YouTubeTranscriptApi
+        from youtube_transcript_api.proxies import GenericProxyConfig
+        from skills.neurolearn.utils.youtube_proxy import TranscriptSession
+
+        # Never forward personal cookies or environment/netrc authentication
+        # into a paid proxy. Each attempt starts with a clean session.
+        session = (
+            TranscriptSession() if proxy_url
+            else (_build_authenticated_session(self._cookies_file) or TranscriptSession())
         )
-        tl = api.list(video_id)
-        generated = [t.language_code for t in tl if t.is_generated]
-        manual = [t.language_code for t in tl if not t.is_generated]
-        return generated + manual
+        with session:
+            proxy_config = None
+            if proxy_url:
+                session.trust_env = False
+                session.headers["Connection"] = "close"
+                proxy_config = GenericProxyConfig(http_url=proxy_url, https_url=proxy_url)
+            api = YouTubeTranscriptApi(http_client=session, proxy_config=proxy_config)
+            if operation == "fetch":
+                return [
+                    {"start": s.start, "duration": s.duration, "text": s.text}
+                    for s in api.fetch(video_id, languages=languages)
+                ]
+            tracks = list(api.list(video_id))
+            return ([t.language_code for t in tracks if t.is_generated]
+                    + [t.language_code for t in tracks if not t.is_generated])
+
+    def _call(self, operation: str, video_id: str, languages=None):
+        import sys
+        from skills.neurolearn.utils.youtube_proxy import (
+            MAX_PROXY_ATTEMPTS, ProxyFallbackFailed, get_proxy_url, may_retry_with_proxy,
+        )
+
+        try:
+            return self._call_once(operation, video_id, languages)
+        except Exception as error:
+            if not may_retry_with_proxy(error):
+                raise
+            proxy_url = get_proxy_url()
+            if not proxy_url:
+                raise
+            sys.stderr.write(
+                f"[neurolearn] subtitles direct {operation} failed "
+                f"({type(error).__name__}); trying configured rotating proxy.\n"
+            )
+        for attempt in range(1, MAX_PROXY_ATTEMPTS + 1):
+            try:
+                result = self._call_once(operation, video_id, languages, proxy_url=proxy_url)
+                sys.stderr.write(f"[neurolearn] subtitles proxy succeeded ({operation}).\n")
+                return result
+            except Exception as error:
+                # Third-party exceptions can embed the proxy URL/password.
+                sys.stderr.write(
+                    f"[neurolearn] subtitles proxy attempt {attempt}/{MAX_PROXY_ATTEMPTS} "
+                    f"failed ({type(error).__name__}).\n"
+                )
+                if not may_retry_with_proxy(error):
+                    break
+        raise ProxyFallbackFailed("Configured subtitle proxy recovery failed") from None
 
 
 def _run_yt_dlp_subtitle_pass(
@@ -417,7 +449,7 @@ class SubtitlesBackend:
             # succeed where we failed because of cookies + PO Token.
             # TranscriptsDisabled / NoTranscriptFound → no subtitles at
             # all; yt-dlp won't help, surface BackendError directly.
-            if cls in ("IpBlocked", "RequestBlocked", "PoTokenRequired",
+            if cls in ("IpBlocked", "RequestBlocked", "PoTokenRequired", "ProxyFallbackFailed",
                        "YouTubeRequestFailed", "YouTubeDataUnparsable"):
                 sys.stderr.write(
                     f"[neurolearn] subtitles Path 1 (transcript-api) "

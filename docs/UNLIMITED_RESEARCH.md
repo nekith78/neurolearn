@@ -167,19 +167,25 @@ videos consume proxy bandwidth. Realistic spend at ~$1/GB PAYG is a few
 dollars/month even for heavy research. **Datacenter proxies are useless
 for YouTube** (pre-flagged) — residential/mobile only.
 
-### How to wire it into yt-dlp
+### Configure NeuroLearn's caption fallback
 
-yt-dlp accepts a `--proxy <url>` flag. neurolearn doesn't expose this
-as a top-level CLI flag yet (it's coming in a future release), but you
-can override per-call via env:
+Store the authenticated HTTP(S) endpoint as `NEUROLEARN_YOUTUBE_PROXY` in
+`~/.neurolearn/.env`, outside the repository. Never paste it into chat or
+command arguments. `uv run neurolearn doctor` shows configured/not configured
+without exposing the URL.
 
-```bash
-export HTTPS_PROXY=http://user:pass@proxy.iproyal.com:12321
-neurolearn research "your topic" --days 30
-```
+The transcript API tries direct access first, then up to two fresh proxy
+attempts on blocking or transient retrieval failure. Automatic caption-language
+discovery uses the same policy, so `language=auto` can make up to four proxy
+attempts across discovery and fetching. Missing captions/languages reported by
+the direct request do not trigger paid traffic. Each proxy session excludes
+personal cookies and uses connect/read timeouts of 10/15 seconds per request.
 
-Or set it system-wide if your whole shell session goes through the
-proxy.
+This setting proxies text requests only. yt-dlp, media downloads, LLM calls,
+and dependency checks retain their existing transports. If both direct and
+proxy transcript requests fail, the existing yt-dlp/Groq fallback continues.
+Remove the secret, or override it with an empty process environment value,
+to disable proxy recovery. Proxy access is best-effort and still metered.
 
 ### Avoid: free / shared / datacenter proxies
 

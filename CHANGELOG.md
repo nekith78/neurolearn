@@ -3,6 +3,33 @@
 All notable changes to neurolearn will be documented here.
 The format is loosely based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.27.0] — 2026-10-29
+
+### Added
+
+- Optional rotating-proxy recovery for YouTube caption fetching and caption
+  language discovery. Configure `NEUROLEARN_YOUTUBE_PROXY` in the private
+  user `.env`; direct requests are tried first, with at most two proxy
+  attempts per operation after blocking or transient retrieval failures.
+- Doctor reports whether the caption proxy is configured without exposing
+  its endpoint or credentials. Proxy sessions exclude personal cookies and
+  environment/netrc authentication; audio/video and LLM calls stay unchanged.
+
+### Fixed
+
+- Bound transcript HTTP connect/read waits and close each session after use.
+- Recover from empty/malformed caption responses as well as explicit blocks.
+- Accept HTTP(S) proxy URLs with either explicit or default ports.
+- Correct the subtitle adapter's claim that cookies guarantee an IP-block bypass.
+
+### Validation
+
+- A live Hermes Agent video failed direct caption retrieval with `IpBlocked`
+  and succeeded through the user's configured proxy. The normal Codex launcher
+  saved TXT/SRT with 135 caption segments through the video's end, without ASR.
+- A transient proxy read timeout recovered on the second permitted attempt.
+  Proxy recovery remains best-effort and does not guarantee all videos/exits.
+
 ## [0.26.0] — 2026-10-29
 
 ### Added
