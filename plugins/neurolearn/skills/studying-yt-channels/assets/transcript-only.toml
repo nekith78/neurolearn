@@ -1,0 +1,7 @@
+[presets.smart]
+quality_check = true
+quality_perplexity = false
+correct_asr = false
+diarize = false
+translate_to = ""
+vision_backend = "off"

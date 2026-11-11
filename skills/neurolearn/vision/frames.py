@@ -128,13 +128,24 @@ def extract_keyframes(
     ]
     subprocess.run(cmd, check=True, timeout=_FFMPEG_TIMEOUT_S)
 
-    # Rename tmp_NNNN.jpg → <video_id>_<sec>.jpg
+    # Rename tmp_NNNN.jpg → <video_id>_<sec>.jpg. When sampling denser than
+    # 1 frame/sec, several frames map to the same integer second; a bare
+    # <id>_<sec>.jpg would collide and each rename would overwrite the prior
+    # frame, silently returning fewer distinct files than `count`. Disambiguate
+    # ONLY on collision (`_<n>` suffix) so the common ≤1/sec case keeps its
+    # original byte-identical names.
     tmp_files = sorted(out_dir.glob("tmp_*.jpg"))
     out_paths: list[Path] = []
+    used: set[Path] = set()
     for idx, tmp in enumerate(tmp_files):
         sec = int(start + idx / fps)
         new_path = out_dir / f"{video_id}_{sec:05d}.jpg"
+        dup = 1
+        while new_path in used:
+            new_path = out_dir / f"{video_id}_{sec:05d}_{dup}.jpg"
+            dup += 1
         tmp.rename(new_path)
+        used.add(new_path)
         out_paths.append(new_path)
     return out_paths
 

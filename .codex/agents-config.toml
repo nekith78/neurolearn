@@ -1,0 +1,11 @@
+# Codex-side AGENTS docs configuration copied from the Claude project settings.
+
+[paths]
+critical = [
+    "skills/**",
+]
+
+[paths.modules]
+
+[sessions]
+mode = "all"

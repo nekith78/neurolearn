@@ -538,6 +538,7 @@ def _derive_basename(target: ResolvedTarget) -> str:
 
 def _override_config(cfg: Config, opts: dict) -> Config:
     """Apply CLI overrides to a Config copy."""
+    if opts.get("language") is not None: cfg.language = opts["language"]
     if opts.get("whisper_model"): cfg.whisper_model = opts["whisper_model"]
     if opts.get("gemini_model"): cfg.gemini_model = opts["gemini_model"]
     if opts.get("groq_model"): cfg.groq_model = opts["groq_model"]
@@ -3047,28 +3048,49 @@ cli.add_command(memory_group)
 @click.argument("batch_dir", required=False, type=click.Path(path_type=Path))
 @click.option("--latest", is_flag=True, default=False,
               help="Use the most recently modified batch under output-dir.")
-@click.option("--at", "ats", multiple=True, required=True,
+@click.option("--at", "ats", multiple=True,
               help="Timestamp to grab frames at — MM:SS, HH:MM:SS, or seconds. "
-                   "Repeatable: --at 4:23 --at 23:00.")
+                   "Repeatable: --at 4:23 --at 23:00. Mutually exclusive with "
+                   "--range.")
+@click.option("--range", "rng", nargs=2, type=str, default=None,
+              metavar="START END",
+              help="Scan a continuous span (MM:SS / HH:MM:SS / seconds) instead "
+                   "of discrete points — for stepping through an animation or a "
+                   "multi-screen walkthrough. e.g. --range 4:20 4:40. Mutually "
+                   "exclusive with --at.")
+@click.option("--fps", "fps", type=float, default=1.0, show_default=True,
+              help="Frames per second to sample across --range (1 fps covers "
+                   "typical guide content; bump to 2 for fast/busy spans). "
+                   "Near-duplicates are dropped; a per-call cap guards floods.")
 @click.option("--video-index", "video_index", type=int, default=0,
               show_default=True,
               help="Pick the n-th video (0-based) when the batch has several.")
 @click.option("--best", "best", is_flag=True, default=False,
               help="Per --at, sample a window and keep only the SHARPEST frame "
                    "(avoids tooltips caught mid-fade). Best for a clean "
-                   "single screenshot to crop.")
-def frames_cmd(batch_dir, latest, ats, video_index, best):
-    """Extract keyframes at chosen timestamps from a batch's source video.
+                   "single screenshot to crop. Ignored with --range.")
+def frames_cmd(batch_dir, latest, ats, rng, fps, video_index, best):
+    """Extract keyframes from a batch's source video — at chosen timestamps
+    (--at) or across a continuous span (--range).
 
     Pass 2 of the visual-report flow: after a transcript exists, the agent
-    decides which moments to inspect and calls this to get the frames. The
-    source video is downloaded + cached under <batch>/source/ on first use;
-    each --at yields a small before/action/after bracket under <batch>/frames/
-    (or one sharpest frame with --best). Offline (ffmpeg) apart from the
-    one-time video download — no API key, no onboarding gate.
+    decides what to inspect and calls this to get the frames. The source video
+    is downloaded + cached under <batch>/source/ on first use. `--at` yields a
+    small before/action/after bracket per point (or one sharpest frame with
+    --best); `--range START END` scans the whole span at --fps and drops
+    near-duplicates. Offline (ffmpeg) apart from the one-time video download —
+    no API key, no onboarding gate.
     """
     console = make_console()
     cfg = load_config(CONFIG_PATH)
+
+    # Exactly one mode: discrete points (--at) or a continuous span (--range).
+    if ats and rng is not None:
+        console.print("[red]Use either --at or --range, not both.[/red]")
+        sys.exit(2)
+    if not ats and rng is None:
+        console.print("[red]Pass --at <ts> (one or more) or --range START END.[/red]")
+        sys.exit(2)
 
     if batch_dir is None and latest:
         outputs_dir = Path(cfg.output_dir).expanduser()
@@ -3086,7 +3108,37 @@ def frames_cmd(batch_dir, latest, ats, video_index, best):
         sys.exit(2)
 
     batch_dir = Path(batch_dir).resolve()
-    from skills.neurolearn.frames_cmd import parse_timestamp, extract_frames_at
+    from skills.neurolearn.frames_cmd import (
+        parse_timestamp, extract_frames_at, extract_frames_range,
+    )
+
+    if rng is not None:
+        try:
+            start = parse_timestamp(rng[0])
+            end = parse_timestamp(rng[1])
+        except ValueError as e:
+            console.print(f"[red]Bad --range value: {e}[/red]")
+            sys.exit(2)
+        try:
+            console.print("[dim]Resolving source video (downloads + caches on first use)…[/dim]")
+            rels = extract_frames_range(
+                batch_dir, start, end, fps=fps, video_index=video_index, cfg=cfg,
+            )
+        except (FileNotFoundError, ValueError, IndexError) as e:
+            console.print(f"[red]{e}[/red]")
+            sys.exit(3)
+        console.print(f"\n[green]Frames extracted into {batch_dir / 'frames'}/[/green]")
+        if rels:
+            console.print(
+                f"  [{start:g}s–{end:g}s @ {fps:g} fps] "
+                f"{len(rels)} frame(s) after dedup:"
+            )
+            for rel in rels:
+                console.print(f"    {rel}")
+        else:
+            console.print("  [yellow](no frames — span past end of video?)[/yellow]")
+        return
+
     try:
         timestamps = [parse_timestamp(a) for a in ats]
     except ValueError as e:

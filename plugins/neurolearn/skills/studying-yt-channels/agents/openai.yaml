@@ -1,0 +1,4 @@
+interface:
+  display_name: "Studying YT Channels"
+  short_description: "Study YouTube channels with source evidence"
+  default_prompt: "Use $studying-yt-channels to study this YouTube channel and build a reusable, source-linked knowledge base."

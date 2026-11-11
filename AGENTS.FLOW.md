@@ -138,3 +138,20 @@
 **Termination:** memory file updated, exit 0. OR exit 2 (`ValueError` from schema check) / exit 3 (`FileNotFoundError` for approved.json).
 
 **Related invariants:** INV-006, INV-007, INV-012, INV-013.
+
+## FLOW-008 — `frames --range` — continuous-span keyframe extraction (Pass-2, on-demand)
+
+**Entry:** `neurolearn frames <batch> --range START END [--fps N]` → `skills/neurolearn/transcribe.py:frames_cmd` → `skills/neurolearn/frames_cmd.py:extract_frames_range`
+
+1. **Mode gate** — `--range` and `--at` are mutually exclusive; exactly one required (else exit 2). `--best` is ignored with `--range`.
+2. **Validate** — `end > start` and `fps > 0` (else `ValueError` → exit 3). Timestamps parsed via `parse_timestamp` (MM:SS / HH:MM:SS / seconds; exit 2 on bad value).
+3. **Resolve source** — `resolve_source_video` downloads+caches the 1080p video under `<batch>/source/` on first use (shared with `--at` and `--with-visuals`).
+4. **Sample** — `count = max(1, round(fps * (end - start)))`, then `extract_keyframes(start, end, count)` — uniform frames across the span (collision-safe per INV-014).
+5. **Dedup** — `dedup_near_identical` (phash Hamming ≤5) collapses a static/slide span to a few distinct frames; a continuous-motion span barely dedups.
+6. **Cap** — if survivors > `_RANGE_FRAME_CAP` (20), keep that many evenly-spread (both endpoints included) — flood-guard for motion spans dedup can't collapse.
+
+**Design basis (test-backed):** 1 fps default covers discrete-state guide content ~fully (measured: a clean screencast span had ~13 distinct states, 1 fps → 100% coverage); matches the video-LLM standard sampling rate. Cap bounds the motion case. Live-verified: motion span → capped at 20; slide span → collapsed to 7.
+
+**Termination:** frame paths (relative to batch, time-ordered) printed, exit 0. OR exit 2 (bad flags/timestamps) / exit 3 (no source URL, bad range, missing manifest).
+
+**Related invariants:** INV-014.

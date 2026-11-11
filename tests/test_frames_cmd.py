@@ -6,9 +6,22 @@ from unittest.mock import patch
 import pytest
 
 from skills.neurolearn.frames_cmd import (
-    parse_timestamp, extract_frames_at, resolve_source_video, crop_image,
+    parse_timestamp, extract_frames_at, extract_frames_range,
+    resolve_source_video, crop_image,
     cached_source_path, download_source_to_cache,
 )
+
+
+def _fake_range_extract(*, video_path, start, end, count, out_dir, video_id):
+    """Stand-in for extract_keyframes: writes `count` distinct fake frames."""
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    ps = []
+    for i in range(count):
+        p = out_dir / f"{video_id}_{i:05d}.jpg"
+        p.write_bytes(b"\x00")
+        ps.append(p)
+    return ps
 
 
 def _make_jpg(path, size=(1000, 500)):
@@ -206,6 +219,74 @@ def test_extract_frames_at_dedups_and_returns_relative_paths(tmp_path):
             assert not relative_path.is_absolute()
             assert relative_path.parts[0] == "frames"
             assert (batch / rel).exists()
+
+
+def test_extract_frames_range_validates_inputs(tmp_path):
+    batch = tmp_path / "batch"
+    _write_manifest(batch)
+    with pytest.raises(ValueError):
+        extract_frames_range(batch, 40.0, 30.0)      # end <= start
+    with pytest.raises(ValueError):
+        extract_frames_range(batch, 30.0, 40.0, fps=0)  # non-positive fps
+
+
+def test_extract_frames_range_samples_dedups_returns_relative(tmp_path):
+    batch = tmp_path / "batch"
+    _write_manifest(batch)
+    (batch / "source").mkdir(parents=True)
+    (batch / "source" / "video_vid123.mp4").write_bytes(b"\x00")
+
+    with patch("skills.neurolearn.vision.frames.extract_keyframes",
+               side_effect=_fake_range_extract) as ex, \
+         patch("skills.neurolearn.vision.frames.dedup_near_identical",
+               side_effect=lambda ps: ps[:3]):
+        out = extract_frames_range(batch, 30.0, 40.0, fps=1.0)
+
+    # 1 fps over a 10s span -> 10 raw frames requested
+    assert ex.call_args.kwargs["count"] == 10
+    # dedup collapsed to 3; paths relative + under frames/
+    assert len(out) == 3
+    for rel in out:
+        assert rel.startswith("frames/")
+        assert (batch / rel).exists()
+
+
+def test_extract_frames_range_caps_motion_flood(tmp_path):
+    """A motion span where dedup collapses nothing must be bounded by `cap`,
+    keeping evenly-spread survivors including both endpoints."""
+    batch = tmp_path / "batch"
+    _write_manifest(batch)
+    (batch / "source").mkdir(parents=True)
+    (batch / "source" / "video_vid123.mp4").write_bytes(b"\x00")
+
+    with patch("skills.neurolearn.vision.frames.extract_keyframes",
+               side_effect=_fake_range_extract), \
+         patch("skills.neurolearn.vision.frames.dedup_near_identical",
+               side_effect=lambda ps: ps):  # dedup keeps everything
+        out = extract_frames_range(batch, 0.0, 20.0, fps=2.0, cap=20)
+
+    assert len(out) == 20                       # 40 raw -> capped to 20
+    assert out[0].endswith("_00000.jpg")        # first endpoint kept
+    assert out[-1].endswith("_00039.jpg")       # last endpoint kept
+
+
+def test_extract_frames_range_bounds_raw_extraction(tmp_path):
+    """A huge span x fps must not extract tens of thousands of raw frames to
+    disk before dedup runs — the raw count is hard-capped."""
+    from skills.neurolearn.frames_cmd import _RANGE_MAX_RAW_FRAMES
+    batch = tmp_path / "batch"
+    _write_manifest(batch)
+    (batch / "source").mkdir(parents=True)
+    (batch / "source" / "video_vid123.mp4").write_bytes(b"\x00")
+
+    with patch("skills.neurolearn.vision.frames.extract_keyframes",
+               side_effect=_fake_range_extract) as ex, \
+         patch("skills.neurolearn.vision.frames.dedup_near_identical",
+               side_effect=lambda ps: ps):
+        # 1h span at 5 fps would naively be 18000 frames
+        extract_frames_range(batch, 0.0, 3600.0, fps=5.0, cap=0)
+
+    assert ex.call_args.kwargs["count"] == _RANGE_MAX_RAW_FRAMES
 
 
 def test_resolve_source_video_cache_matches_ytdlp_naming(tmp_path):

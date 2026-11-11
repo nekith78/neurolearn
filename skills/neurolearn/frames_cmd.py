@@ -20,6 +20,20 @@ from pathlib import Path
 
 _SOURCE_DIRNAME = "source"
 _FRAMES_DIRNAME = "frames"
+# `frames --range` samples a continuous span at a fixed rate then dedups. On
+# discrete-state content (slides/steps) dedup collapses to a handful; on
+# continuous-motion spans (scroll, pan, gameplay) near-nothing dedups, so this
+# cap is a flood-guard that bounds how many frames one range call can hand the
+# agent to read. Measured default: 1 fps covers discrete guide content ~fully;
+# 20 caps the worst motion case at ~a 20s span (test-backed, not arbitrary).
+_RANGE_DEFAULT_FPS = 1.0
+_RANGE_FRAME_CAP = 20
+# Hard ceiling on RAW frames pulled for one range call, independent of the
+# post-dedup output cap. Without it, a huge span × high --fps (e.g. a 1h span
+# at 3 fps) would compute ~10k+ frames and write them all to disk BEFORE dedup
+# ever runs. Extraction is local (no API cost) but this bounds disk + CPU; over
+# a very long span it just samples sparser. 300 ≈ 1 frame / 2s over 10 min.
+_RANGE_MAX_RAW_FRAMES = 300
 # Cache check matches whatever container yt-dlp wrote (it names the file by
 # its own template, not always "video.mp4"), so any media file in source/
 # counts as a cached download — otherwise we'd re-download every call.
@@ -210,6 +224,66 @@ def extract_frames_at(
             )
             out[ts] = [str(p.relative_to(batch_dir)) for p in paths]
     return out
+
+
+def extract_frames_range(
+    batch_dir: Path,
+    start: float,
+    end: float,
+    *,
+    fps: float = _RANGE_DEFAULT_FPS,
+    video_index: int = 0,
+    cfg=None,
+    cap: int = _RANGE_FRAME_CAP,
+) -> list[str]:
+    """Extract frames across a continuous ``[start, end]`` span at ``fps``
+    frames/sec, drop near-duplicates, and cap the count.
+
+    Unlike `extract_frames_at` (discrete before/action/after brackets at chosen
+    points), this samples a whole span — for "walk me through this stretch"
+    moments where the informative visual is spread across time (an animation
+    building, a multi-screen walkthrough) and you don't know the exact second.
+
+    Sampling is content-adaptive: dedup collapses a static/slide span to a few
+    distinct frames; a motion span that dedup can't collapse is bounded by
+    `cap` (evenly-spread survivors kept). Returns frame paths relative to
+    `batch_dir`, in time order.
+    """
+    from skills.neurolearn.vision.frames import (
+        extract_keyframes, dedup_near_identical,
+    )
+
+    if end <= start:
+        raise ValueError(f"range end ({end}) must be greater than start ({start})")
+    if fps <= 0:
+        raise ValueError(f"fps must be positive, got {fps}")
+
+    batch_dir = Path(batch_dir)
+    video_path = resolve_source_video(
+        batch_dir, video_index=video_index, cfg=cfg,
+    )
+    manifest = _load_manifest(batch_dir)
+    video = _pick_video(manifest, video_index)
+    video_id = video.get("video_id") or "video"
+    frames_dir = batch_dir / _FRAMES_DIRNAME
+
+    count = min(max(1, round(fps * (end - start))), _RANGE_MAX_RAW_FRAMES)
+    paths = extract_keyframes(
+        video_path=video_path, start=start, end=end, count=count,
+        out_dir=frames_dir, video_id=video_id,
+    )
+    paths = dedup_near_identical(paths)
+
+    if cap and len(paths) > cap:
+        n = len(paths)
+        if cap == 1:
+            paths = [paths[0]]
+        else:
+            # Keep `cap` evenly-spread survivors including both endpoints.
+            idxs = sorted({round(i * (n - 1) / (cap - 1)) for i in range(cap)})
+            paths = [paths[i] for i in idxs]
+
+    return [str(p.relative_to(batch_dir)) for p in paths]
 
 
 def crop_image(

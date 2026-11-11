@@ -88,6 +88,31 @@ def test_extract_keyframes_asymmetric_sets_pix_fmt(tmp_path):
         assert cmd[idx + 1] == "yuvj420p"
 
 
+def test_extract_keyframes_dense_no_filename_collision(tmp_path):
+    """Dense sampling (>1 frame/sec) maps several frames onto the same integer
+    second. The int-second filename `<id>_<sec>.jpg` would collide and each
+    rename would overwrite the previous, silently returning fewer distinct
+    files than `count`. Every requested frame must land in its own file."""
+    out_dir = tmp_path / "frames"
+    out_dir.mkdir()
+    # 8 frames over a 3s span -> ~2.67/sec -> secs 30,30,30,31,31,31,32,32
+    for i in range(1, 9):
+        (out_dir / f"tmp_{i:04d}.jpg").write_bytes(f"frame{i}".encode())
+
+    with patch("subprocess.run", return_value=MagicMock(returncode=0)):
+        paths = extract_keyframes(
+            video_path=Path("v.mp4"),
+            start=30.0, end=33.0, count=8,
+            out_dir=out_dir, video_id="vid",
+        )
+
+    assert len(paths) == 8, "should return one path per requested frame"
+    distinct = {p.resolve() for p in paths}
+    assert len(distinct) == 8, f"filename collision lost frames: {sorted(p.name for p in paths)}"
+    assert all(p.exists() for p in paths)
+    assert len(list(out_dir.glob("vid_*.jpg"))) == 8
+
+
 def test_extract_keyframes_renames_with_video_id(tmp_path):
     out_dir = tmp_path / "frames"
     out_dir.mkdir()

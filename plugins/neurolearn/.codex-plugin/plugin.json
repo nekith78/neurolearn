@@ -1,0 +1,37 @@
+{
+  "name": "neurolearn",
+  "version": "0.27.0",
+  "description": "Codex adapter for NeuroLearn video transcription, research, subscriptions, frames, and reports.",
+  "author": {
+    "name": "Nikita Khan",
+    "email": "nekith78@gmail.com",
+    "url": "https://github.com/nekith78"
+  },
+  "homepage": "https://github.com/nekith78/neurolearn",
+  "repository": "https://github.com/nekith78/neurolearn",
+  "license": "MIT",
+  "keywords": [
+    "transcription",
+    "video",
+    "youtube",
+    "research",
+    "codex"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "NeuroLearn",
+    "shortDescription": "Transcribe and research video content",
+    "longDescription": "Use NeuroLearn from Codex for transcription, video research, subscriptions, frames, and structured reports.",
+    "developerName": "Nikita Khan",
+    "category": "Productivity",
+    "capabilities": [
+      "Transcription",
+      "Research",
+      "Video"
+    ],
+    "defaultPrompt": [
+      "Transcribe this video and summarize the key points.",
+      "Research recent videos about this topic."
+    ]
+  }
+}

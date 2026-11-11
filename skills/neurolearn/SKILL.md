@@ -286,6 +286,13 @@ yours. Building blocks, in order:
      get a tooltip caught mid-fade.
    - Procedure → call `frames` at **each step's timestamp**
      (`--at 2:14 --at 2:26 --at 2:41 …`) so you get a frame per step.
+   - Continuous span → `neurolearn frames <batch> --range 4:20 4:40`
+     scans the whole stretch at 1 fps (override with `--fps 2` for fast
+     content) and drops near-duplicates. Use it when the informative visual is
+     spread across time and you don't know the exact second — an animation
+     building up, a multi-screen walkthrough. On a static/slide span dedup
+     collapses it to a few distinct frames; a per-call cap guards floods.
+     `--range` and `--at` are mutually exclusive.
    Pure ffmpeg, offline, no API key. Source video (1080p) is downloaded +
    cached under `<batch>/source/` on first use; frames land in
    `<batch>/frames/`.

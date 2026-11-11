@@ -52,6 +52,10 @@ def collect_versions() -> dict[str, str]:
     if m:
         found[".claude-plugin/plugin.json"] = m.group(1)
 
+    m = re.search(r'"version": "([^"]+)"', _read("plugins/neurolearn/.codex-plugin/plugin.json"))
+    if m:
+        found["plugins/neurolearn/.codex-plugin/plugin.json"] = m.group(1)
+
     # marketplace.json has two "version" fields (top-level + nested plugin).
     mk = re.findall(r'"version": "([^"]+)"', _read(".claude-plugin/marketplace.json"))
     for i, v in enumerate(mk, start=1):

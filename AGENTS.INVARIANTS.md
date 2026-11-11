@@ -120,6 +120,13 @@
 - **Source:** memory `feedback_no_anthropic_api` + CLAUDE.md "Anthropic API is NOT a backend" + commits ffb14a0 / 982cf90 / a2e06c8 lineage
 - **Added:** 2026-05-27
 
+## INV-014 — `extract_keyframes` guarantees `count` distinct files (no filename collision)
+- **Where:** skills/neurolearn/vision/frames.py (rename loop after ffmpeg)
+- **Guard:** `while new_path in used: new_path = out_dir / f"{video_id}_{sec:05d}_{dup}.jpg"; dup += 1` — the second-granularity name `<id>_<sec>.jpg` is disambiguated with a `_<n>` suffix ONLY when two frames map to the same integer second (order preserved, no-collision case keeps its original byte-identical name).
+- **Prevents:** Silent frame loss under dense sampling. When sampling denser than 1 frame/sec (e.g. `frames --range --fps 2`, or a detection window shorter than `frames_per_window` seconds), several frames round to the same `int(seconds)`; without the suffix each `tmp.rename(new_path)` overwrites the prior frame and duplicate `Path`s are returned — the caller asks for `count` frames and silently gets fewer (verified: 8 requested over 3s → 3 files). Bug affects both `frames --range` and the auto-pipeline's short windows.
+- **Source:** tests/test_vision_frames.py::test_extract_keyframes_dense_no_filename_collision; empirical repro on real video (2026-07-13)
+- **Added:** 2026-07-13
+
 ---
 
 ## Archived

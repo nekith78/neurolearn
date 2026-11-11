@@ -156,7 +156,7 @@ include = [
 ]
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+testpaths = ["tests", "codex/tests"]
 addopts = "-q --tb=short"
 
 # ============================================================================
@@ -234,3 +234,9 @@ search = '''"version": "{current_version}",
       "source": {{'''
 replace = '''"version": "{new_version}",
       "source": {{'''
+
+# Codex adapter ships the same release as the CLI and Claude plugin.
+[[tool.bumpversion.files]]
+filename = "plugins/neurolearn/.codex-plugin/plugin.json"
+search = '"version": "{current_version}"'
+replace = '"version": "{new_version}"'

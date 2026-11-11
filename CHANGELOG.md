@@ -3,6 +3,40 @@
 All notable changes to neurolearn will be documented here.
 The format is loosely based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.28.0] — 2026-11-11
+
+### Added
+
+- **Codex plugin** with a portable CLI launcher and configuration skill.
+- **YouTube channel studies** with persistent source-linked evidence, offline
+  integrity validation, and scoped temporary-media cleanup.
+- **`frames <batch> --range START END [--fps N]`** — on-demand Pass-2 mode that
+  scans a continuous span instead of discrete `--at` points. Samples at 1 fps
+  by default (override with `--fps`), drops near-duplicates, and caps the count
+  as a flood-guard. For stepping through an animation or a multi-screen
+  walkthrough where the informative visual is spread across time and the exact
+  second is unknown. On a static/slide span dedup collapses it to a few distinct
+  frames; `--range` and `--at` are mutually exclusive. Default 1 fps and the
+  cap are measurement-backed (1 fps covers discrete guide content ~fully).
+
+### Fixed
+
+- Channel-study cleanup preserves retained files referenced through filesystem
+  case aliases, and rejects duplicate ledger entries for the same file.
+- The Codex launcher verifies project identity and honors an explicit source
+  checkout before searching parent directories.
+- Codex regression tests run in the default suite with portable fixture paths.
+- Explicit `--language` overrides now reach the transcription pipeline.
+- The Codex plugin manifest now participates in the common release-version
+  bump and pre-push consistency check.
+- **`extract_keyframes` no longer silently drops frames under dense sampling.**
+  The `<id>_<sec>.jpg` filename used integer-second granularity, so sampling
+  denser than 1 frame/sec (now reachable via `--range --fps 2`, and latently a
+  detection window shorter than `frames_per_window` seconds) mapped several
+  frames onto the same name and each overwrote the prior — the caller asked for
+  `count` frames and silently got fewer. Colliding names now get a `_<n>`
+  suffix; the common ≤1/sec case keeps its original names.
+
 ## [0.27.0] — 2026-10-29
 
 ### Added

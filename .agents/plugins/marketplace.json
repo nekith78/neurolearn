@@ -1,0 +1,20 @@
+{
+  "name": "neurolearn-local",
+  "interface": {
+    "displayName": "NeuroLearn Local"
+  },
+  "plugins": [
+    {
+      "name": "neurolearn",
+      "source": {
+        "source": "local",
+        "path": "./plugins/neurolearn"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}
