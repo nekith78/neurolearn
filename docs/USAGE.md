@@ -163,6 +163,17 @@ neurolearn batch https://youtube.com/playlist?list=PLxxx --limit 5 \
 one video fails, the remaining 9 still run). Stop on first failure with
 `--fail-fast`.
 
+A YouTube channel URL such as `https://www.youtube.com/@jawed` selects
+Ordinary Videos (the channel's `/videos` tab). Use an explicit `/shorts`
+or `/streams` URL to select that publication type.
+
+With a YouTube Data API key, channel and playlist entries carry publication
+dates. Both ends of the `--since` and `--until` window are inclusive.
+`--limit` bounds the entries examined per source, so increase it when
+looking for older uploads. If the key is missing, its quota is exhausted,
+or the API is unavailable, NeuroLearn uses yt-dlp. If yt-dlp omits dates,
+the batch keeps those entries and prints one warning about the date filter.
+
 ### Output layout
 
 ```
@@ -202,7 +213,7 @@ neurolearn batch --search "transformer architecture" \
 | `--since YYYY-MM-DD` | Only videos uploaded on or after this date |
 | `--until YYYY-MM-DD` | Only videos uploaded on or before this date |
 | `--min-duration N` / `--max-duration N` | Filter by duration in seconds |
-| `--no-shorts` | Skip YouTube Shorts (≤60s) |
+| `--no-shorts` | Skip YouTube Shorts. When the publication type is unknown, use the duration cutoff of 60 seconds. |
 | `--skip-existing` | Don't re-transcribe a video if `_<video_id>.txt` already exists |
 | `--workers N` | Process N videos in parallel; incompatible with `--fail-fast` |
 | `--search "query"` | YouTube search via yt-dlp (no API key needed) |
@@ -306,7 +317,7 @@ chat-side LLM does the analysis. Force-skip with `--no-analyze`.
 neurolearn subscribes add --group ai
 
 # Or inline
-neurolearn subscribes add https://www.youtube.com/@anthropic-ai --group ai
+neurolearn subscribes add @anthropic-ai --group ai
 neurolearn subscribes add https://www.youtube.com/@lexfridman --group philosophy
 
 # List
@@ -335,16 +346,13 @@ hand-edit; CLI mutations preserve your comments via `tomlkit`.
 
 ### YouTube content modes (Shorts handling) — v0.17+
 
-By default, `subscribes update` fetches full uploads from the channel's
-`/videos` tab. **The `/videos` tab excludes Shorts** (and livestreams),
-so channels that publish nothing but Shorts (or paused full uploads)
-look silent. v0.17 adds a per-channel `mode` field that tells
-`subscribes update` which content streams to pull.
-
-> **v0.20:** the YouTube video source switched from the RSS feed to the
-> `/videos` tab. RSS mixed in livestreams/premieres (and was empty for
-> some channels), so it could surface a stream as "the latest video".
-> The `--no-rss` flag is now a deprecated no-op.
+`subscribes add` accepts a YouTube @handle, channel URL, or video URL.
+With a YouTube Data API key it resolves these to the channel that owns
+the uploads. `subscribes update` reads the dated uploads for the selected
+mode and fetches details for the videos in the update window. Without a
+usable key, the CLI resolves the channel with yt-dlp and checks dates
+from the channel tabs. Both paths follow the same modes and Shorts cap.
+The `--no-rss` flag is a deprecated no-op.
 
 ```bash
 # Set the mode when adding a channel (YouTube only)
