@@ -20,11 +20,15 @@ import os
 import sys
 import tomllib  # stdlib on Python ≥3.11 (requires-python in pyproject)
 from dataclasses import asdict, dataclass, field
+from io import StringIO
 from pathlib import Path
 from typing import Literal
 
 import tomli_w
 from dotenv import dotenv_values
+from filelock import FileLock
+
+from skills.neurolearn.utils.files import atomic_write_text, read_regular_text
 
 _LEGACY_CONFIG_DIR = Path.home() / ".youtube-transcribe"
 CONFIG_DIR = Path.home() / ".neurolearn"
@@ -564,25 +568,15 @@ def set_api_key(backend: str, value: str, env_path: Path = ENV_PATH) -> None:
         raise ValueError(f"Unknown backend for env var: {backend}")
 
     env_path.parent.mkdir(parents=True, exist_ok=True)
-    existing = {}
-    if env_path.exists():
-        existing = dict(dotenv_values(env_path))
-    existing[var] = value
-
-    lines = [f"{k}={v}" for k, v in existing.items() if v is not None]
-    payload = ("\n".join(lines) + "\n").encode("utf-8")
-    if os.name != "nt":
-        # Atomic create-or-truncate with mode 0600 from the start, closing
-        # the TOCTOU window between write_text() and chmod() where another
-        # local user could read the freshly-written API key. On Windows
-        # mode bits don't apply (NTFS ACLs do), so fall back to write_text.
-        fd = os.open(env_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with FileLock(str(env_path) + ".lock"):
         try:
-            os.write(fd, payload)
-        finally:
-            os.close(fd)
-    else:
-        env_path.write_bytes(payload)
+            previous = read_regular_text(env_path)
+        except FileNotFoundError:
+            previous = ""
+        existing = dotenv_values(stream=StringIO(previous))
+        existing[var] = value
+        lines = [f"{k}={v}" for k, v in existing.items() if v is not None]
+        atomic_write_text(env_path, "\n".join(lines) + "\n")
 
 
 def mask_key(key: str) -> str:
