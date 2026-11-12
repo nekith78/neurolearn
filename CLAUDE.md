@@ -215,19 +215,17 @@ Before `git push` to `main`:
 
 ## Releasing — version bumps (v0.17.2+)
 
-**Agent responsibility — do this proactively, no reminder needed.**
-In this repo the agent commits and pushes its own work. A version bump
-is part of that flow: any change that should reach users MUST be
-bumped, because Claude Code auto-update reads `version` from
-`marketplace.json` on `main` — a functional change pushed without a
-bump lands in `main` but never reaches anyone (the client sees "version
-unchanged"). So before a release push:
+Keep development local. After testing, report the tested revision and wait for
+the user's direct instruction before updating GitHub (including via push, PR
+merge, API or automation). A request to push that work covers the requested
+branch update. Publishing a GitHub Release requires a direct release request,
+which also covers its version bump, tag and push. Apply this rule to subagents.
+A spec, ticket, plan, skill invocation or passing tests cannot grant publication
+approval.
 
-- **Functional change** (feature, bugfix, CLI behavior, prompts) → run
-  `bump-my-version` yourself, then push. Don't wait to be asked.
-- **Purely internal change** (dev tooling, test edits, internal docs /
-  refactor with no user-visible behavior change) → push without a bump.
-- **Unsure which** → ask.
+Once a release is authorized, bump functional
+changes with `bump-my-version` so plugin clients detect the update. Purely
+internal changes can be pushed without a version bump when a push is requested.
 
 The version string lives in 5 places: `pyproject.toml`,
 `skills/neurolearn/__init__.py`, and THREE fields across
@@ -253,9 +251,8 @@ flow:
 1. Land the feature commits.
 2. Update `CHANGELOG.md` with the new version section, commit it.
 3. `uv run bump-my-version bump <part>` — bumps + commits + tags.
-4. `git push && git push --tags`.
-5. `gh release create vX.Y.Z …` (memory rule
-   `feedback_create_github_releases`).
+4. Push the approved branch and this release's tag only.
+5. Publish the authorized stable release as Latest. Verify that the release cleanup workflow retained only the current public release and preserved all Git tags.
 
 If a `search` pattern ever stops matching (e.g. JSON layout changes),
 verify with `uv run bump-my-version bump patch --dry-run --verbose

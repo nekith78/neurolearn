@@ -1,0 +1,33 @@
+name: Retain latest release
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: retain-latest-release
+  cancel-in-progress: false
+
+jobs:
+  cleanup:
+    if: ${{ !github.event.release.prerelease }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Remove older public release pages
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_ID: ${{ github.event.release.id }}
+        run: |
+          set -euo pipefail
+          api="repos/$GH_REPO/releases"
+          if [[ "$(gh api "$api/latest" --jq '.id')" != "$RELEASE_ID" ]]; then exit 0; fi
+          published=$(gh api "$api/$RELEASE_ID" --jq '.published_at')
+          gh api --paginate "$api" | jq -r --arg cutoff "$published" --argjson current "$RELEASE_ID" \
+            '.[] | select(.draft == false and .id != $current and .published_at <= $cutoff) | .id' > older-releases
+          while read -r id; do
+            if [[ "$(gh api "$api/latest" --jq '.id')" != "$RELEASE_ID" ]]; then exit 0; fi
+            gh api --method DELETE "$api/$id"
+          done < older-releases

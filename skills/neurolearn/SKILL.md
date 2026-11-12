@@ -23,6 +23,8 @@ description: |
 
 # neurolearn Skill
 
+When asked to interpret or summarize audience comments, follow the [comm-analyze-output skill](../comm-analyze-output/SKILL.md).
+
 > **For deep mechanics** (full CLI reference, architecture, failure modes
 > per backend) read `docs/agent-reference.md` inside the plugin install
 > dir. This SKILL.md covers triggers and quick decisions; the reference

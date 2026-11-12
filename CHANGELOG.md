@@ -3,6 +3,11 @@
 All notable changes to neurolearn will be documented here.
 The format is loosely based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.32.0] — 2026-11-13
+
+- Added the `comm-analyze-output` skill for YouTube comment analysis. It reviews the fetched sample, counts viewer comments by topic, and supports each summary with quotes and links to the original comments when available.
+- Updated macOS CI to the macOS 15 runner. Publishing an authorized stable release now removes older public release pages while preserving Git tags.
+
 ## [0.31.0] — 2026-11-12
 
 ### Added

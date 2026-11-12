@@ -5,6 +5,8 @@ description: "Transcribe or analyze videos from YouTube, Instagram, TikTok or lo
 
 # NeuroLearn for Codex
 
+When asked to interpret or summarize audience comments, follow the [comm-analyze-output skill](../comm-analyze-output/SKILL.md).
+
 Use the NeuroLearn project shipped beside this adapter without relying on a
 global installation or Claude-specific environment variables.
 

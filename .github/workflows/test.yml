@@ -13,9 +13,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-14, windows-latest]
+        os: [ubuntu-latest, macos-15, windows-latest]
         python: ["3.11", "3.12", "3.13"]
-        # macos-14 is arm64 (Apple Silicon) on GitHub-hosted runners — exercises the mlx-whisper marker path
+        # macos-15 is arm64 (Apple Silicon) on GitHub-hosted runners — exercises the mlx-whisper marker path
         # 3.10 dropped: onnxruntime 1.24+ requires cp311+ (transitive via faster-whisper)
     steps:
       - uses: actions/checkout@v4
@@ -33,7 +33,7 @@ jobs:
 
       - name: Run unit tests (e2e smoke skipped without RUN_E2E_SMOKE)
         env:
-          # macOS-14 runners are M-series with limited GPU memory.
+          # macOS runners are M-series with limited GPU memory.
           # sentence-transformers loads the multilingual MiniLM model on MPS
           # by default; on a constrained runner that can OOM. Disable the
           # upper-limit watermark and allow CPU fallback for unsupported ops.
