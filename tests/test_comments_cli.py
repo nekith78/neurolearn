@@ -197,3 +197,22 @@ def test_disappearing_reply_thread_keeps_sample_and_discloses_missing_replies(mo
     data = json.loads((tmp_path / f"{VIDEO_ID}.comments.json").read_text("utf-8"))
     assert data["source"] == "api" and data["replies_mode"] == "partial"
     assert data["comments"][0]["id"] == "A" and data["notes"]
+
+
+def test_explicit_count_of_100_continues_after_a_short_page(monkeypatch, tmp_path):
+    sizes = []
+    def transport(url, params, *_):
+        if url.endswith("/videos"):
+            return 200, {"items": []}
+        sizes.append(params["maxResults"])
+        page = {"items": [{"snippet": {"topLevelComment": _comment(str(len(sizes)), "a", "UCa", 1, "text"),
+                                       "totalReplyCount": 0}}]}
+        if "pageToken" not in params:
+            page["nextPageToken"] = "second"
+        return 200, page
+
+    monkeypatch.setenv("YOUTUBE_API_KEY", "fake-key")
+    monkeypatch.setattr(youtube_api, "_http_get", transport)
+    result = CliRunner().invoke(cli, ["comments", URL, "--comment-count", "100", "--output-dir", str(tmp_path)])
+    assert result.exit_code == 0, result.output
+    assert sizes == [100, 99]
