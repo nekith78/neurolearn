@@ -39,6 +39,11 @@ class SearchCandidate:
     duration_sec: int | None
     upload_date: date | None
     source_language: str  # which language produced this result
+    statistics: dict[str, int | None] | None = None
+
+    @property
+    def view_count(self) -> int | None:
+        return self.statistics["view_count"] if self.statistics is not None else None
 
 
 # Reverse-engineered from YouTube's search UI. Each entry: (days, sp_code).
@@ -73,7 +78,7 @@ def _build_search_url(query: str, sp_code: str | None) -> str:
 
 def search_multi_language(
     queries: dict[str, str], *, limit: int, days: int | None = None,
-    window: DateWindow | None = None,
+    window: DateWindow | None = None, sort_by_views: bool = False,
 ) -> list[SearchCandidate]:
     """Search each language and keep the first occurrence of each video."""
     if window is None and days and days > 0:
@@ -86,6 +91,7 @@ def search_multi_language(
         try:
             videos = youtube_api.search_videos(
                 query.strip(), language=lang, limit=limit, window=window,
+                sort_by_views=sort_by_views,
             )
         except youtube_api.YouTubeApiError as error:
             fallback_notice_for_run().report(error)
@@ -101,7 +107,7 @@ def search_multi_language(
                 title=video.title, channel=video.channel_title,
                 duration_sec=video.duration_sec,
                 upload_date=video.published_at.date() if video.published_at else None,
-                source_language=lang,
+                source_language=lang, statistics=video.statistics,
             )
     return list(candidates.values())
 

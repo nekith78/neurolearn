@@ -543,14 +543,19 @@ neurolearn batch --from-file urls.txt [flags]
 
 ```
 neurolearn research "<query>" [--languages ru,en] [--days 30] [--limit 20] \
-    [--match "substring"] [--filter "LLM pre-screening question"] \
+    [--sort-by-views] [--min-views N] [--match "substring"] [--filter "LLM pre-screening question"] \
     [--backend subtitles] [--no-analyze] [--yes] [--output-dir <path>]
 ```
 
 **Default behavior:** search YouTube via the user's query (translated to each language
-in `--languages` if multi-lang), filter by date (`--days N` → uses YouTube's built-in
-`sp=` filter for 1d/1w/1mo/1y presets, falls back to client-side refine), dedupe by
+in `--languages` if multi-lang), filter by date (yt-dlp fallback uses YouTube's
+1d/1w/1mo/1y presets with client-side refinement for intermediate windows), dedupe by
 video_id, transcribe with the chosen backend, write to `<output-dir>/research_<auto-slug>/`.
+
+The YouTube Data API searches the exact date window in relevance order and supplies
+duration, views, likes, and comments for the candidate picker. With a YouTube key,
+use `--sort-by-views` for most viewed first or `--min-views N` for a minimum known
+view count. Unknown counts sort last and cannot satisfy a minimum.
 
 **Critical for Claude:** ALWAYS pass `--no-analyze` when invoking `research` from chat.
 You are the LLM that will analyze the transcripts — there is no point routing them

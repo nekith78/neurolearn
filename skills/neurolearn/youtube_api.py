@@ -292,6 +292,14 @@ class VideoDetails:
     comment_count: int | None
     channel_title: str | None = None
 
+    @property
+    def statistics(self) -> dict[str, int | None]:
+        return {
+            "view_count": self.view_count,
+            "like_count": self.like_count,
+            "comment_count": self.comment_count,
+        }
+
 
 _DURATION = re.compile(
     r"P(?:(?P<days>[0-9]+)D)?(?:T(?=[0-9])(?:(?P<hours>[0-9]+)H)?"
@@ -362,12 +370,14 @@ def fetch_video_details(
 
 def search_videos(
     query: str, *, language: str, limit: int, window: DateWindow | None,
+    sort_by_views: bool = False,
 ) -> list[VideoDetails]:
-    """Search one relevance-ordered page, then hydrate its IDs in one details call."""
+    """Search one page, then hydrate its IDs in one details call."""
     if limit <= 0:
         return []
     params = {
-        "part": "snippet", "type": "video", "order": "relevance", "q": query,
+        "part": "snippet", "type": "video", "q": query,
+        "order": "viewCount" if sort_by_views else "relevance",
         "relevanceLanguage": language, "maxResults": min(limit, 50),
         "fields": "items(id/videoId)",
     }

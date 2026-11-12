@@ -639,6 +639,7 @@ def _build_video_status(
         quality=getattr(result, "quality", None),
         # === v0.7: multi-lang attribution from research/source ===
         source_language=getattr(target, "source_language", None),
+        statistics=target.statistics,
         # === v0.10: forward the budget tracker into manifest.json ===
         budget=getattr(result, "budget", None),
     )
@@ -664,17 +665,22 @@ class _CommentAttachments:
         )
         self.reported_skip = False
 
+    def _has_youtube_source(self, url: str) -> bool:
+        if _YOUTUBE_VIDEO_HOST.match(url):
+            return True
+        if not self.reported_skip:
+            click.echo("Skipping comments for sources without a YouTube video URL.", err=True)
+            self.reported_skip = True
+        return False
+
     def fetch(
         self, url: str | None, video_id: str | None, transcript: Path,
     ) -> tuple[Path, Path] | None:
         from skills.neurolearn import comments
 
-        if not url or not _YOUTUBE_VIDEO_HOST.match(url):
-            if not self.reported_skip:
-                click.echo("Skipping comments for sources without a YouTube video URL.", err=True)
-                self.reported_skip = True
+        if not self._has_youtube_source(url or ""):
             return None
-        video_id = video_id or extract_youtube_video_id(url)
+        video_id = video_id or extract_youtube_video_id(url or "")
         if not video_id:
             click.echo(f"Could not identify the video for comments: {url}", err=True)
             return None
@@ -690,6 +696,8 @@ class _CommentAttachments:
         return None
 
     def for_analysis(self, video: VideoSource) -> None:
+        if video.url and not self._has_youtube_source(video.url):
+            return
         transcript = video.transcript_path
         path = transcript.with_suffix(".comments.txt")
         if not path.is_file():
@@ -719,7 +727,7 @@ def _attach_youtube_statistics(
     """Enrich successful YouTube results in one batched lookup when available."""
     youtube_videos = [
         (video.video_id, video) for video in videos
-        if video.video_id and _YOUTUBE_VIDEO_HOST.match(video.url)
+        if video.statistics is None and video.video_id and _YOUTUBE_VIDEO_HOST.match(video.url)
     ]
     details = dict(known_details or {})
     missing = [video_id for video_id, _ in youtube_videos if video_id not in details]
@@ -731,11 +739,7 @@ def _attach_youtube_statistics(
     for video_id, video in youtube_videos:
         detail = details.get(video_id)
         if detail is not None:
-            video.statistics = {
-                "view_count": detail.view_count,
-                "like_count": detail.like_count,
-                "comment_count": detail.comment_count,
-            }
+            video.statistics = detail.statistics
 
 
 def _ensure_config_or_skip_wizard() -> None:
@@ -3119,6 +3123,10 @@ def analyze_cmd(
               help="Window end YYYY-MM-DD.")
 @click.option("--limit", "limit_opt", type=int, default=20, show_default=True,
               help="Videos to take per language (YouTube Data API: up to 50 per query).")
+@click.option("--sort-by-views", is_flag=True,
+              help="Most viewed first, unknown counts last. Requires a YouTube API key.")
+@click.option("--min-views", type=click.IntRange(min=0),
+              help="Keep videos with at least this many known views. Requires a YouTube API key.")
 @click.option("--match", "match_opt", default=None,
               help="Case-insensitive substring filter on title.")
 @click.option("--filter", "filter_opt", default=None,
@@ -3167,7 +3175,7 @@ def analyze_cmd(
 )
 def research_cmd(
     query, prompt_inline, prompt_file, languages_csv, query_lang_opt,
-    translate_backend_opt,
+    translate_backend_opt, sort_by_views, min_views,
     days_opt, since_opt, until_opt, limit_opt, match_opt, filter_opt,
     filter_backend_opt, in_subscribes, group_opt, yes, no_analyze,
     analyze_backend_opt, ollama_model_opt, ollama_host_opt, no_stdout_opt,
@@ -3243,7 +3251,7 @@ def research_cmd(
             languages=languages,
             source_lang_hint=query_lang_opt,
             days=days_arg, since=since_d, until=until_d,
-            limit=limit_opt,
+            limit=limit_opt, sort_by_views=sort_by_views, min_views=min_views,
             match=match_opt, filter_text=filter_opt,
             in_subscribes=in_subscribes, group=group_opt,
             yes=yes, no_analyze=effective_no_analyze,
