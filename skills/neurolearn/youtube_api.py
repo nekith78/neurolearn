@@ -318,6 +318,14 @@ class VideoDetails:
     like_count: int | None
     comment_count: int | None
 
+    @property
+    def statistics(self) -> dict[str, int | None]:
+        return {
+            "view_count": self.view_count,
+            "like_count": self.like_count,
+            "comment_count": self.comment_count,
+        }
+
 
 _DURATION = re.compile(
     r"P(?:(?P<days>[0-9]+)D)?(?:T(?=[0-9])(?:(?P<hours>[0-9]+)H)?"

@@ -52,6 +52,7 @@ class ResolvedTarget:
     # None for everything else. Lands in manifest.json for downstream filtering.
     source_language: str | None = None
     is_short: bool | None = None  # Known for typed YouTube upload playlists.
+    statistics: dict[str, int | None] | None = None
 
 
 @dataclass

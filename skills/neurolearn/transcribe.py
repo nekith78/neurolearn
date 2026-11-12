@@ -642,6 +642,7 @@ def _build_video_status(
     idx: int, target: ResolvedTarget, result, files: dict
 ) -> BatchVideoStatus:
     """Convert a successful pipeline result into a BatchVideoStatus manifest entry."""
+    statistics = getattr(target, "statistics", None)
     return BatchVideoStatus(
         index=idx,
         url=target.url,
@@ -664,6 +665,7 @@ def _build_video_status(
         quality=getattr(result, "quality", None),
         # === v0.7: multi-lang attribution from research/source ===
         source_language=getattr(target, "source_language", None),
+        statistics=statistics if isinstance(statistics, dict) else None,
         # === v0.10: forward the budget tracker into manifest.json ===
         budget=getattr(result, "budget", None),
     )
@@ -753,7 +755,7 @@ def _attach_youtube_statistics(
     """Enrich successful YouTube results in one batched lookup when available."""
     youtube_videos = [
         (video.video_id, video) for video in videos
-        if video.video_id and _YOUTUBE_VIDEO_HOST.match(video.url)
+        if video.statistics is None and video.video_id and _YOUTUBE_VIDEO_HOST.match(video.url)
     ]
     details = dict(known_details or {})
     missing = [video_id for video_id, _ in youtube_videos if video_id not in details]
@@ -765,11 +767,7 @@ def _attach_youtube_statistics(
     for video_id, video in youtube_videos:
         detail = details.get(video_id)
         if detail is not None:
-            video.statistics = {
-                "view_count": detail.view_count,
-                "like_count": detail.like_count,
-                "comment_count": detail.comment_count,
-            }
+            video.statistics = detail.statistics
 
 
 def _ensure_config_or_skip_wizard() -> None:
