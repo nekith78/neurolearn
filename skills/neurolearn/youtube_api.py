@@ -15,10 +15,10 @@ type, never from message strings.
 from __future__ import annotations
 
 import re
-from collections.abc import Iterable
+from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 from urllib.parse import parse_qs, unquote, urlsplit
 
 from skills.neurolearn import config as _config
@@ -395,3 +395,95 @@ def search_videos(
         raise TransientFailure("Unexpected search.list response") from None
     details = fetch_video_details(ids)
     return [details[vid] for vid in ids if vid in details]
+
+
+PublicationType = Literal["all", "videos", "shorts", "streams"]
+_UPLOAD_PREFIX = {"all": "UU", "videos": "UULF", "shorts": "UUSH", "streams": "UULV"}
+
+
+@dataclass(frozen=True)
+class PlaylistVideo:
+    video_id: str
+    title: str | None
+    published_at: datetime
+    channel_id: str | None
+    channel_title: str | None
+
+
+def iter_playlist_videos(
+    playlist_id: str, *, limit: int | None = None,
+) -> Iterator[PlaylistVideo]:
+    """Read a playlist in its own order, using the video's original publish time."""
+    params = {
+        "part": "snippet,contentDetails",
+        "playlistId": playlist_id,
+        "fields": ("nextPageToken,items(contentDetails(videoId,videoPublishedAt),"
+                   "snippet(title,videoOwnerChannelId,videoOwnerChannelTitle))"),
+    }
+    seen_tokens: set[str] = set()
+    remaining = limit
+    while remaining is None or remaining > 0:
+        page = api_get("playlistItems", {
+            **params, "maxResults": 50 if remaining is None else min(50, remaining),
+        })
+        try:
+            items = page["items"]
+            if not isinstance(items, list):
+                raise ValueError
+            for item in items:
+                content, snippet = item["contentDetails"], item["snippet"]
+                published = content.get("videoPublishedAt")
+                # Deleted/private placeholders have no public video or publish date.
+                if not published and not snippet.get("videoOwnerChannelId"):
+                    continue
+                yield PlaylistVideo(
+                    content["videoId"], snippet.get("title"), datetime.fromisoformat(published),
+                    snippet.get("videoOwnerChannelId"), snippet.get("videoOwnerChannelTitle"),
+                )
+                if remaining is not None:
+                    remaining -= 1
+                    if remaining == 0:
+                        return
+        except (AttributeError, KeyError, TypeError, ValueError):
+            raise TransientFailure("Unexpected playlistItems.list response") from None
+        token = page.get("nextPageToken")
+        if not token:
+            return
+        if not isinstance(token, str) or token in seen_tokens:
+            raise TransientFailure("Invalid playlistItems.list page token")
+        seen_tokens.add(token)
+        params["pageToken"] = token
+
+
+def _uploads_playlist_id(channel_id: str, publication_type: PublicationType) -> str:
+    if not channel_id.startswith("UC"):
+        raise TransientFailure("Invalid uploads channel id")
+    return _UPLOAD_PREFIX[publication_type] + channel_id[2:]
+
+
+def is_channel_short(channel_id: str, video_id: str) -> bool:
+    """Check membership directly when an arbitrary playlist mixes formats."""
+    try:
+        page = api_get("playlistItems", {
+            "part": "id", "fields": "items(id)", "videoId": video_id,
+            "playlistId": _uploads_playlist_id(channel_id, "shorts"), "maxResults": 1,
+        })
+    except NotFound as exc:
+        if exc.reason == "playlistNotFound":
+            return False
+        raise
+    if not isinstance(page.get("items"), list):
+        raise TransientFailure("Unexpected playlistItems.list response")
+    return bool(page["items"])
+
+
+def iter_channel_uploads(
+    channel_id: str, publication_type: PublicationType, *, limit: int | None = None,
+) -> Iterator[PlaylistVideo]:
+    """List newest uploads from YouTube's requested publication-type playlist."""
+    playlist_id = _uploads_playlist_id(channel_id, publication_type)
+    try:
+        yield from iter_playlist_videos(playlist_id, limit=limit)
+    except NotFound as exc:
+        if publication_type == "all" or exc.reason != "playlistNotFound":
+            raise
