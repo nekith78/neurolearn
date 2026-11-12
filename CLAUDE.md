@@ -295,3 +295,17 @@ so `brew install pango cairo` libs are picked up automatically.
 Chunking videos > 2h, PyPI publication, Web UI revival (Gradio tabs
 re-do). These are tracked in README `## Roadmap`; add new requests
 there before coding.
+
+## Agent skills
+
+### Issue tracker
+
+Issues and specs live as local markdown files under `.scratch/<feature-slug>/` (not GitHub Issues — the repo is public). See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Default five-role vocabulary (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`), recorded as a `Status:` line in each issue file. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context: one `GLOSSARY.md` and `docs/adr/` at the repo root. See `docs/agents/domain.md`.
