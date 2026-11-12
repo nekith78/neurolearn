@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 from typing import Literal
+from urllib.parse import parse_qs, urlsplit
 
 
 class DownloadError(Exception):
@@ -25,10 +26,6 @@ class DownloadError(Exception):
 
 
 _URL_RE = re.compile(r"^https?://", re.IGNORECASE)
-_YOUTUBE_RE = re.compile(
-    r"^(?:https?://)?(?:www\.)?(?:youtube\.com/(?:watch\?v=|shorts/|embed/)|youtu\.be/)([\w\-]+)",
-    re.IGNORECASE,
-)
 _INSTAGRAM_RE = re.compile(
     r"^(?:https?://)?(?:www\.)?instagram\.com/(?:p|reel|tv|reels)/([\w\-]+)",
     re.IGNORECASE,
@@ -40,7 +37,7 @@ def is_url(s: str) -> bool:
 
 
 def is_youtube_url(s: str) -> bool:
-    return bool(_YOUTUBE_RE.match(s))
+    return extract_youtube_video_id(s) is not None
 
 
 def is_instagram_url(s: str) -> bool:
@@ -48,8 +45,26 @@ def is_instagram_url(s: str) -> bool:
 
 
 def extract_youtube_video_id(s: str) -> str | None:
-    m = _YOUTUBE_RE.match(s)
-    return m.group(1) if m else None
+    try:
+        url = urlsplit(s if "://" in s else "https://" + s)
+        host = url.hostname or ""
+    except ValueError:
+        return None
+    if url.scheme not in ("http", "https"):
+        return None
+    parts = url.path.strip("/").split("/")
+    if host in ("youtu.be", "www.youtu.be") and len(parts) == 1:
+        candidate = parts[0]
+    elif ("." + host).endswith((".youtube.com", ".youtube-nocookie.com")):
+        if parts == ["watch"]:
+            candidate = parse_qs(url.query).get("v", [""])[0]
+        elif len(parts) == 2 and parts[0] in ("live", "shorts", "embed"):
+            candidate = parts[1]
+        else:
+            return None
+    else:
+        return None
+    return candidate if re.fullmatch(r"[A-Za-z0-9_-]+", candidate) else None
 
 
 def extract_instagram_shortcode(s: str) -> str | None:
