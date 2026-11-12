@@ -16,6 +16,7 @@ dependencies = [
     # tomllib is stdlib on Python ≥3.11 — no `tomli` shim needed since requires-python = ">=3.11"
     "tomli-w>=1.0",
     "python-dotenv>=1.0",
+    "filelock>=3.29",
     "packaging>=23",
     # Upstream extras supply matching EJS scripts and a supported Deno runtime
     # for YouTube challenges, including on Windows and Linux.
