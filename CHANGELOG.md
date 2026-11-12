@@ -28,6 +28,20 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/).
   configured publication types and retrieves details for matching videos.
   Both commands fall back to yt-dlp when the API is unavailable.
 
+## [0.29.0] — 2026-11-12
+
+### Added
+
+- Optional YouTube Data API v3 setup for video metadata. Register the key
+  with `config set-key youtube --from-file <path>`, check it with
+  `config test youtube`, and inspect local daily quota usage with `doctor`.
+- `comments <URL>` and `--with-comments` on `transcribe`, `batch`, and
+  `analyze` provide compact text and structured JSON samples. Choose the
+  top-level count, ordering, full replies and pinned or creator-heart
+  markers. Comments can also be fetched through yt-dlp without an API key.
+- Available YouTube view, like and comment counts are recorded automatically
+  for transcriptions and batches when a metadata key is configured.
+
 ## [0.28.0] — 2026-11-11
 
 ### Added
