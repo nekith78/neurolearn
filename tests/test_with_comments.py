@@ -140,3 +140,33 @@ def test_loose_folder_never_selects_comment_sidecars_as_transcripts(invoke, tmp_
     assert all(prompt.count("### [") == 1 for prompt in prompts)
     assert "From a viewer." not in prompts[0]
     assert prompts[1].count("From a viewer.") == 1
+
+
+@pytest.mark.parametrize("command", ["transcribe", "batch"])
+def test_comment_write_failure_preserves_successful_transcript(command, invoke, tmp_path, monkeypatch):
+    monkeypatch.setattr(comments, "fetch_comments", sample)
+
+    def read_only_directory(*args):
+        raise OSError("read-only destination")
+
+    monkeypatch.setattr(comments, "write_comments", read_only_directory)
+    output = invoke(command, URL, "--output-dir", tmp_path, "--preset", "eco", "--with-comments")
+    assert "read-only destination" in output
+    manifest, = tmp_path.rglob("manifest.json")
+    video, = json.loads(manifest.read_text())["videos"]
+    assert video["status"] == "ok" and "comments" not in video["files"]
+    assert "A talk" in (manifest.parent / video["files"]["txt"]).read_text()
+
+
+def test_parallel_batch_shares_fallback_notice(invoke, tmp_path, monkeypatch):
+    from contextlib import nullcontext
+    from unittest.mock import Mock
+
+    ydl = Mock()
+    ydl.extract_info.side_effect = lambda *a, **kw: {"comments": [], "comment_count": 0}
+    monkeypatch.setattr(comments, "create_ytdlp", lambda options: nullcontext(ydl))
+    output = invoke("batch", URL, "https://youtu.be/12345678901", "--output-dir", tmp_path,
+                    "--preset", "eco", "--workers", "2", "--with-comments")
+    assert output.count("Falling back to yt-dlp") == 1
+    compact = list(tmp_path.rglob("*.comments.txt"))
+    assert len(compact) == 2 and all("source=yt-dlp" in path.read_text() for path in compact)
