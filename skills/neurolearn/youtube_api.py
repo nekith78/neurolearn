@@ -103,7 +103,8 @@ def _error_details(body: Any) -> tuple[str, str]:
     err = body["error"]
     reasons = [
         str(item["reason"])
-        for item in list(err.get("errors") or []) + list(err.get("details") or [])
+        for entries in (err.get("errors"), err.get("details")) if isinstance(entries, list)
+        for item in entries
         if isinstance(item, dict) and item.get("reason")
     ]
     # A rejected key arrives as a generic `badRequest` in `errors` with the
