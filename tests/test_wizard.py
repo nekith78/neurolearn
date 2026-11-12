@@ -116,6 +116,18 @@ def test_wizard_finishes_if_optional_youtube_key_file_is_unreadable(tmp_path, mo
     assert not (tmp_path / ".env").exists()
 
 
+def test_offline_wizard_preserves_unreadable_existing_key_store(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr("skills.neurolearn.utils.po_token.status",
+                        lambda: {"po_token_can_generate": True})
+    store = tmp_path / ".env"
+    original = b"EXISTING_KEY=\xff\n"
+    store.write_bytes(original)
+    cfg = _run_wizard(tmp_path, monkeypatch, ["3", "2", "4", "1", "", "1"])
+    assert cfg.onboarding_complete
+    assert store.read_bytes() == original
+    assert "Skipping optional YouTube key" in capsys.readouterr().out
+
+
 # ---------------------------------------------------------------------------
 # Smart path with Groq fallback + Groq vision + Groq analyze
 # ---------------------------------------------------------------------------
