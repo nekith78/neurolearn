@@ -92,7 +92,7 @@ def detect_platform(url: str) -> Platform:
 _YOUTUBE_PATTERNS: list[tuple[re.Pattern, ErrorClass, bool]] = [
     # Anti-bot — YouTube's most common rate-defense response. Triggers
     # without cookies on a "hot" IP after 5-10 anonymous fetches.
-    (re.compile(r"sign in to confirm you'?re not a bot", re.I), "anti_bot", True),
+    (re.compile(r"sign in to confirm you['’]?re not a bot", re.I), "anti_bot", True),
     (re.compile(r"confirm your age", re.I), "login_required", True),
     # Private / members / age-gated — auth needed (but real)
     (re.compile(r"video is private", re.I), "video_unavailable", False),

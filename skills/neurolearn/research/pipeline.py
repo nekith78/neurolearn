@@ -80,6 +80,10 @@ def run_research(
         queries = {}
         languages_used = []
 
+    window = parse_window(
+        days=days, since=since, until=until, now=date.today(),
+    )
+
     # 2. Source: search OR cross-pollination from subscribes
     candidates: list = []
     if in_subscribes:
@@ -92,7 +96,7 @@ def run_research(
         if days_hint is None and since is not None:
             days_hint = max((date.today() - since).days, 1)
         candidates = search_multi_language(
-            queries, limit=limit, days=days_hint,
+            queries, limit=limit, days=days_hint, window=window,
         )
 
     if not candidates:
@@ -100,9 +104,6 @@ def run_research(
         return None
 
     # 3. Date filter
-    window = parse_window(
-        days=days, since=since, until=until, now=date.today(),
-    )
     if window is not None:
         candidates = _filter_by_window(candidates, window)
         if not candidates:

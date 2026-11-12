@@ -22,6 +22,7 @@ from typing import Any, Literal
 from urllib.parse import parse_qs, unquote, urlsplit
 
 from skills.neurolearn import config as _config
+from skills.neurolearn.shared.date_filter import DateWindow
 from skills.neurolearn.youtube_quota import DailyQuota, QuotaStateError
 
 API_BASE = "https://www.googleapis.com/youtube/v3"
@@ -289,6 +290,7 @@ class VideoDetails:
     view_count: int | None
     like_count: int | None
     comment_count: int | None
+    channel_title: str | None = None
 
 
 _DURATION = re.compile(
@@ -319,6 +321,7 @@ def _parse_video_details(item: dict) -> VideoDetails:
         video_id=item["id"],
         title=snippet.get("title"),
         channel_id=snippet.get("channelId"),
+        channel_title=snippet.get("channelTitle"),
         published_at=datetime.fromisoformat(published) if published else None,
         duration_sec=parse_iso8601_duration(item.get("contentDetails", {}).get("duration")),
         is_live_stream=(
@@ -344,7 +347,7 @@ def fetch_video_details(
         body = api_get("videos", {
             "part": "snippet,contentDetails,statistics,liveStreamingDetails",
             "id": ",".join(ids[start:start + 50]),
-            "fields": ("items(id,snippet(title,channelId,publishedAt,liveBroadcastContent),"
+            "fields": ("items(id,snippet(title,channelId,channelTitle,publishedAt,liveBroadcastContent),"
                        "contentDetails(duration),statistics(viewCount,likeCount,commentCount),"
                        "liveStreamingDetails)"),
         }, api_key=api_key)
@@ -355,6 +358,33 @@ def fetch_video_details(
         except (KeyError, AttributeError, TypeError, ValueError):
             raise TransientFailure("Unexpected videos.list response") from None
     return details
+
+
+def search_videos(
+    query: str, *, language: str, limit: int, window: DateWindow | None,
+) -> list[VideoDetails]:
+    """Search one relevance-ordered page, then hydrate its IDs in one details call."""
+    if limit <= 0:
+        return []
+    params = {
+        "part": "snippet", "type": "video", "order": "relevance", "q": query,
+        "relevanceLanguage": language, "maxResults": min(limit, 50),
+        "fields": "items(id/videoId)",
+    }
+    if window:
+        params["publishedAfter"] = f"{window.start.isoformat()}T00:00:00Z"
+        params["publishedBefore"] = f"{window.end.isoformat()}T23:59:59.999999Z"
+    body = api_get("search", params)
+    try:
+        if not isinstance(body["items"], list):
+            raise TypeError
+        ids = [item["id"]["videoId"] for item in body["items"]]
+        if not all(isinstance(vid, str) and vid for vid in ids):
+            raise ValueError
+    except (KeyError, TypeError, ValueError):
+        raise TransientFailure("Unexpected search.list response") from None
+    details = fetch_video_details(ids)
+    return [details[vid] for vid in ids if vid in details]
 
 
 PublicationType = Literal["all", "videos", "shorts", "streams"]
