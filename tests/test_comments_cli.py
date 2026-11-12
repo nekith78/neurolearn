@@ -14,6 +14,32 @@ VIDEO_ID = "abcdefghijk"
 URL = f"https://youtu.be/{VIDEO_ID}"
 
 
+@pytest.mark.parametrize("url", [
+    f"https://m.youtube.com/watch?feature=share&v={VIDEO_ID}&t=5",
+    f"https://www.youtube.com/live/{VIDEO_ID}?si=sample",
+    f"https://www.youtube-nocookie.com/embed/{VIDEO_ID}",
+])
+def test_comments_recognizes_public_video_url_forms(monkeypatch, tmp_path, url):
+    calls = []
+
+    def transport(endpoint, params, *_):
+        if endpoint.endswith("/commentThreads"):
+            calls.append(params["videoId"])
+        return 200, {"items": []}
+
+    monkeypatch.setenv("YOUTUBE_API_KEY", "fake-key")
+    monkeypatch.setattr(youtube_api, "_http_get", transport)
+    result = CliRunner().invoke(cli, ["comments", url, "--output-dir", str(tmp_path)])
+    assert result.exit_code == 0, result.output
+    assert calls == [VIDEO_ID]
+
+
+def test_comments_rejects_unrelated_video_host(tmp_path):
+    result = CliRunner().invoke(cli, ["comments", f"https://youtube.com.example.org/watch?v={VIDEO_ID}",
+                                      "--output-dir", str(tmp_path)])
+    assert result.exit_code == 2
+
+
 def test_comments_disabled_is_a_normal_outcome(monkeypatch, tmp_path):
     def disabled(url, params, headers, timeout):
         assert url.endswith("/commentThreads")

@@ -136,6 +136,32 @@ def test_batch_then_analyze_includes_collected_comments(invoke, tmp_path, monkey
     assert "Audience comments" in prompts[0] and "Great tutorial!" in prompts[0]
 
 
+def test_analysis_repairs_a_mixed_comment_pair_before_using_it(invoke, tmp_path, monkeypatch):
+    old = sample(VIDEO_ID)
+    requests = []
+
+    def fetch(video_id, options, **kwargs):
+        requests.append(options.cap)
+        current = sample(video_id)
+        current.comments[0].text = "Current sample."
+        current.requested_options = options
+        return current
+
+    monkeypatch.setattr(comments, "fetch_comments", fetch)
+    invoke("transcribe", URL, "--output-dir", tmp_path, "--preset", "eco",
+           "--with-comments", "--comment-count", "5")
+    transcript, = tmp_path.glob(f"*{VIDEO_ID}.txt")
+    old_compact, _ = comments.write_comments(old, tmp_path / "archive", "talk")
+    transcript.with_suffix(".comments.txt").write_bytes(old_compact.read_bytes())
+    prompts = []
+    monkeypatch.setattr("skills.neurolearn.analyze.runner.run_analysis",
+                        lambda prompt, **kw: prompts.append(prompt) or "Done.")
+    invoke("analyze", transcript, "--with-comments", "--comment-count", "5",
+           "--prompt", "Review", "--backend", "ollama")
+    assert requests == [5, 5]
+    assert "Current sample." in prompts[0] and "Great tutorial!" not in prompts[0]
+
+
 def test_loose_folder_never_selects_comment_sidecars_as_transcripts(invoke, tmp_path, monkeypatch):
     (tmp_path / "talk.txt").write_text("Transcript body.", encoding="utf-8")
     (tmp_path / "talk.comments.txt").write_text("From a viewer.", encoding="utf-8")
@@ -263,3 +289,15 @@ def test_analyze_skips_foreign_source_even_when_a_same_named_sidecar_exists(
     output = invoke("analyze", transcript, "--with-comments", "--prompt", "Review", "--backend", "ollama")
     assert "Unrelated old sample." not in prompts[0]
     assert "Skipping comments" in output
+
+
+@pytest.mark.parametrize("extension", ["txt", "json"])
+@pytest.mark.parametrize("flags", [[], ["--with-comments"]])
+def test_analyze_explicit_comment_sample_requires_the_transcript(invoke, tmp_path, monkeypatch, extension, flags):
+    path = tmp_path / f"talk.comments.{extension}"
+    path.write_text('{"comments":[]}' if extension == "json" else "Audience words.", encoding="utf-8")
+    monkeypatch.setattr("skills.neurolearn.analyze.runner.run_analysis",
+                        lambda *a, **kw: pytest.fail("audience sample reached analysis as a transcript"))
+    result = CliRunner().invoke(cli, ["analyze", str(path), "--prompt", "Review", "--backend", "ollama", *flags])
+    assert result.exit_code == 2, result.output
+    assert "original transcript" in result.output and "--with-comments" in result.output

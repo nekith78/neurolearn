@@ -7,14 +7,6 @@ import tempfile
 from pathlib import Path
 
 
-def is_regular_file(path: Path) -> bool:
-    """Check the directory entry itself, without following a final symlink."""
-    try:
-        return stat.S_ISREG(path.lstat().st_mode)
-    except OSError:
-        return False
-
-
 def read_regular_text(path: Path) -> str:
     expected = path.lstat()
     if not stat.S_ISREG(expected.st_mode):

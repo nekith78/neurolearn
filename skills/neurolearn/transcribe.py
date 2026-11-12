@@ -14,6 +14,7 @@ from skills.neurolearn.utils.console import make_console
 
 from skills.neurolearn import __version__, youtube_api
 from skills.neurolearn.analyze.source_resolver import VideoSource
+from skills.neurolearn.comments import CommentOptions, read_cached_comments
 from skills.neurolearn.backends.base import BackendError, BackendNotConfigured
 from skills.neurolearn.utils.anti_block_cascade import (
     PlatformBlockError,
@@ -58,7 +59,6 @@ from skills.neurolearn.utils.resolver import (
     resolve,
 )
 from skills.neurolearn.utils.transcript_loader import is_comment_sidecar
-from skills.neurolearn.utils.files import is_regular_file, read_regular_text
 from skills.neurolearn.wizard import run_wizard
 
 console = make_console()
@@ -129,8 +129,6 @@ def _comment_options(command):
 
 
 def _comment_settings(opts):
-    from skills.neurolearn.comments import CommentOptions
-
     return CommentOptions(cap=opts.get("comment_count"),
                           order=opts.get("comment_order", "relevance"),
                           full_replies=opts.get("comment_full_replies", False),
@@ -697,20 +695,9 @@ class _CommentAttachments:
             for key in ("comment_count", "comment_order", "comment_full_replies", "comment_markers")
         )
 
-    def can_reuse(self, transcript: Path, *, require_json: bool = False) -> bool:
-        import json
-        from dataclasses import asdict
-
-        if not is_regular_file(transcript.with_suffix(".comments.txt")):
-            return False
-        structured = transcript.with_suffix(".comments.json")
-        if not self.custom_settings:
-            return not require_json or is_regular_file(structured)
-        try:
-            sample = json.loads(read_regular_text(structured))
-        except (OSError, ValueError):
-            return False
-        return isinstance(sample, dict) and sample.get("requested_options") == asdict(self.settings)
+    def cached_text(self, transcript: Path, *, require_json: bool = False) -> str | None:
+        options = self.settings if self.custom_settings else None
+        return read_cached_comments(transcript, options, require_json=require_json)
 
     def _has_youtube_source(self, url: str) -> bool:
         if _YOUTUBE_VIDEO_HOST.match(url):
@@ -746,12 +733,11 @@ class _CommentAttachments:
         if video.url and not self._has_youtube_source(video.url):
             return
         transcript = video.transcript_path
-        path = transcript.with_suffix(".comments.txt")
-        if not self.can_reuse(transcript):
-            paths = self.fetch(video.url, video.video_id, transcript)
-            if not paths:
-                return
-        _read_audience_comments(video, path)
+        video.comments_text = self.cached_text(transcript)
+        if video.comments_text is None and self.fetch(video.url, video.video_id, transcript):
+            video.comments_text = read_cached_comments(transcript, self.settings, require_json=True)
+            if video.comments_text is None:
+                click.echo(f"Could not verify comments for {transcript.name}.", err=True)
 
     def record(self, status: BatchVideoStatus, output_dir: Path, transcript: Path) -> None:
         paths = self.fetch(status.url, status.video_id, transcript)
@@ -759,13 +745,6 @@ class _CommentAttachments:
             text, structured = paths
             status.files["comments"] = str(text.relative_to(output_dir))
             status.files["comments_json"] = str(structured.relative_to(output_dir))
-
-
-def _read_audience_comments(video: VideoSource, path: Path) -> None:
-    try:
-        video.comments_text = read_regular_text(path)
-    except (OSError, UnicodeError) as exc:
-        click.echo(f"Could not read comments for {video.transcript_path.name}: {exc}", err=True)
 
 
 def _attach_youtube_statistics(
@@ -973,7 +952,7 @@ def _run_then_analyze(
     prompt_inline: str | None,
     prompt_file: Path | None,
     backend: str,
-    with_comments: bool = False,
+    comment_options: CommentOptions | None = None,
 ) -> None:
     """Post-batch hook for `batch --then-analyze`.
 
@@ -1037,10 +1016,13 @@ def _run_then_analyze(
         console.print("[yellow]Empty selection — analyze skipped.[/yellow]")
         return
 
-    if with_comments:
+    if comment_options is not None:
         for video in chosen:
             if video.comments_recorded:
-                _read_audience_comments(video, video.transcript_path.with_suffix(".comments.txt"))
+                video.comments_text = read_cached_comments(video.transcript_path, comment_options,
+                                                          require_json=True)
+                if video.comments_text is None:
+                    click.echo(f"Could not verify comments for {video.transcript_path.name}.", err=True)
 
     response = ""
     used_backend = backends_to_try[0]
@@ -1362,7 +1344,7 @@ def _run_batch_pipeline(
     for i, target in enumerate(targets, start=1 + target_index_offset):
         if skip_existing and target.video_id and target.video_id in existing_transcripts:
             transcript = existing_transcripts[target.video_id]
-            if attachments and not attachments.can_reuse(transcript, require_json=True):
+            if attachments and attachments.cached_text(transcript, require_json=True) is None:
                 attachments.fetch(target.url, target.video_id, transcript)
             skipped_count += 1
             console.print(
@@ -1912,7 +1894,7 @@ def batch_cmd(
             prompt_inline=analyze_prompt,
             prompt_file=analyze_prompt_file,
             backend=analyze_backend,
-            with_comments=bool(opts.get("with_comments")),
+            comment_options=_comment_settings(opts) if opts.get("with_comments") else None,
         )
     elif then_analyze and analyze_backend is None and batch_dir is not None:
         console.print(
@@ -2967,6 +2949,14 @@ def analyze_cmd(
     from skills.neurolearn.analyze.output_writer import (
         analysis_filename, write_analysis, append_analysis,
     )
+
+    from skills.neurolearn.utils.transcript_loader import is_comment_sidecar
+
+    if source is not None and source.is_file() and is_comment_sidecar(source):
+        raise click.BadParameter(
+            "This file contains audience comments. Pass the original transcript with --with-comments.",
+            param_hint="SOURCE",
+        )
 
     # 1. Validate prompt args (exactly one required).
     if bool(prompt_inline) == bool(prompt_file):
