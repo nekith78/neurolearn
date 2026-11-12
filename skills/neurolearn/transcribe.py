@@ -12,7 +12,7 @@ from pathlib import Path
 import click
 from skills.neurolearn.utils.console import make_console
 
-from skills.neurolearn import __version__
+from skills.neurolearn import __version__, youtube_api
 from skills.neurolearn.backends.base import BackendError, BackendNotConfigured
 from skills.neurolearn.utils.anti_block_cascade import (
     PlatformBlockError,
@@ -461,16 +461,6 @@ def transcribe_cmd(audio_or_url: str | None, **opts) -> None:
             write_txt_plain(result.segments, txt_path)
     if write_srt_pick:
         write_srt(result.segments, srt_path)
-    if write_json_pick:
-        from skills.neurolearn.utils.output_writer import write_json
-        write_json(
-            result.segments, json_path,
-            language=getattr(result, "language_detected", None),
-            backend=getattr(result, "backend_name", None),
-            duration_sec=getattr(result, "duration_seconds", None),
-            quality=getattr(result, "quality", None),
-            visual_segments=list(getattr(result, "visual_segments", []) or []),
-        )
 
     # === v0.2: write .visual.md if the visual stage ran ===
     # Mode 1 (extract-only) populates no visual_segments — it leaves a keyframe
@@ -506,6 +496,20 @@ def transcribe_cmd(audio_or_url: str | None, **opts) -> None:
         files_map["json"] = json_path.name
     if visual_path is not None:
         files_map["visual"] = visual_path.name
+    status = _build_video_status(0, target, result, files_map)
+    _attach_youtube_statistics([status])
+    if write_json_pick:
+        from skills.neurolearn.utils.output_writer import write_json
+        write_json(
+            result.segments, json_path,
+            language=getattr(result, "language_detected", None),
+            backend=getattr(result, "backend_name", None),
+            duration_sec=getattr(result, "duration_seconds", None),
+            statistics=status.statistics,
+            quality=getattr(result, "quality", None),
+            visual_segments=list(getattr(result, "visual_segments", []) or []),
+        )
+
     manifest_meta = BatchMeta(
         batch_name=output_dir.name,
         created_at=datetime.now(),
@@ -519,7 +523,7 @@ def transcribe_cmd(audio_or_url: str | None, **opts) -> None:
     # not fail the whole command (just lose the downstream-convenience index).
     try:
         write_manifest_json(
-            [_build_video_status(0, target, result, files_map)],
+            [status],
             [], manifest_meta, output_dir,
         )
     except Exception as e:
@@ -530,6 +534,8 @@ def transcribe_cmd(audio_or_url: str | None, **opts) -> None:
     console.print(f"[green]✓[/green] {result.backend_name} | "
                   f"language={result.language_detected or 'auto'} | "
                   f"duration={result.duration_seconds:.1f}s")
+    if status.statistics is not None:
+        console.print(f"  {status.format_statistics()}")
     if write_txt:
         console.print(f"  [bold]{txt_path}[/bold]")
     if write_srt_pick:
@@ -630,6 +636,34 @@ def _build_video_status(
         # === v0.10: forward the budget tracker into manifest.json ===
         budget=getattr(result, "budget", None),
     )
+
+
+# Resolution supplies the video ID even for mobile, live, and embed URLs.
+# Check the actual source as other platforms also supply an ID.
+_YOUTUBE_VIDEO_HOST = re.compile(
+    r"^(?:https?://)?(?:(?:[a-z0-9-]+\.)*youtube(?:-nocookie)?\.com|"
+    r"(?:www\.)?youtu\.be)(?::[0-9]+)?/", re.IGNORECASE,
+)
+
+
+def _attach_youtube_statistics(videos: list[BatchVideoStatus]) -> None:
+    """Enrich successful YouTube results in one batched lookup when available."""
+    youtube_videos = [
+        (video.video_id, video) for video in videos
+        if video.video_id and _YOUTUBE_VIDEO_HOST.match(video.url)
+    ]
+    try:
+        details = youtube_api.fetch_video_details(video_id for video_id, _ in youtube_videos)
+    except youtube_api.YouTubeApiError:
+        return
+    for video_id, video in youtube_videos:
+        detail = details.get(video_id)
+        if detail is not None:
+            video.statistics = {
+                "view_count": detail.view_count,
+                "like_count": detail.like_count,
+                "comment_count": detail.comment_count,
+            }
 
 
 def _ensure_config_or_skip_wizard() -> None:
@@ -1339,6 +1373,7 @@ def _run_batch_pipeline(
         research=opts.get("research_meta"),
     )
 
+    _attach_youtube_statistics(statuses)
     if not no_combined:
         write_combined_md(statuses, meta, batch_dir)
     write_manifest_json(statuses, failures, meta, batch_dir)
@@ -1807,11 +1842,17 @@ def _build_doctor_payload() -> dict:
                 has_analyze_backend = True
         keys_section[backend] = entry
 
+    from skills.neurolearn.youtube_quota import DailyQuota, QuotaStateError
+
     yt_key = get_api_key("youtube", env_path=ENV_PATH)
     youtube_section: dict = {
         "key_configured": bool(yt_key),
         "key_url": _YOUTUBE_KEY_URL,
     }
+    try:
+        youtube_section["quota"] = DailyQuota(CONFIG_PATH.parent, cfg).snapshot()
+    except QuotaStateError as exc:
+        youtube_section["quota"] = {"error": str(exc)}
     if yt_key:
         youtube_section["masked"] = mask_key(yt_key)
 
@@ -2084,6 +2125,16 @@ def doctor_cmd(as_json: bool) -> None:
     else:
         console.print(f"  [dim]key: not set (optional)    ({yt['key_url']})[/dim]")
 
+    quota = yt["quota"]
+    if "error" in quota:
+        console.print(f"  Daily quota unavailable: {quota['error']}", markup=False)
+    else:
+        console.print(f"  Daily quota ({quota['day']}, Pacific):")
+        for bucket, label in (("general", "General units"), ("search", "Search calls")):
+            entry = quota[bucket]
+            suffix = " (exhausted)" if entry["exhausted"] else ""
+            console.print(f"    {label}: {entry['used']}/{entry['limit']}{suffix}")
+
     rd = payload["ready"]
     console.print("\n[bold]Readiness:[/bold]")
     fast_marker = "[green]✓[/green]" if rd["has_fast_audio"] else "[red]✗[/red]"
@@ -2208,6 +2259,8 @@ _SET_KEY_TO_FIELD: dict[str, str] = {
     "groq-vision-model": "groq_vision_model",
     "groq-analyze-model": "groq_analyze_model",
     "vision-extract-only": "vision_extract_only",
+    "youtube-daily-units": "youtube_daily_units",
+    "youtube-daily-searches": "youtube_daily_searches",
 }
 
 # Keys whose values must be validated against BACKEND_CHOICES.
@@ -2230,7 +2283,10 @@ def config_set(key: str, value: str) -> None:
         console.print(f"Allowed: {', '.join(BACKEND_CHOICES)}")
         sys.exit(2)
     cfg = load_config(CONFIG_PATH)
-    setattr(cfg, field, value)
+    if field in {"youtube_daily_units", "youtube_daily_searches"}:
+        setattr(cfg, field, click.IntRange(min=0).convert(value, None, None))
+    else:
+        setattr(cfg, field, value)
     save_config(cfg, CONFIG_PATH)
     console.print(f"[green]✓[/green] {key} = {value}")
 
@@ -2441,7 +2497,10 @@ def _test_youtube_key() -> None:
         sys.exit(3)
     try:
         youtube_api.check_key(key)
-    except youtube_api.QuotaExhausted:
+    except youtube_api.QuotaExhausted as e:
+        if e.status is None:
+            console.print("[yellow]youtube: local daily quota exhausted, key not verified[/yellow]")
+            sys.exit(5)
         console.print(
             "[green]✓[/green] youtube: key is valid "
             "[yellow](today's quota is already spent)[/yellow]"
