@@ -7,6 +7,7 @@ for backend selection see [BACKENDS.md](BACKENDS.md); for Claude Code chat patte
 ## Table of contents
 
 - [`transcribe` — one URL / file](#transcribe)
+- [`comments` — YouTube discussion and video statistics](#comments)
 - [`batch` — many URLs, channel, playlist](#batch)
 - [`analyze` — free-form LLM over transcripts](#analyze)
 - [`research` — discover videos by topic](#research)
@@ -95,6 +96,46 @@ neurolearn URL --preset smart --frames-per-window 5
 ```
 
 ---
+
+## comments
+
+Fetch audience comments without downloading a transcript:
+
+```bash
+neurolearn comments "https://youtu.be/dQw4w9WgXcQ" --output-dir transcripts
+```
+
+This saves `<video-id>.comments.txt` and `<video-id>.comments.json`. To save
+comments alongside transcripts, add `--with-comments` to `transcribe` or
+`batch`. With `analyze`, the same flag includes comments in the analysis.
+By default the sample contains up to 100 top-level comments in YouTube's
+relevance order. All four commands accept these options:
+
+| Option | Effect |
+|---|---|
+| `--comment-count N` | Cap the number of top-level comments. |
+| `--comment-order relevance\|newest\|likes` | Use relevance or newest order, or rank the fetched relevance sample by likes. |
+| `--comment-full-replies` | Fetch more public replies than the ones returned inline by the API. |
+| `--comment-markers` | Look up pinned and creator-heart markers on YouTube. |
+
+An optional YouTube Data API key enables exact comment metadata and
+automatic video statistics. With the key, a YouTube transcript or batch
+records available view, like and comment counts under `videos[].statistics`
+in `manifest.json`. Without the key, transcription works normally and
+requested comments come from yt-dlp. The sample identifies its source and
+labels approximate values.
+
+To configure the key later, save it to a one-line file and register its path:
+
+```bash
+neurolearn config set-key youtube --from-file "path/to/key.txt"
+```
+
+```bash
+neurolearn config test youtube
+```
+
+`doctor --json` shows key status and daily quota use in its `youtube` section.
 
 ## batch
 
