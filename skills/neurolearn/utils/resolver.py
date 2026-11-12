@@ -239,8 +239,8 @@ def resolve(
                 fallback.report(exc)
             else:
                 if api_targets is not None:
-                    return url, src, ("api", api_targets)
-            return url, src, probe_input(normalized)
+                    return normalized, src, ("api", api_targets)
+            return normalized, src, probe_input(normalized)
         except Exception as e:    # noqa: BLE001 — re-raised below per-url
             return url, src, e
 
@@ -277,7 +277,7 @@ def resolve(
             expanded = info
         else:
             entries = expand_channel_or_playlist(
-                normalize_youtube_channel_url(url), limit=filters.limit,
+                url, limit=filters.limit,
             )
             expanded = [_channel_entry_to_target(e, source="channel") for e in entries]
             if ((filters.since or filters.until) and urlsplit(url).hostname in _YOUTUBE_HOSTS

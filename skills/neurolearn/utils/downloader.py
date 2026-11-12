@@ -56,8 +56,14 @@ def normalize_youtube_channel_url(url: str) -> str:
     Live / Shorts) rather than videos, and every tab carries the channel
     id as its `id`. `/videos` is the tab that lists Ordinary Videos,
     newest first. Anything else — an explicit tab, a playlist, a single
-    video, another platform, a local path — is returned unchanged.
+    video, another platform, a local path — keeps its meaning. Recognized
+    YouTube hosts can also be pasted without an HTTP scheme.
     """
+    host, slash, _ = url.partition("/")
+    if slash and host.lower() in {
+        "youtube.com", "www.youtube.com", "m.youtube.com", "youtu.be", "www.youtu.be",
+    } and not Path(url).exists():
+        url = "https://" + url
     m = _YOUTUBE_BARE_CHANNEL_RE.match(url.strip())
     return f"{m.group(1)}/videos" if m else url
 
