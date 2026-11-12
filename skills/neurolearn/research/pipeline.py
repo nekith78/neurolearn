@@ -89,8 +89,9 @@ def run_research(
         queries = {}
         languages_used = []
 
+    today = date.today() if in_subscribes else datetime.now(timezone.utc).date()
     window = parse_window(
-        days=days, since=since, until=until, now=date.today(),
+        days=days, since=since, until=until, now=today,
     )
 
     # 2. Source: search OR cross-pollination from subscribes
@@ -103,7 +104,7 @@ def run_research(
         # treat as "days from A to today".
         days_hint: int | None = days
         if days_hint is None and since is not None:
-            days_hint = max((date.today() - since).days, 1)
+            days_hint = max((today - since).days, 1)
         candidates = search_multi_language(
             queries, limit=limit, days=days_hint, window=window, sort_by_views=sort_by_views,
             require_view_counts=min_views is not None,

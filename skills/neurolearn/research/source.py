@@ -17,7 +17,7 @@ No `days` → plain `ytsearchN:` shortcut, flat extract (fast, no date info).
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime, timezone
 from urllib.parse import quote_plus
 
 import click
@@ -104,7 +104,7 @@ def search_multi_language(
 ) -> list[SearchCandidate]:
     """Search each language and keep the first occurrence of each video."""
     if window is None and days and days > 0:
-        window = parse_window(days=days, since=None, until=None, now=date.today())
+        window = parse_window(days=days, since=None, until=None, now=datetime.now(timezone.utc).date())
     candidates: dict[str, SearchCandidate] = {}
     remaining = iter(queries.items())
     for lang, query in remaining:
