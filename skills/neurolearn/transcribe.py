@@ -111,6 +111,31 @@ from skills.neurolearn.updates import check_updates_cmd, update_deps_cmd
 cli.add_command(check_updates_cmd)
 cli.add_command(update_deps_cmd)
 
+@cli.command(name="comments")
+@click.argument("url")
+@click.option("--output-dir", type=click.Path(file_okay=False, path_type=Path),
+              help="Output directory (defaults to the configured output directory).")
+def comments_cmd(url: str, output_dir: Path | None) -> None:
+    """Fetch comments for a YouTube video."""
+    from skills.neurolearn import comments, youtube_api
+
+    video_id = extract_youtube_video_id(url)
+    if not video_id:
+        raise click.BadParameter("Expected a YouTube video URL.", param_hint="URL")
+    try:
+        sample = comments.fetch_comments(video_id)
+    except youtube_api.CommentsDisabled:
+        click.echo("Comments are disabled for this video.")
+        return
+    except youtube_api.NotFound:
+        raise click.ClickException(f"Video not found: {video_id}") from None
+    except youtube_api.YouTubeApiError as exc:
+        raise click.ClickException(str(exc)) from None
+    dest = (output_dir or Path(load_config(CONFIG_PATH).output_dir)).expanduser()
+    text_path, json_path = comments.write_comments(sample, dest, video_id)
+    click.echo(f"Comments: {text_path}\nStructured comments: {json_path}")
+
+
 @cli.command(name="transcribe")
 @click.argument("audio_or_url", required=False)
 @click.option("--backend", type=click.Choice(BACKEND_CHOICES), default=None,
