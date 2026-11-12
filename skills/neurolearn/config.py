@@ -285,6 +285,9 @@ class Config:
     # Shorts stream only.
     shorts_max_per_update: int = 5
 
+    youtube_daily_units: int = 10_000
+    youtube_daily_searches: int = 100
+
 
 DEFAULT_CONFIG = Config()
 
@@ -362,6 +365,8 @@ def _to_toml_dict(cfg: Config) -> dict:
         },
         "youtube": {
             "cookies_file": d["youtube_cookies_file"],
+            "daily_units": d["youtube_daily_units"],
+            "daily_searches": d["youtube_daily_searches"],
         },
         # v0.15.0: platform-aware anti-block cascade settings
         "research": {
@@ -389,6 +394,7 @@ def _from_toml_dict(d: dict) -> Config:
     raw_analyze_backend = analyze.get("backend", "")
     ig = d.get("instagram", {})
     tt = d.get("tiktok", {})
+    yt = d.get("youtube", {})
     return Config(
         default_backend=d.get("default_backend", DEFAULT_CONFIG.default_backend),
         fallback_backend=d.get("fallback_backend", DEFAULT_CONFIG.fallback_backend),
@@ -438,7 +444,9 @@ def _from_toml_dict(d: dict) -> Config:
         analyze_backend=raw_analyze_backend if raw_analyze_backend else None,
         instagram_cookies_file=ig.get("cookies_file", ""),
         tiktok_cookies_file=tt.get("cookies_file", ""),
-        youtube_cookies_file=d.get("youtube", {}).get("cookies_file", ""),
+        youtube_cookies_file=yt.get("cookies_file", ""),
+        youtube_daily_units=yt.get("daily_units", DEFAULT_CONFIG.youtube_daily_units),
+        youtube_daily_searches=yt.get("daily_searches", DEFAULT_CONFIG.youtube_daily_searches),
         # v0.15.0: anti-block cascade settings. Pre-v0.15 configs lack
         # the [research] section entirely; defaults preserve runtime
         # behavior (empty list → cascade treats as "first-block migration"
@@ -491,7 +499,7 @@ def migrate_v01_to_v02(path: Path = CONFIG_PATH) -> None:
     os.replace(tmp, path)
 
 
-def load_config(path: Path = CONFIG_PATH) -> Config:
+def load_config(path: Path = CONFIG_PATH, *, migrate: bool = True) -> Config:
     if not path.exists():
         # v0.12.1 fix: return a FRESH copy of DEFAULT_CONFIG. The previous
         # implementation returned the singleton by reference, which the
@@ -503,7 +511,8 @@ def load_config(path: Path = CONFIG_PATH) -> Config:
         from dataclasses import replace
         return replace(DEFAULT_CONFIG)
     try:
-        migrate_v01_to_v02(path)   # ← auto-upgrade on load
+        if migrate:
+            migrate_v01_to_v02(path)
         raw = tomllib.loads(path.read_text(encoding="utf-8"))
     except tomllib.TOMLDecodeError as e:
         raise ValueError(

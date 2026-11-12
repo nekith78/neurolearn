@@ -17,6 +17,7 @@ from __future__ import annotations
 from typing import Any
 
 from skills.neurolearn import config as _config
+from skills.neurolearn.youtube_quota import DailyQuota, QuotaStateError
 
 API_BASE = "https://www.googleapis.com/youtube/v3"
 KEY_BACKEND = "youtube"
@@ -141,6 +142,15 @@ def api_get(
             "No YouTube API key configured. "
             "Run: neurolearn config set-key youtube --from-file <path>"
         )
+    path = _config.CONFIG_PATH
+    bucket = "search" if resource == "search" else "general"
+    try:
+        quota = DailyQuota(path.parent, _config.load_config(path, migrate=False))
+        day = quota.charge(bucket)
+    except (QuotaStateError, ValueError, OSError) as exc:
+        raise TransientFailure(_scrub(str(exc), key)) from None
+    if day is None:
+        raise QuotaExhausted(f"Local daily YouTube {bucket} quota exhausted.")
     failure: TransientFailure | None = None
     try:
         status, body = _http_get(
@@ -164,7 +174,13 @@ def api_get(
             _scrub(f"HTTP {status}: unexpected non-JSON response: {message}", key),
             status=status,
         )
-    raise _classify(status, reason)(
+    outcome = _classify(status, reason)
+    if outcome is QuotaExhausted:
+        try:
+            quota.mark_exhausted(day, bucket)
+        except QuotaStateError as exc:
+            message += f" ({exc})"
+    raise outcome(
         _scrub(f"HTTP {status} {reason}: {message}".strip(), key),
         reason=reason,
         status=status,
