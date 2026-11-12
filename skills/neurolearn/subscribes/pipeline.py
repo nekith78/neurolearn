@@ -26,6 +26,7 @@ from pathlib import Path
 
 from skills.neurolearn.utils.console import make_console
 
+from skills.neurolearn.subscribes.channel_resolver import ChannelNotFoundError
 from skills.neurolearn.subscribes.store import (
     Channel, load_subscribes, DEFAULT_MODE, MODES,
 )
@@ -55,15 +56,6 @@ _VALID_VIDEO_ID = re.compile(r"[\w-]{6,20}")
 
 class SubscribesError(Exception):
     """Pipeline-level error (e.g. missing initial state)."""
-
-
-class ChannelNotFoundError(Exception):
-    """A channel's identifier (IG username / TikTok @handle) doesn't resolve
-    on the platform anymore — typically a rename.
-
-    Raised by _fetch_via_yt_dlp; the per-channel loop catches it and surfaces
-    the friendly "username changed?" hint without aborting other channels.
-    """
 
 
 @dataclass

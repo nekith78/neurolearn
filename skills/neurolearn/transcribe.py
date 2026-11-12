@@ -124,16 +124,17 @@ def comments_cmd(url: str, output_dir: Path | None) -> None:
     video_id = extract_youtube_video_id(url)
     if not video_id:
         raise click.BadParameter("Expected a YouTube video URL.", param_hint="URL")
+    cfg = load_config(CONFIG_PATH)
     try:
-        sample = comments.fetch_comments(video_id)
+        sample = comments.fetch_comments(video_id, cookies_file=cfg.youtube_cookies_file or cfg.cookies_file)
     except youtube_api.CommentsDisabled:
         click.echo("Comments are disabled for this video.")
         return
     except youtube_api.NotFound:
         raise click.ClickException(f"Video not found: {video_id}") from None
-    except youtube_api.YouTubeApiError as exc:
+    except (youtube_api.YouTubeApiError, comments.CommentsFetchError) as exc:
         raise click.ClickException(str(exc)) from None
-    dest = (output_dir or Path(load_config(CONFIG_PATH).output_dir)).expanduser()
+    dest = (output_dir or Path(cfg.output_dir)).expanduser()
     text_path, json_path = comments.write_comments(sample, dest, video_id)
     click.echo(f"Comments: {text_path}\nStructured comments: {json_path}")
 
@@ -1930,11 +1931,17 @@ def _build_doctor_payload() -> dict:
                 has_analyze_backend = True
         keys_section[backend] = entry
 
+    from skills.neurolearn.youtube_quota import DailyQuota, QuotaStateError
+
     yt_key = get_api_key("youtube", env_path=ENV_PATH)
     youtube_section: dict = {
         "key_configured": bool(yt_key),
         "key_url": _YOUTUBE_KEY_URL,
     }
+    try:
+        youtube_section["quota"] = DailyQuota(CONFIG_PATH.parent, cfg).snapshot()
+    except QuotaStateError as exc:
+        youtube_section["quota"] = {"error": str(exc)}
     if yt_key:
         youtube_section["masked"] = mask_key(yt_key)
 
@@ -2207,6 +2214,16 @@ def doctor_cmd(as_json: bool) -> None:
     else:
         console.print(f"  [dim]key: not set (optional)    ({yt['key_url']})[/dim]")
 
+    quota = yt["quota"]
+    if "error" in quota:
+        console.print(f"  Daily quota unavailable: {quota['error']}", markup=False)
+    else:
+        console.print(f"  Daily quota ({quota['day']}, Pacific):")
+        for bucket, label in (("general", "General units"), ("search", "Search calls")):
+            entry = quota[bucket]
+            suffix = " (exhausted)" if entry["exhausted"] else ""
+            console.print(f"    {label}: {entry['used']}/{entry['limit']}{suffix}")
+
     rd = payload["ready"]
     console.print("\n[bold]Readiness:[/bold]")
     fast_marker = "[green]✓[/green]" if rd["has_fast_audio"] else "[red]✗[/red]"
@@ -2331,6 +2348,8 @@ _SET_KEY_TO_FIELD: dict[str, str] = {
     "groq-vision-model": "groq_vision_model",
     "groq-analyze-model": "groq_analyze_model",
     "vision-extract-only": "vision_extract_only",
+    "youtube-daily-units": "youtube_daily_units",
+    "youtube-daily-searches": "youtube_daily_searches",
 }
 
 # Keys whose values must be validated against BACKEND_CHOICES.
@@ -2353,7 +2372,10 @@ def config_set(key: str, value: str) -> None:
         console.print(f"Allowed: {', '.join(BACKEND_CHOICES)}")
         sys.exit(2)
     cfg = load_config(CONFIG_PATH)
-    setattr(cfg, field, value)
+    if field in {"youtube_daily_units", "youtube_daily_searches"}:
+        setattr(cfg, field, click.IntRange(min=0).convert(value, None, None))
+    else:
+        setattr(cfg, field, value)
     save_config(cfg, CONFIG_PATH)
     console.print(f"[green]✓[/green] {key} = {value}")
 
@@ -2564,7 +2586,10 @@ def _test_youtube_key() -> None:
         sys.exit(3)
     try:
         youtube_api.check_key(key)
-    except youtube_api.QuotaExhausted:
+    except youtube_api.QuotaExhausted as e:
+        if e.status is None:
+            console.print("[yellow]youtube: local daily quota exhausted, key not verified[/yellow]")
+            sys.exit(5)
         console.print(
             "[green]✓[/green] youtube: key is valid "
             "[yellow](today's quota is already spent)[/yellow]"

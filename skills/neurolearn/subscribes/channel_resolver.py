@@ -4,7 +4,7 @@ One-time call on `subscribes add` — result is cached in subscribes.toml so
 subsequent operations (RSS / yt-dlp scrape) work directly without re-resolving.
 
 `channel_id` semantics by platform:
-  - YouTube: stable `UC...` from yt-dlp metadata (won't change on handle rename)
+  - YouTube: stable `UC...` (won't change on handle rename)
   - Instagram: the username (URL path segment) — there is no stable internal
     id available without an authenticated API
   - TikTok: the @handle — same constraint as Instagram
@@ -14,6 +14,8 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
+from skills.neurolearn import youtube_api
+from skills.neurolearn.youtube_fallback import fallback_notice_for_run
 
 # Profile-style URL detectors (NOT post/video URLs).
 # YouTube has many channel URL shapes: /@handle, /c/Name, /channel/UC..., /user/...
@@ -71,6 +73,10 @@ class ResolvedChannel:
     platform: str = "youtube"
 
 
+class ChannelNotFoundError(ValueError):
+    """The platform reports that this channel does not exist."""
+
+
 def detect_platform(url: str) -> str | None:
     """Return 'youtube' / 'instagram' / 'tiktok' or None if URL not a known channel."""
     if _YT_CHANNEL_RE.match(url):
@@ -87,13 +93,22 @@ def detect_platform(url: str) -> str | None:
 def resolve_channel(url: str) -> ResolvedChannel:
     """Route to the platform-specific resolver. Raises ValueError if unrecognized.
 
-    v0.16.0: when `url` is a single video / post URL (not a channel
-    URL), we ask yt-dlp for the underlying channel URL once and then
-    recurse with the resolved channel URL. So users can paste any
-    YouTube video (`youtube.com/watch?v=...` / `youtu.be/...` /
-    `youtube.com/shorts/...`), IG post / reel, or TikTok video and
-    we'll grab the channel from it instead of refusing.
+    Prefer the YouTube API for handles, channels and video links.
+    The fallback resolves video and post URLs through yt-dlp.
     """
+    if url.startswith("@"):
+        url = f"https://www.youtube.com/{url}"
+    try:
+        channel = youtube_api.resolve_channel(url)
+    except youtube_api.NotFound as e:
+        raise ChannelNotFoundError(f"Channel not found: {url}") from e
+    except youtube_api.YouTubeApiError as e:
+        fallback_notice_for_run().report(e)
+        channel = None
+    if channel:
+        path = channel.handle or f"channel/{channel.channel_id}"
+        return ResolvedChannel(f"https://www.youtube.com/{path}", channel.handle,
+                               channel.channel_id, channel.title)
     platform = detect_platform(url)
     if platform is None and _looks_like_video_url(url):
         channel_url = _channel_url_from_video(url)

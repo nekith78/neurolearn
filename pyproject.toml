@@ -29,6 +29,8 @@ dependencies = [
     # YouTube Data API client transport. Already pulled in by the cloud SDKs
     # below; declared because skills/neurolearn/youtube_api.py imports it.
     "httpx>=0.27",
+    # ZoneInfo fallback on systems without an IANA time zone database (e.g. Windows).
+    "tzdata",
     # Cloud SDKs (small, install all by default)
     "google-genai>=1.0.0",                 # 0.x had unstable API; we target the stable Client/files/models pattern
     "groq>=0.11.0",
