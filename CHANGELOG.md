@@ -3,6 +3,18 @@
 All notable changes to neurolearn will be documented here.
 The format is loosely based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.30.0] — 2026-11-12
+
+- A YouTube channel URL passed to `batch` selects the channel's Ordinary
+  Videos, including when yt-dlp handles the request.
+- With a YouTube Data API key, `batch` applies `--since` and `--until` to
+  dated channel and playlist entries. When the fallback lacks dates, the
+  command keeps those entries and warns once.
+- `subscribes add` resolves YouTube handles, channel URLs, and video URLs
+  through the API. `subscribes update` reads dated uploads for the
+  configured publication types and retrieves details for matching videos.
+  Both commands fall back to yt-dlp when the API is unavailable.
+
 ## [0.28.0] — 2026-11-11
 
 ### Added
