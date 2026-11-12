@@ -106,6 +106,12 @@ class TestApiGet:
 
 
 class TestErrorMapping:
+    def test_malformed_error_details_preserve_the_typed_status(self, monkeypatch):
+        _install(monkeypatch, status=503, body={"error": {"errors": 1, "details": None}})
+        with pytest.raises(TransientFailure) as error:
+            youtube_api.check_key(FAKE_KEY)
+        assert error.value.status == 503
+
     @pytest.mark.parametrize(
         "status, reason, expected",
         [
