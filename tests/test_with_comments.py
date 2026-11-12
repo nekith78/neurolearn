@@ -289,3 +289,15 @@ def test_analyze_skips_foreign_source_even_when_a_same_named_sidecar_exists(
     output = invoke("analyze", transcript, "--with-comments", "--prompt", "Review", "--backend", "ollama")
     assert "Unrelated old sample." not in prompts[0]
     assert "Skipping comments" in output
+
+
+@pytest.mark.parametrize("extension", ["txt", "json"])
+@pytest.mark.parametrize("flags", [[], ["--with-comments"]])
+def test_analyze_explicit_comment_sample_requires_the_transcript(invoke, tmp_path, monkeypatch, extension, flags):
+    path = tmp_path / f"talk.comments.{extension}"
+    path.write_text('{"comments":[]}' if extension == "json" else "Audience words.", encoding="utf-8")
+    monkeypatch.setattr("skills.neurolearn.analyze.runner.run_analysis",
+                        lambda *a, **kw: pytest.fail("audience sample reached analysis as a transcript"))
+    result = CliRunner().invoke(cli, ["analyze", str(path), "--prompt", "Review", "--backend", "ollama", *flags])
+    assert result.exit_code == 2, result.output
+    assert "original transcript" in result.output and "--with-comments" in result.output

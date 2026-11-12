@@ -2945,6 +2945,14 @@ def analyze_cmd(
         analysis_filename, write_analysis, append_analysis,
     )
 
+    from skills.neurolearn.utils.transcript_loader import is_comment_sidecar
+
+    if source is not None and source.is_file() and is_comment_sidecar(source):
+        raise click.BadParameter(
+            "This file contains audience comments. Pass the original transcript with --with-comments.",
+            param_hint="SOURCE",
+        )
+
     # 1. Validate prompt args (exactly one required).
     if bool(prompt_inline) == bool(prompt_file):
         console.print(
