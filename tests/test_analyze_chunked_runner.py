@@ -85,3 +85,57 @@ def test_reduce_collapses_when_summaries_dont_fit(tmp_path):
         )
     assert isinstance(out, str)
     assert m.call_count > 9  # 8 map + collapse round(s) + final reduce
+
+
+def test_comment_chunks_keep_viewer_attribution_through_collapse_and_reduce(tmp_path):
+    video = _video(tmp_path, "demo", "SPOKEN " * 950)
+    video.comments_text = "VIEWER " * 950
+    prompts = []
+
+    def summarize(prompt, **_):
+        prompts.append(prompt)
+        if "SPOKEN" in prompt:
+            assert "VIEWER" not in prompt
+            return "speaker-summary " * 30
+        if "VIEWER" in prompt:
+            assert "audience comments" in prompt.lower()
+            assert "following transcript" not in prompt
+            return "viewer-summary " * 30
+        if "Merge the following" in prompt:
+            if "viewer-summary" in prompt:
+                assert "audience comments" in prompt.lower()
+                assert "speaker-summary" not in prompt
+                return "condensed viewer-summary"
+            return "condensed speaker-summary"
+        return "report"
+
+    with patch("skills.neurolearn.analyze.runner.run_analysis", side_effect=summarize):
+        out = chunked_runner.run_analysis_chunked(
+            "Compare audience and speaker", [video], backend="groq", api_key=None,
+            max_input_chars=3_000,
+        )
+
+    assert out == "report"
+    assert sum("VIEWER" in prompt for prompt in prompts) >= 3
+    assert any("Merge the following" in prompt for prompt in prompts)
+    final = prompts[-1]
+    speaker, audience = final.split("Audience comment summaries:")
+    assert "speaker-summary" in speaker and "viewer-summary" in audience
+
+
+def test_one_transcript_without_comments_keeps_one_reduction_after_map(tmp_path):
+    video = _video(tmp_path, "demo", "SPOKEN " * 1_000)
+    prompts = []
+
+    def summarize(prompt, **_):
+        prompts.append(prompt)
+        return "map-summary " * 100
+
+    with patch("skills.neurolearn.analyze.runner.run_analysis", side_effect=summarize):
+        chunked_runner.run_analysis_chunked(
+            "Summarize", [video], backend="groq", api_key=None, max_input_chars=2_000,
+        )
+    assert len(prompts) > 3
+    assert all("Condense the following transcript" in prompt for prompt in prompts[:-1])
+    assert "Transcript summaries:" in prompts[-1]
+    assert "Audience comment summaries:" not in prompts[-1]

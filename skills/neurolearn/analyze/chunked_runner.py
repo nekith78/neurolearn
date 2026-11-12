@@ -22,7 +22,7 @@ from typing import Callable
 
 from skills.neurolearn.analyze import runner
 from skills.neurolearn.analyze.prompt_builder import (
-    SYSTEM_PROMPT, build_prompt, _video_body, _video_header,
+    SYSTEM_PROMPT, build_prompt, _transcript_body, _video_header,
 )
 from skills.neurolearn.analyze.source_resolver import VideoSource
 
@@ -33,7 +33,7 @@ from skills.neurolearn.analyze.source_resolver import VideoSource
 # (≈10k token) requests pass, ~32k-char (≈14k token) requests 413.
 MAX_INPUT_CHARS = 12_000
 
-_HUGE = 10 ** 9  # "no truncation" sentinel for _video_body
+_HUGE = 10 ** 9  # "no truncation" sentinel for _transcript_body
 
 
 def run_analysis_chunked(
@@ -77,28 +77,50 @@ def run_analysis_chunked(
         f"budget) — chunked map-reduce over {len(videos)} transcript(s)"
     )
 
-    # Per-chunk budget = request budget minus the fixed map scaffold.
-    scaffold = len(_map_prompt("", "", ""))
-    chunk_chars = max(800, max_input_chars - scaffold - 100)
-
-    # MAP — one (or more) summary per transcript.
-    summaries: list[tuple[str, str]] = []
+    # Keep speaker and viewer material separate through all map and collapse calls.
+    with_comments = any(v.comments_text is not None for v in videos)
+    transcripts: list[tuple[str, str]] = []
+    comments: list[tuple[str, str]] = []
     for idx, v in enumerate(videos, start=1):
         header = _video_header(idx, v)
-        body = _video_body(v, _HUGE)
-        pieces = _split(body, chunk_chars)
-        parts: list[str] = []
-        for i, piece in enumerate(pieces, start=1):
-            ctx = f" (part {i}/{len(pieces)})" if len(pieces) > 1 else ""
-            parts.append(call(_map_prompt(header, ctx, piece)))
-        summaries.append((header, "\n".join(p.strip() for p in parts if p.strip())))
-        note(f"  summarized [{idx}/{len(videos)}] {len(pieces)} chunk(s)")
+        sources = [("transcript", _transcript_body(v, _HUGE), transcripts)]
+        if v.comments_text is not None:
+            sources.append(("audience comments", v.comments_text, comments))
+        for material, body, summaries in sources:
+            scaffold = len(_map_prompt(header if with_comments else "", "", "", material))
+            pieces = _split(body, max(800, max_input_chars - scaffold - 100))
+            parts = []
+            for i, piece in enumerate(pieces, start=1):
+                ctx = f" (part {i}/{len(pieces)})" if len(pieces) > 1 else ""
+                summary = call(_map_prompt(header, ctx, piece, material)).strip()
+                parts.append((header + ctx, summary))
+            if with_comments:
+                summaries.extend(parts)
+            else:
+                # Transcript-only runs have historically reduced one summary per video.
+                summaries.append((header, "\n".join(text for _, text in parts if text)))
+            note(f"  summarized [{idx}/{len(videos)}] {len(pieces)} chunk(s)")
 
-    # REDUCE — apply the user's prompt to the collected summaries.
-    return _reduce(
-        user_prompt, summaries, call=call, max_input_chars=max_input_chars,
-        note=note,
-    )
+    prefix = f"{SYSTEM_PROMPT}\n\n{user_prompt}\n\n---\n"
+    groups = [("Transcript summaries:", transcripts, "transcript")]
+    if comments:
+        prefix += "Keep speaker statements and audience reactions attributed to their sources.\n"
+        groups.append(("Audience comment summaries:", comments, "audience comments"))
+
+    # Reserve space for each source's heading even if its summaries require truncation.
+    overhead = len(prefix) + sum(len(heading) + 2 for heading, _, _ in groups) + 2 * (len(groups) - 1)
+    available = max(0, max_input_chars - overhead)
+    budgets = [available]
+    if comments:
+        sizes = [len(_summary_text(items)) for _, items, _ in groups]
+        half = available // 2
+        speaker_budget = min(sizes[0], max(half, available - sizes[1]))
+        budgets = [speaker_budget, available - speaker_budget]
+    sections = []
+    for (heading, summaries, material), budget in zip(groups, budgets):
+        body = _fit_summaries(summaries, material=material, budget=budget, call=call, note=note)
+        sections.append(f"{heading}\n\n{body}")
+    return call((prefix + "\n\n".join(sections))[:max_input_chars])
 
 
 # ---------------------------------------------------------------------------
@@ -109,56 +131,32 @@ def _split(text: str, size: int) -> list[str]:
     return [text[i:i + size] for i in range(0, len(text), size)] or [""]
 
 
-def _map_prompt(header: str, ctx: str, piece: str) -> str:
+def _map_prompt(header: str, ctx: str, piece: str, material: str) -> str:
     return (
         f"{SYSTEM_PROMPT}\n\n"
-        f"Condense the following transcript{ctx} into faithful, concise "
+        f"Condense the following {material}{ctx} into faithful, concise "
         f"bullet points. Preserve specifics — names, numbers, terms, claims. "
-        f"Do not add commentary. Reply in the language of the transcript.\n\n"
+        f"Do not add commentary. Reply in the language of the {material}.\n\n"
         f"{header}{ctx}\n\n{piece}"
     )
 
 
-def _assemble(user_prompt: str, summaries: list[tuple[str, str]]) -> str:
-    parts = [SYSTEM_PROMPT, "", user_prompt, "", "---", "Transcript summaries:", ""]
-    for header, summ in summaries:
-        parts.append(header)
-        parts.append("")
-        parts.append(summ or "(no summary)")
-        parts.append("")
-        parts.append("---")
-        parts.append("")
-    return "\n".join(parts).rstrip() + "\n"
+def _summary_text(summaries: list[tuple[str, str]]) -> str:
+    return "\n".join(f"{header}\n\n{summary or '(no summary)'}\n\n---\n" for header, summary in summaries)
 
 
-def _reduce(
-    user_prompt: str,
-    summaries: list[tuple[str, str]],
-    *,
-    call: Callable[[str], str],
-    max_input_chars: int,
-    note: Callable[[str], None],
+def _fit_summaries(
+    summaries: list[tuple[str, str]], *, material: str, budget: int,
+    call: Callable[[str], str], note: Callable[[str], None],
 ) -> str:
-    prompt = _assemble(user_prompt, summaries)
-    reduce_scaffold = len(_assemble(user_prompt, []))
+    text = _summary_text(summaries)
     rounds = 0
-    while len(prompt) > max_input_chars and len(summaries) > 1 and rounds < 6:
-        note(
-            f"  reduce: {len(summaries)} summaries still exceed budget — "
-            f"collapsing (round {rounds + 1})"
-        )
-        summaries = _collapse_once(
-            summaries, budget=max(800, max_input_chars - reduce_scaffold),
-            call=call,
-        )
-        prompt = _assemble(user_prompt, summaries)
+    while len(text) > budget and len(summaries) > 1 and rounds < 6:
+        note(f"  reduce: collapsing {len(summaries)} {material} summaries (round {rounds + 1})")
+        summaries = _collapse_once(summaries, budget=max(800, budget), call=call, material=material)
+        text = _summary_text(summaries)
         rounds += 1
-    if len(prompt) > max_input_chars:
-        # Last resort: a single summary still won't fit. Hard-truncate the
-        # assembled prompt (keeps the system framing + user prompt at the
-        # top, drops the tail of the summaries) so the final call succeeds.
-        prompt = prompt[:max_input_chars]
-    return call(prompt)
+    return text[:budget]
 
 
 def _item_len(item: tuple[str, str]) -> int:
@@ -170,13 +168,14 @@ def _collapse_once(
     summaries: list[tuple[str, str]],
     *,
     budget: int,
+    material: str,
     call: Callable[[str], str],
 ) -> list[tuple[str, str]]:
     """Merge summaries into fewer items so the reduce prompt shrinks.
 
     Greedy packing, but every group is forced to hold at least 2 items
     while more remain — this guarantees the count strictly decreases each
-    round (so `_reduce`'s loop terminates), even when the budget is too
+    round (so the collapse loop terminates), even when the budget is too
     small for a clean fit.
     """
     groups: list[list[tuple[str, str]]] = []
@@ -199,7 +198,7 @@ def _collapse_once(
         block = "\n\n".join(f"{h}\n{s}" for h, s in g)
         merged = call(
             f"{SYSTEM_PROMPT}\n\n"
-            "Merge the following transcript summaries into one consolidated, "
+            f"Merge the following {material} summaries into one consolidated, "
             "faithful set of bullet points. Keep specifics; drop duplication. "
             "Reply in the language of the summaries.\n\n"
             f"{block}"
