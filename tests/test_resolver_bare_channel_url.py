@@ -132,7 +132,8 @@ def test_bare_channel_failure_is_reported_against_the_url_the_user_gave():
     assert [(f.url, f.error) for f in failures] == [(url, "no videos tab")]
 
 
-def test_batch_on_bare_channel_url_processes_ordinary_videos(tmp_path):
+@pytest.mark.parametrize("url", ["https://www.youtube.com/@anth", "youtube.com/@anth"])
+def test_batch_on_bare_channel_url_processes_ordinary_videos(tmp_path, url):
     """Through the `batch` command: the pipeline receives the channel's
     Ordinary Videos, capped by --limit, never the channel id."""
     from skills.neurolearn.transcribe import cli
@@ -148,7 +149,7 @@ def test_batch_on_bare_channel_url_processes_ordinary_videos(tmp_path):
          patch(SEAM, side_effect=FakeYtDlp(NEWEST_FIRST)):
         cp.exists.return_value = True
         result = CliRunner().invoke(cli, [
-            "batch", "https://www.youtube.com/@anth",
+            "batch", url,
             "--limit", "2", "--backend", "subtitles",
             "--output-dir", str(tmp_path),
         ])
