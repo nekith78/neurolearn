@@ -146,3 +146,81 @@ def test_site_reports_disabled_comments_without_artifacts(monkeypatch, tmp_path,
     assert result.exit_code == 0
     assert "Comments are disabled" in result.output
     assert not list(tmp_path.glob("*.comments.*"))
+
+
+@pytest.mark.parametrize(("order", "site_sort", "first"), [("newest", "new", "A"), ("likes", "top", "B")])
+def test_site_options_bound_parents_group_replies_and_keep_marks(monkeypatch, tmp_path, isolated, order, site_sort, first):
+    calls = fake_ytdlp(monkeypatch, iter([[
+        {"id": "A", "parent": "root", "text": "first", "like_count": 2, "is_pinned": True},
+        {"id": "R", "parent": "A", "text": "reply", "is_favorited": True},
+        {"id": "B", "parent": "root", "text": "second", "like_count": 9},
+    ]]))
+    result = CliRunner().invoke(cli, ["comments", URL, "--comment-count", "2", "--comment-order", order,
+                                      "--comment-full-replies", "--comment-markers", "--output-dir", str(tmp_path)])
+    assert result.exit_code == 0, result.output
+    args = calls[0]["extractor_args"]["youtube"]
+    assert args["comment_sort"] == [site_sort]
+    assert int(args["max_comments"][1]) == 2 and int(args["max_comments"][0]) >= 3
+    data = json.loads((tmp_path / f"{VIDEO_ID}.comments.json").read_text("utf-8"))
+    assert (data["cap"], data["fetched"], data["order"]) == (2, 2, order)
+    assert data["comments"][0]["id"] == first
+    parent = next(c for c in data["comments"] if c["id"] == "A")
+    assert parent["is_pinned"] is True
+    reply, = parent["replies"]
+    assert reply["id"] == "R" and reply["creator_heart"] is True
+    assert len(calls) == 1
+    compact = (tmp_path / f"{VIDEO_ID}.comments.txt").read_text("utf-8")
+    assert "pinned" in compact and "creator-heart" in compact
+
+
+@pytest.mark.parametrize("site_error", [False, True])
+def test_api_markers_preserve_api_sample_and_only_apply_matching_ids(monkeypatch, tmp_path, isolated, site_error):
+    def record(comment_id):
+        return {"id": comment_id, "snippet": {"textDisplay": "API text", "likeCount": 15}}
+
+    def transport(url, *_):
+        if url.endswith("/videos"):
+            return 200, {"items": []}
+        return 200, {"items": [
+            {"snippet": {"topLevelComment": record("A"), "totalReplyCount": 1},
+             "replies": {"comments": [record("R")]}},
+            {"snippet": {"topLevelComment": record("B"), "totalReplyCount": 0}},
+        ]}
+
+    monkeypatch.setenv("YOUTUBE_API_KEY", "fake-key")
+    monkeypatch.setattr(youtube_api, "_http_get", transport)
+    outcome = yt_dlp.utils.DownloadError("network unavailable") if site_error else [
+        {"id": "A", "parent": "root", "is_pinned": True, "text": "Other text", "like_count": 1},
+        {"id": "R", "parent": "A", "is_favorited": True},
+        {"id": "C", "parent": "root", "is_pinned": True},
+    ]
+    calls = fake_ytdlp(monkeypatch, iter([outcome]))
+    runner = CliRunner()
+    base = ["comments", URL, "--comment-count", "2", "--output-dir", str(tmp_path)]
+    assert runner.invoke(cli, base).exit_code == 0
+    assert calls == []
+    result = runner.invoke(cli, [*base, "--comment-markers"])
+    assert result.exit_code == 0, result.output
+    assert len(calls) == 1
+    data = json.loads((tmp_path / f"{VIDEO_ID}.comments.json").read_text("utf-8"))
+    a, b = data["comments"]
+    assert (a["id"], a["text"], a["like_count"], b["id"]) == ("A", "API text", 15, "B")
+    assert data["source"] == "api" and b["is_pinned"] is None
+    assert data["markers"] == ("unavailable" if site_error else "partial")
+    assert a["is_pinned"] is (None if site_error else True)
+    assert a["replies"][0]["creator_heart"] is (None if site_error else True)
+
+
+def test_site_full_replies_preserves_nested_discussion(monkeypatch, tmp_path, isolated):
+    calls = fake_ytdlp(monkeypatch, iter([[
+        {"id": "A", "parent": "root", "text": "topic"},
+        {"id": "R", "parent": "A", "text": "answer"},
+        {"id": "N", "parent": "R", "text": "nested answer"},
+    ]]))
+    result = CliRunner().invoke(cli, ["comments", URL, "--comment-full-replies", "--output-dir", str(tmp_path)])
+    assert result.exit_code == 0, result.output
+    data = json.loads((tmp_path / f"{VIDEO_ID}.comments.json").read_text("utf-8"))
+    root, = data["comments"]
+    assert [(reply["id"], reply["parent_id"]) for reply in root["replies"]] == [("R", "A"), ("N", "R")]
+    assert int(calls[0]["extractor_args"]["youtube"]["max_comments"][4]) >= 3
+    assert "nested answer" in (tmp_path / f"{VIDEO_ID}.comments.txt").read_text("utf-8")

@@ -263,18 +263,35 @@ def resolve_channel(source: str) -> YouTubeChannel | None:
     return YouTubeChannel(channel_id, title, handle)
 
 
-def list_comment_threads(video_id: str) -> list[dict]:
-    """Get one relevance-ordered page, including the free inline replies."""
-    body = api_get("commentThreads", {
-        "part": "snippet,replies",
-        "videoId": video_id,
-        "order": "relevance",
-        "maxResults": DEFAULT_COMMENT_CAP,
-        "textFormat": "plainText",
-    })
-    if not isinstance(body.get("items"), list):
-        raise TransientFailure("Unexpected commentThreads.list response")
-    return body["items"]
+def _comment_pages(resource: str, params: dict, cap: int | None, *, single_page: bool = False) -> list[dict]:
+    items = []
+    seen_tokens = set()
+    while cap is None or len(items) < cap:
+        remaining = 100 if cap is None else min(100, cap - len(items))
+        body = api_get(resource, {**params, "maxResults": remaining, "textFormat": "plainText"})
+        if not isinstance(body.get("items"), list):
+            raise TransientFailure(f"Unexpected {resource}.list response")
+        items.extend(body["items"][:remaining])
+        token = body.get("nextPageToken")
+        if single_page or not token or (cap is not None and len(items) >= cap):
+            break
+        if not isinstance(token, str) or token in seen_tokens:
+            raise TransientFailure(f"Invalid pagination token in {resource}.list response")
+        seen_tokens.add(token)
+        params["pageToken"] = token
+    return items
+
+
+def list_comment_threads(video_id: str, *, cap: int = DEFAULT_COMMENT_CAP, order: str = "relevance") -> list[dict]:
+    """Get a capped sample of threads, including their free inline replies."""
+    return _comment_pages("commentThreads", {
+        "part": "snippet,replies", "videoId": video_id, "order": order,
+    }, cap, single_page=cap == DEFAULT_COMMENT_CAP)
+
+
+def list_comment_replies(parent_id: str) -> list[dict]:
+    """Fetch the complete public reply list for one top-level comment."""
+    return _comment_pages("comments", {"part": "snippet", "parentId": parent_id}, cap=None)
 
 
 @dataclass(frozen=True)
