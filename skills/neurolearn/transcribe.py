@@ -666,17 +666,22 @@ class _CommentAttachments:
         )
         self.reported_skip = False
 
+    def _has_youtube_source(self, url: str) -> bool:
+        if _YOUTUBE_VIDEO_HOST.match(url):
+            return True
+        if not self.reported_skip:
+            click.echo("Skipping comments for sources without a YouTube video URL.", err=True)
+            self.reported_skip = True
+        return False
+
     def fetch(
         self, url: str | None, video_id: str | None, transcript: Path,
     ) -> tuple[Path, Path] | None:
         from skills.neurolearn import comments
 
-        if not url or not _YOUTUBE_VIDEO_HOST.match(url):
-            if not self.reported_skip:
-                click.echo("Skipping comments for sources without a YouTube video URL.", err=True)
-                self.reported_skip = True
+        if not self._has_youtube_source(url or ""):
             return None
-        video_id = video_id or extract_youtube_video_id(url)
+        video_id = video_id or extract_youtube_video_id(url or "")
         if not video_id:
             click.echo(f"Could not identify the video for comments: {url}", err=True)
             return None
@@ -692,6 +697,8 @@ class _CommentAttachments:
         return None
 
     def for_analysis(self, video: VideoSource) -> None:
+        if video.url and not self._has_youtube_source(video.url):
+            return
         transcript = video.transcript_path
         path = transcript.with_suffix(".comments.txt")
         if not path.is_file():
