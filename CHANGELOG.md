@@ -3,6 +3,19 @@
 All notable changes to neurolearn will be documented here.
 The format is loosely based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.31.0] — 2026-11-12
+
+### Added
+
+- `research` uses the YouTube Data API to search exact publication windows in
+  each requested language. The default order is relevance. The selection shows
+  available views, likes and comments, and the manifest retains those statistics.
+  Use `--sort-by-views` and `--min-views` to select by popularity. Topic search
+  falls back to yt-dlp when the API is unavailable.
+- `channel-list <channel>` lists dated YouTube publications in a table or JSON
+  with their type, duration, views, likes and comment count. It accepts a count
+  limit, inclusive date bounds and a publication type, and requires a YouTube key.
+
 ## [0.29.0] — 2026-11-12
 
 ### Added

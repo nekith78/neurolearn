@@ -122,7 +122,7 @@ def _comment_options(command):
     command = click.option("--comment-full-replies", is_flag=True,
                            help="Request all public replies for the sampled threads.")(command)
     command = click.option("--comment-count", type=click.IntRange(min=1),
-                           default=youtube_api.DEFAULT_COMMENT_CAP, show_default=True,
+                           default=None, show_default=str(youtube_api.DEFAULT_COMMENT_CAP),
                            help="Maximum number of top-level comments.")(command)
     return click.option("--comment-order", type=click.Choice(["relevance", "newest", "likes"]),
                         default="relevance", show_default=True,
@@ -132,7 +132,7 @@ def _comment_options(command):
 def _comment_settings(opts):
     from skills.neurolearn.comments import CommentOptions
 
-    return CommentOptions(cap=opts.get("comment_count", youtube_api.DEFAULT_COMMENT_CAP),
+    return CommentOptions(cap=opts.get("comment_count"),
                           order=opts.get("comment_order", "relevance"),
                           full_replies=opts.get("comment_full_replies", False),
                           markers=opts.get("comment_markers", False))
@@ -645,6 +645,7 @@ def _build_video_status(
     idx: int, target: ResolvedTarget, result, files: dict
 ) -> BatchVideoStatus:
     """Convert a successful pipeline result into a BatchVideoStatus manifest entry."""
+    statistics = getattr(target, "statistics", None)
     return BatchVideoStatus(
         index=idx,
         url=target.url,
@@ -667,7 +668,7 @@ def _build_video_status(
         quality=getattr(result, "quality", None),
         # === v0.7: multi-lang attribution from research/source ===
         source_language=getattr(target, "source_language", None),
-        statistics=target.statistics if target.source == "search" else None,
+        statistics=statistics if isinstance(statistics, dict) else None,
         # === v0.10: forward the budget tracker into manifest.json ===
         budget=getattr(result, "budget", None),
     )
