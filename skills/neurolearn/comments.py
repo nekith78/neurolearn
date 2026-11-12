@@ -106,6 +106,8 @@ def _yt_dlp_sample(
     marker_reply_budget: int | None = None,
 ) -> CommentSample:
     cap = options.cap if options.cap is not None else youtube_api.DEFAULT_COMMENT_CAP
+    # The newest feed can put one older pinned thread before its chronological results.
+    parent_budget = cap + 1 if options.order == "newest" else cap
     # With no published total, allow one sample's worth of replies and report truncation.
     reply_budget = cap if options.full_replies else 0
     if marker_reply_budget is not None:
@@ -113,7 +115,7 @@ def _yt_dlp_sample(
 
     def limits_for(replies: int) -> list[str]:
         # Total, parents, replies, replies per thread, depth (including the parent).
-        return list(map(str, (cap + replies, cap, replies, replies, 1 + replies)))
+        return list(map(str, (parent_budget + replies, parent_budget, replies, replies, 1 + replies)))
 
     limits = limits_for(reply_budget)
     ydl_options = {
@@ -156,7 +158,7 @@ def _yt_dlp_sample(
         )
         parent_id = item.get("parent")
         if not parent_id or parent_id == "root":
-            if len(parents) < cap:
+            if len(parents) < parent_budget:
                 parents[comment.id] = comment
         elif reply_budget:
             replies.append((parent_id, comment))
@@ -169,8 +171,12 @@ def _yt_dlp_sample(
             reply.parent_id = parent_id
             root.replies.append(reply)
             roots[reply.id] = root
+    selected = list(parents.values())
+    if options.order == "newest":
+        selected.sort(key=lambda comment: comment.published_at or "", reverse=True)
+        selected = selected[:cap]
     sample = CommentSample(
-        video_id, list(parents.values()), total=total, source="yt-dlp",
+        video_id, selected, total=total, source="yt-dlp",
         approximate_fields=["like_count", "published_at"],
         replies_mode="full" if options.full_replies else "none",
         markers="yt-dlp" if options.markers else "off",
@@ -200,9 +206,6 @@ def _apply_order(sample: CommentSample, options: CommentOptions) -> CommentSampl
         sample.notes.append("Likes are sorted within the fetched relevance sample.")
         sample.comments.sort(key=lambda comment: comment.like_count if comment.like_count is not None else -1,
                              reverse=True)
-    elif options.order == "newest" and sample.source == "yt-dlp":
-        # The site can insert a pinned comment above its chronological feed.
-        sample.comments.sort(key=lambda comment: comment.published_at or "", reverse=True)
     return sample
 
 
