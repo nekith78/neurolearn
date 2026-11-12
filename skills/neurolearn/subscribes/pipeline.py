@@ -20,11 +20,15 @@ state and the next incremental run still asked for --days.
 from __future__ import annotations
 
 import re
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
+from typing import Literal
 
+from skills.neurolearn import youtube_api
 from skills.neurolearn.utils.console import make_console
+from skills.neurolearn.youtube_fallback import FallbackNotice, fallback_notice_for_run
 
 from skills.neurolearn.subscribes.channel_resolver import ChannelNotFoundError
 from skills.neurolearn.subscribes.store import (
@@ -66,9 +70,13 @@ class _ChannelVideo:
     title: str
     duration_sec: int | None  # None on RSS path; populated by yt-dlp path
     published: datetime
+    statistics: dict[str, int | None] | None = None
 
 
 _console = make_console()
+
+_VIDEO_PROBE_LIMIT = 60
+_SHORTS_PROBE_LIMIT = 100
 
 
 _NOT_FOUND_SIGNATURES = (
@@ -440,7 +448,7 @@ def _fetch_tab(
     in_window_fn,
     cap: int,
     cookies_file: str | None = None,
-    max_probe: int = 100,
+    max_probe: int = _SHORTS_PROBE_LIMIT,
 ) -> list[_ChannelVideo]:
     """Early-exit walk through a channel tab (`videos` / `shorts`), newest-first.
 
@@ -506,7 +514,7 @@ def _fetch_shorts(
     in_window_fn,
     cap: int,
     cookies_file: str | None = None,
-    max_probe: int = 100,
+    max_probe: int = _SHORTS_PROBE_LIMIT,
 ) -> list[_ChannelVideo]:
     """Early-exit walk through the `/shorts` tab. See `_fetch_tab`."""
     return _fetch_tab(
@@ -520,7 +528,7 @@ def _fetch_videos(
     *,
     in_window_fn,
     cookies_file: str | None = None,
-    max_probe: int = 60,
+    max_probe: int = _VIDEO_PROBE_LIMIT,
 ) -> list[_ChannelVideo]:
     """Early-exit walk through the `/videos` tab. See `_fetch_tab`.
 
@@ -573,13 +581,13 @@ def _make_in_window_predicate(ch: Channel, window):
 
 
 def _maybe_warn_cap_hit(
-    entries: list[_ChannelVideo], ch: Channel, cap: int,
+    short_count: int, ch: Channel, cap: int,
 ) -> None:
     """Print a soft warning if the shorts stream hit the cap. v0.17.1+
     the cap is enforced inside `_fetch_shorts` via early-exit, so we no
     longer know the precise found-count past the cap — the warning just
     flags 'there may be more, raise --shorts-cap if you want them.'"""
-    if cap <= 0 or len(entries) < cap:
+    if cap <= 0 or short_count < cap:
         return
     label = ch.handle or ch.channel_id or ch.url
     _console.print(
@@ -605,6 +613,23 @@ def _dedup_by_id(
     return out
 
 
+_SubscriptionTab = Literal["videos", "shorts"]
+
+
+def _select_youtube_entries(
+    mode: str, fetch_tab: Callable[[_SubscriptionTab], list[_ChannelVideo]],
+) -> tuple[list[_ChannelVideo], int]:
+    """Select the same tabs for either provider. Shorts win timestamp ties."""
+    videos = fetch_tab("videos") if mode != "shorts-only" else []
+    if mode == "videos-only" or (mode == "auto" and videos):
+        return videos, 0
+    shorts = fetch_tab("shorts")
+    if mode == "shorts-and-videos":
+        merged = sorted(shorts + videos, key=lambda e: e.published, reverse=True)
+        return _dedup_by_id(merged), len(shorts)
+    return shorts, len(shorts)
+
+
 def _fetch_youtube_entries(
     ch: Channel,
     *,
@@ -612,71 +637,50 @@ def _fetch_youtube_entries(
     window,
     shorts_cap: int,
     youtube_cookies_file: str,
+    notice: FallbackNotice,
 ) -> list[_ChannelVideo]:
-    """Route fetch+window+cap for a YouTube channel per its effective mode.
-
-    Returns the channel's contribution to the candidate list (post-window,
-    post-cap, deduped where applicable). See docs/specs/v0.17-subscribes-shorts.md
-    for the routing decision tree.
-
-    v0.17.1: Shorts path uses an early-exit walk (in-window predicate + cap,
-    stops at the first out-of-window short).
-    v0.20: the videos path does the same on the `/videos` tab (RSS retired —
-    it leaked livestreams and was empty for some channels), so both streams
-    now run the window inside the fetcher rather than after a bulk pull.
-    """
+    """Select a complete channel from one provider, keeping API details for batch output."""
     in_window_pred = _make_in_window_predicate(ch, window)
-    cookies = youtube_cookies_file or None
 
-    if effective_mode == "videos-only":
-        return _fetch_youtube_videos(
-            ch, in_window_fn=in_window_pred, cookies_file=cookies,
-        )
+    def api_tab(tab: _SubscriptionTab) -> list[_ChannelVideo]:
+        # Match both the fallback's probe limits and its break on the first
+        # out-of-window item (including an item newer than an explicit --until).
+        limit = _VIDEO_PROBE_LIMIT
+        if tab == "shorts":
+            limit = min(shorts_cap or _SHORTS_PROBE_LIMIT, _SHORTS_PROBE_LIMIT)
+        prefix = "shorts/" if tab == "shorts" else "watch?v="
+        entries = []
+        for row in youtube_api.iter_channel_uploads(ch.channel_id, tab, limit=limit):
+            if not in_window_pred(row.published_at):
+                break
+            entries.append(_ChannelVideo(
+                video_id=row.video_id, url=f"https://www.youtube.com/{prefix}{row.video_id}",
+                title=row.title or "", published=row.published_at, duration_sec=None,
+            ))
+        return entries
 
-    if effective_mode == "shorts-only":
-        shorts = _fetch_shorts(
-            ch.url,
-            in_window_fn=in_window_pred,
-            cap=shorts_cap,
-            cookies_file=cookies,
-        )
-        _maybe_warn_cap_hit(shorts, ch, shorts_cap)
-        return shorts
+    def ytdlp_tab(tab: _SubscriptionTab) -> list[_ChannelVideo]:
+        cookies = youtube_cookies_file or None
+        if tab == "shorts":
+            return _fetch_shorts(ch.url, in_window_fn=in_window_pred, cap=shorts_cap,
+                                 cookies_file=cookies)
+        return _fetch_youtube_videos(ch, in_window_fn=in_window_pred, cookies_file=cookies)
 
-    if effective_mode == "shorts-and-videos":
-        videos = _fetch_youtube_videos(
-            ch, in_window_fn=in_window_pred, cookies_file=cookies,
-        )
-        shorts = _fetch_shorts(
-            ch.url,
-            in_window_fn=in_window_pred,
-            cap=shorts_cap,
-            cookies_file=cookies,
-        )
-        _maybe_warn_cap_hit(shorts, ch, shorts_cap)
-        # Sort by published desc, dedup by id. Shorts come first in the
-        # concat so a colliding id (rare — same content visible on both
-        # tabs) keeps the Shorts entry (its URL is the canonical `/shorts/`
-        # form for that ID).
-        merged = sorted(
-            shorts + videos, key=lambda e: e.published, reverse=True,
-        )
-        return _dedup_by_id(merged)
+    try:
+        entries, short_count = _select_youtube_entries(effective_mode, api_tab)
+        details = youtube_api.fetch_video_details(entry.video_id for entry in entries)
+        for entry in entries:
+            detail = details.get(entry.video_id)
+            if detail is None or detail.duration_sec is None:
+                raise youtube_api.TransientFailure("Missing duration for a subscription upload")
+            entry.duration_sec = detail.duration_sec
+            entry.statistics = detail.statistics
+    except youtube_api.YouTubeApiError as error:
+        notice.report(error)
+        entries, short_count = _select_youtube_entries(effective_mode, ytdlp_tab)
 
-    # "auto": videos first, fallback to shorts only if window has nothing.
-    videos = _fetch_youtube_videos(
-        ch, in_window_fn=in_window_pred, cookies_file=cookies,
-    )
-    if videos:
-        return videos
-    shorts = _fetch_shorts(
-        ch.url,
-        in_window_fn=in_window_pred,
-        cap=shorts_cap,
-        cookies_file=cookies,
-    )
-    _maybe_warn_cap_hit(shorts, ch, shorts_cap)
-    return shorts
+    _maybe_warn_cap_hit(short_count, ch, shorts_cap)
+    return entries
 
 
 def run_subscribes_update(
@@ -747,6 +751,7 @@ def run_subscribes_update(
     candidates: list[SearchCandidate] = []
     state_updates: list[tuple[str, str, str]] = []
 
+    notice = fallback_notice_for_run()
     for ch in channels:
         if not ch.channel_id:
             continue
@@ -786,6 +791,7 @@ def run_subscribes_update(
                     window=window,
                     shorts_cap=shorts_cap,
                     youtube_cookies_file=youtube_cookies_file,
+                    notice=notice,
                 )
         except ChannelNotFoundError:
             # Username changed (or account deleted / privated). Surface a clear
@@ -837,7 +843,7 @@ def run_subscribes_update(
                 channel=ch.handle or ch.url,
                 duration_sec=e.duration_sec,
                 upload_date=e.published.date(),
-                source_language="(subscribes)",
+                source_language="(subscribes)", statistics=e.statistics,
             ))
 
         # Should state advance? Two cases that DO update:
@@ -889,7 +895,7 @@ def run_subscribes_update(
             url=c.url, video_id=c.video_id, title=c.title,
             channel=c.channel, duration_sec=c.duration_sec,
             upload_date=c.upload_date, source="channel",
-            source_language=getattr(c, "source_language", None),
+            source_language=getattr(c, "source_language", None), statistics=c.statistics,
         )
         for c in candidates
     ]

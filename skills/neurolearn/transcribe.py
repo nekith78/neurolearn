@@ -109,7 +109,9 @@ def cli() -> None:
     pass
 
 
+from skills.neurolearn.channel_listing import channel_list
 from skills.neurolearn.updates import check_updates_cmd, update_deps_cmd
+cli.add_command(channel_list)
 cli.add_command(check_updates_cmd)
 cli.add_command(update_deps_cmd)
 
@@ -664,7 +666,7 @@ def _build_video_status(
         quality=getattr(result, "quality", None),
         # === v0.7: multi-lang attribution from research/source ===
         source_language=getattr(target, "source_language", None),
-        statistics=target.statistics,
+        statistics=target.statistics if target.source == "search" else None,
         # === v0.10: forward the budget tracker into manifest.json ===
         budget=getattr(result, "budget", None),
     )
