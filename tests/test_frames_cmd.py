@@ -247,7 +247,9 @@ def test_extract_frames_range_samples_dedups_returns_relative(tmp_path):
     # dedup collapsed to 3; paths relative + under frames/
     assert len(out) == 3
     for rel in out:
-        assert rel.startswith("frames/")
+        relative_path = Path(rel)
+        assert not relative_path.is_absolute()
+        assert relative_path.parts[0] == "frames"
         assert (batch / rel).exists()
 
 
