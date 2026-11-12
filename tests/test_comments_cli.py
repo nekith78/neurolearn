@@ -119,3 +119,100 @@ def test_unknown_video_is_reported_clearly(monkeypatch, tmp_path):
     assert result.exit_code != 0
     assert "video not found" in result.output.lower()
     assert not list(tmp_path.iterdir())
+
+
+@pytest.mark.parametrize(("order", "api_order", "first"), [
+    ("newest", "time", "0"),
+    ("likes", "relevance", "100"),
+])
+def test_custom_order_pages_only_to_top_level_cap(monkeypatch, tmp_path, order, api_order, first):
+    pages = []
+
+    def transport(url, params, *_):
+        if url.endswith("/videos"):
+            return 200, {"items": []}
+        assert params["order"] == api_order
+        start = 100 if params.get("pageToken") == "more" else 0
+        pages.append(params["maxResults"])
+        items = [
+            {"snippet": {"topLevelComment": _comment(str(i), "a", "UCa", i, "text"),
+                         "totalReplyCount": 0}}
+            for i in range(start, start + params["maxResults"])
+        ]
+        return 200, {"items": items, "nextPageToken": "more"}
+
+    monkeypatch.setenv("YOUTUBE_API_KEY", "fake-key")
+    monkeypatch.setattr(youtube_api, "_http_get", transport)
+    result = CliRunner().invoke(cli, ["comments", URL, "--comment-count", "101",
+                                      "--comment-order", order, "--output-dir", str(tmp_path)])
+    assert result.exit_code == 0, result.output
+    data = json.loads((tmp_path / f"{VIDEO_ID}.comments.json").read_text("utf-8"))
+    assert (data["order"], data["cap"], data["fetched"]) == (order, 101, 101)
+    assert data["comments"][0]["id"] == first
+    assert pages == [100, 1]
+
+
+def test_full_replies_follows_reply_pages_only_for_incomplete_threads(monkeypatch, tmp_path):
+    def thread(parent, total):
+        return {"snippet": {"topLevelComment": _comment(parent, "Viewer", "UCv", 0, "post"),
+                            "totalReplyCount": total},
+                "replies": {"comments": [_comment("inline" + parent, "Owner", "UCx", 0, "reply")]}}
+
+    reply_pages = []
+    def transport(url, params, *_):
+        if url.endswith("/videos"):
+            return 200, {"items": []}
+        if url.endswith("/commentThreads"):
+            return 200, {"items": [thread("A", 2), thread("B", 1)]}
+        assert url.endswith("/comments") and params["parentId"] == "A"
+        reply_pages.append(params.get("pageToken"))
+        if "pageToken" not in params:
+            return 200, {"items": [_comment("inlineA", "Owner", "UCx", 0, "reply")],
+                         "nextPageToken": "next"}
+        return 200, {"items": [_comment("extra", "Viewer", "UCv", 5, "second reply")]}
+
+    monkeypatch.setenv("YOUTUBE_API_KEY", "fake-key")
+    monkeypatch.setattr(youtube_api, "_http_get", transport)
+    result = CliRunner().invoke(cli, ["comments", URL, "--comment-full-replies", "--output-dir", str(tmp_path)])
+    assert result.exit_code == 0, result.output
+    data = json.loads((tmp_path / f"{VIDEO_ID}.comments.json").read_text("utf-8"))
+    assert [[r["id"] for r in c["replies"]] for c in data["comments"]] == [["inlineA", "extra"], ["inlineB"]]
+    assert data["replies_mode"] == "full"
+    assert reply_pages == [None, "next"]
+
+
+def test_disappearing_reply_thread_keeps_sample_and_discloses_missing_replies(monkeypatch, tmp_path):
+    def transport(url, params, *_):
+        if url.endswith("/commentThreads"):
+            return 200, {"items": [{"snippet": {"topLevelComment": _comment("A", "a", "UCa", 1, "post"),
+                                                "totalReplyCount": 2}}]}
+        if url.endswith("/videos"):
+            return 200, {"items": []}
+        return 404, {"error": {"errors": [{"reason": "commentNotFound"}]}}
+
+    monkeypatch.setenv("YOUTUBE_API_KEY", "test-credential")
+    monkeypatch.setattr(youtube_api, "_http_get", transport)
+    result = CliRunner().invoke(cli, ["comments", URL, "--comment-full-replies", "--output-dir", str(tmp_path)])
+    assert result.exit_code == 0, result.output
+    data = json.loads((tmp_path / f"{VIDEO_ID}.comments.json").read_text("utf-8"))
+    assert data["source"] == "api" and data["replies_mode"] == "partial"
+    assert data["comments"][0]["id"] == "A" and data["notes"]
+
+
+def test_explicit_count_of_100_continues_after_a_short_page(monkeypatch, tmp_path):
+    sizes = []
+    def transport(url, params, *_):
+        if url.endswith("/videos"):
+            return 200, {"items": []}
+        sizes.append(params["maxResults"])
+        page = {"items": [{"snippet": {"topLevelComment": _comment(str(len(sizes)), "a", "UCa", 1, "text"),
+                                       "totalReplyCount": 0}}]}
+        if "pageToken" not in params:
+            page["nextPageToken"] = "second"
+        return 200, page
+
+    monkeypatch.setenv("YOUTUBE_API_KEY", "fake-key")
+    monkeypatch.setattr(youtube_api, "_http_get", transport)
+    result = CliRunner().invoke(cli, ["comments", URL, "--comment-count", "100", "--output-dir", str(tmp_path)])
+    assert result.exit_code == 0, result.output
+    assert sizes == [100, 99]

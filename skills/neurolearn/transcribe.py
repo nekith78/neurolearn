@@ -110,15 +110,40 @@ def cli() -> None:
     pass
 
 
+from skills.neurolearn.channel_listing import channel_list
 from skills.neurolearn.updates import check_updates_cmd, update_deps_cmd
+cli.add_command(channel_list)
 cli.add_command(check_updates_cmd)
 cli.add_command(update_deps_cmd)
 
+def _comment_options(command):
+    command = click.option("--comment-markers", is_flag=True,
+                           help="Look up pinned and creator-heart markers with yt-dlp.")(command)
+    command = click.option("--comment-full-replies", is_flag=True,
+                           help="Request all public replies for the sampled threads.")(command)
+    command = click.option("--comment-count", type=click.IntRange(min=1),
+                           default=None, show_default=str(youtube_api.DEFAULT_COMMENT_CAP),
+                           help="Maximum number of top-level comments.")(command)
+    return click.option("--comment-order", type=click.Choice(["relevance", "newest", "likes"]),
+                        default="relevance", show_default=True,
+                        help="Likes sorts the fetched relevance sample locally.")(command)
+
+
+def _comment_settings(opts):
+    from skills.neurolearn.comments import CommentOptions
+
+    return CommentOptions(cap=opts.get("comment_count"),
+                          order=opts.get("comment_order", "relevance"),
+                          full_replies=opts.get("comment_full_replies", False),
+                          markers=opts.get("comment_markers", False))
+
+
 @cli.command(name="comments")
+@_comment_options
 @click.argument("url")
 @click.option("--output-dir", type=click.Path(file_okay=False, path_type=Path),
               help="Output directory (defaults to the configured output directory).")
-def comments_cmd(url: str, output_dir: Path | None) -> None:
+def comments_cmd(url: str, output_dir: Path | None, **opts) -> None:
     """Fetch comments for a YouTube video."""
     from skills.neurolearn import comments, youtube_api
 
@@ -127,7 +152,8 @@ def comments_cmd(url: str, output_dir: Path | None) -> None:
         raise click.BadParameter("Expected a YouTube video URL.", param_hint="URL")
     cfg = load_config(CONFIG_PATH)
     try:
-        sample = comments.fetch_comments(video_id, cookies_file=cfg.youtube_cookies_file or cfg.cookies_file)
+        sample = comments.fetch_comments(video_id, options=_comment_settings(opts),
+                                         cookies_file=cfg.youtube_cookies_file or cfg.cookies_file)
     except youtube_api.CommentsDisabled:
         click.echo("Comments are disabled for this video.")
         return
@@ -166,6 +192,7 @@ def comments_cmd(url: str, output_dir: Path | None) -> None:
 @click.option("--beam-size", type=int, default=None)
 @click.option("--vad/--no-vad", default=None)
 @click.option("--verbose", is_flag=True)
+@_comment_options
 @click.option("--with-comments", is_flag=True, help="Save YouTube comments next to the transcript.")
 @click.option("--with-visuals", is_flag=True,
               help="Extract keyframes for an illustrated report — Claude reads "
@@ -640,6 +667,7 @@ def _build_video_status(
         quality=getattr(result, "quality", None),
         # === v0.7: multi-lang attribution from research/source ===
         source_language=getattr(target, "source_language", None),
+        statistics=target.statistics if target.source == "search" else None,
         # === v0.10: forward the budget tracker into manifest.json ===
         budget=getattr(result, "budget", None),
     )
@@ -664,6 +692,27 @@ class _CommentAttachments:
             opts.get("cookies_file") or cfg.youtube_cookies_file or cfg.cookies_file or None
         )
         self.reported_skip = False
+        self.settings = _comment_settings(opts)
+        ctx = click.get_current_context(silent=True)
+        self.custom_settings = ctx is not None and any(
+            ctx.get_parameter_source(key) == click.core.ParameterSource.COMMANDLINE
+            for key in ("comment_count", "comment_order", "comment_full_replies", "comment_markers")
+        )
+
+    def can_reuse(self, transcript: Path, *, require_json: bool = False) -> bool:
+        import json
+        from dataclasses import asdict
+
+        if not is_regular_file(transcript.with_suffix(".comments.txt")):
+            return False
+        structured = transcript.with_suffix(".comments.json")
+        if not self.custom_settings:
+            return not require_json or is_regular_file(structured)
+        try:
+            sample = json.loads(read_regular_text(structured))
+        except (OSError, ValueError):
+            return False
+        return isinstance(sample, dict) and sample.get("requested_options") == asdict(self.settings)
 
     def _has_youtube_source(self, url: str) -> bool:
         if _YOUTUBE_VIDEO_HOST.match(url):
@@ -686,7 +735,7 @@ class _CommentAttachments:
             return None
         try:
             sample = comments.fetch_comments(
-                video_id, notice=self.notice, cookies_file=self.cookies_file,
+                video_id, options=self.settings, notice=self.notice, cookies_file=self.cookies_file,
             )
             return comments.write_comments(sample, transcript.parent, transcript.stem)
         except youtube_api.CommentsDisabled:
@@ -700,7 +749,7 @@ class _CommentAttachments:
             return
         transcript = video.transcript_path
         path = transcript.with_suffix(".comments.txt")
-        if not is_regular_file(path):
+        if not self.can_reuse(transcript):
             paths = self.fetch(video.url, video.video_id, transcript)
             if not paths:
                 return
@@ -725,7 +774,7 @@ def _attach_youtube_statistics(videos: list[BatchVideoStatus]) -> None:
     """Enrich successful YouTube results in one batched lookup when available."""
     youtube_videos = [
         (video.video_id, video) for video in videos
-        if video.video_id and _YOUTUBE_VIDEO_HOST.match(video.url)
+        if video.statistics is None and video.video_id and _YOUTUBE_VIDEO_HOST.match(video.url)
     ]
     try:
         details = youtube_api.fetch_video_details(video_id for video_id, _ in youtube_videos)
@@ -734,11 +783,7 @@ def _attach_youtube_statistics(videos: list[BatchVideoStatus]) -> None:
     for video_id, video in youtube_videos:
         detail = details.get(video_id)
         if detail is not None:
-            video.statistics = {
-                "view_count": detail.view_count,
-                "like_count": detail.like_count,
-                "comment_count": detail.comment_count,
-            }
+            video.statistics = detail.statistics
 
 
 def _ensure_config_or_skip_wizard() -> None:
@@ -1310,10 +1355,7 @@ def _run_batch_pipeline(
     for i, target in enumerate(targets, start=1 + target_index_offset):
         if skip_existing and target.video_id and target.video_id in existing_transcripts:
             transcript = existing_transcripts[target.video_id]
-            if attachments and not (
-                is_regular_file(transcript.with_suffix(".comments.txt"))
-                and is_regular_file(transcript.with_suffix(".comments.json"))
-            ):
+            if attachments and not attachments.can_reuse(transcript, require_json=True):
                 attachments.fetch(target.url, target.video_id, transcript)
             skipped_count += 1
             console.print(
@@ -1561,6 +1603,7 @@ def _run_batch_pipeline(
 @click.option("--beam-size", type=int, default=None)
 @click.option("--vad/--no-vad", default=None)
 @click.option("--verbose", is_flag=True)
+@_comment_options
 @click.option("--with-comments", is_flag=True, help="Save YouTube comments next to each transcript.")
 @click.option("--with-visuals", is_flag=True,
               help="Extract keyframes for an illustrated report — Claude reads "
@@ -2870,6 +2913,7 @@ def summarize_cmd(
 @cli.command(name="analyze")
 @click.argument("source", required=False,
                 type=click.Path(path_type=Path))
+@_comment_options
 @click.option("--with-comments", is_flag=True,
               help="Include saved YouTube comments, fetching missing samples for selected videos.")
 @click.option("--prompt", "prompt_inline", default=None,
@@ -2918,6 +2962,7 @@ def analyze_cmd(
     no_stdout: bool,
     max_chars: int,
     with_comments: bool,
+    **opts,
 ) -> None:
     """Analyze one or more transcripts via an external LLM."""
     from datetime import datetime
@@ -3031,7 +3076,7 @@ def analyze_cmd(
             sys.exit(5)
 
     if with_comments:
-        attachments = _CommentAttachments(cfg, {})
+        attachments = _CommentAttachments(cfg, opts)
         for video in chosen:
             attachments.for_analysis(video)
 
@@ -3122,6 +3167,10 @@ def analyze_cmd(
               help="Window end YYYY-MM-DD.")
 @click.option("--limit", "limit_opt", type=int, default=20, show_default=True,
               help="Videos to take per language (YouTube Data API: up to 50 per query).")
+@click.option("--sort-by-views", is_flag=True,
+              help="Most viewed first, unknown counts last. Requires a YouTube API key.")
+@click.option("--min-views", type=click.IntRange(min=0),
+              help="Keep videos with at least this many known views. Requires a YouTube API key.")
 @click.option("--match", "match_opt", default=None,
               help="Case-insensitive substring filter on title.")
 @click.option("--filter", "filter_opt", default=None,
@@ -3170,7 +3219,7 @@ def analyze_cmd(
 )
 def research_cmd(
     query, prompt_inline, prompt_file, languages_csv, query_lang_opt,
-    translate_backend_opt,
+    translate_backend_opt, sort_by_views, min_views,
     days_opt, since_opt, until_opt, limit_opt, match_opt, filter_opt,
     filter_backend_opt, in_subscribes, group_opt, yes, no_analyze,
     analyze_backend_opt, ollama_model_opt, ollama_host_opt, no_stdout_opt,
@@ -3246,7 +3295,7 @@ def research_cmd(
             languages=languages,
             source_lang_hint=query_lang_opt,
             days=days_arg, since=since_d, until=until_d,
-            limit=limit_opt,
+            limit=limit_opt, sort_by_views=sort_by_views, min_views=min_views,
             match=match_opt, filter_text=filter_opt,
             in_subscribes=in_subscribes, group=group_opt,
             yes=yes, no_analyze=effective_no_analyze,

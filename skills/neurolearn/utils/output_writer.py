@@ -143,14 +143,18 @@ class BatchVideoStatus:
     statistics: dict[str, int | None] | None = None
 
     def format_statistics(self) -> str:
-        if self.statistics is None:
-            return ""
-        labels = (("Views", "view_count"), ("Likes", "like_count"), ("Comments", "comment_count"))
-        fields = []
-        for label, key in labels:
-            count = self.statistics[key]
-            fields.append(f"{label}: {count if count is not None else '—'}")
-        return " · ".join(fields)
+        return format_statistics(self.statistics)
+
+
+def format_statistics(statistics: dict[str, int | None] | None) -> str:
+    if statistics is None:
+        return ""
+    labels = (("Views", "view_count"), ("Likes", "like_count"), ("Comments", "comment_count"))
+    fields = []
+    for label, key in labels:
+        count = statistics[key]
+        fields.append(f"{label}: {count if count is not None else '—'}")
+    return " · ".join(fields)
 
 
 @dataclass

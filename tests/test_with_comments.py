@@ -167,6 +167,60 @@ def test_analyze_reads_only_regular_sibling_comment_files(invoke, tmp_path, monk
     assert "Sample from another talk." not in prompts[0]
 
 
+def test_custom_comment_options_apply_on_all_attachment_commands_and_reuse_matching_samples(invoke, tmp_path, monkeypatch):
+    from skills.neurolearn import youtube_api
+
+    requests = []
+    def transport(url, params, *_):
+        if url.endswith("/videos"):
+            return 200, {"items": []}
+        assert url.endswith("/commentThreads")
+        requests.append((params["maxResults"], params["order"]))
+        return 200, {"items": []}
+
+    monkeypatch.setenv("YOUTUBE_API_KEY", "fake-key")
+    monkeypatch.setattr(youtube_api, "_http_get", transport)
+    selection = ["--with-comments", "--comment-count", "5", "--comment-order", "newest",
+                 "--comment-full-replies", "--comment-markers"]
+    invoke("transcribe", URL, "--output-dir", tmp_path / "single", "--preset", "eco", *selection)
+    run = ["batch", URL, "--batch-name", "study", "--output-dir", tmp_path / "batches", "--preset", "eco"]
+    invoke(*run, *selection)
+    transcript, = (tmp_path / "batches/study/videos").glob(f"*_{VIDEO_ID}.txt")
+    for path in (next((tmp_path / "single").glob("*.comments.json")), transcript.with_suffix(".comments.json")):
+        data = json.loads(path.read_text())
+        assert (data["order"], data["cap"], data["replies_mode"]) == ("newest", 5, "full")
+
+    analyze = ["analyze", transcript, "--with-comments", "--comment-count", "8", "--comment-order", "likes",
+               "--prompt", "Review", "--backend", "ollama"]
+    prompts = []
+    monkeypatch.setattr("skills.neurolearn.analyze.runner.run_analysis",
+                        lambda prompt, **kw: prompts.append(prompt) or "Done.")
+    invoke(*analyze)
+    invoke(*analyze)
+    assert "order=likes cap=8" in prompts[-1]
+    invoke(*run, "--skip-existing", *selection)
+    invoke(*run, "--skip-existing", *selection)
+    assert requests == [(5, "time"), (5, "time"), (8, "relevance"), (5, "time")]
+
+
+def test_batch_refreshes_linked_sample_metadata(invoke, tmp_path, monkeypatch):
+    from skills.neurolearn import youtube_api
+
+    monkeypatch.setenv("YOUTUBE_API_KEY", "fake-key")
+    monkeypatch.setattr(youtube_api, "_http_get", lambda *args: (200, {"items": []}))
+    run = ["batch", URL, "--batch-name", "study", "--output-dir", tmp_path, "--preset", "eco",
+           "--with-comments", "--comment-count", "5"]
+    invoke(*run)
+    structured, = (tmp_path / "study/videos").glob("*.comments.json")
+    backup = structured.rename(structured.with_suffix(".backup"))
+    try:
+        structured.symlink_to(backup.name)
+    except OSError as exc:
+        pytest.skip(f"Symlink creation unavailable: {exc}")
+    invoke(*run, "--skip-existing")
+    assert structured.is_file() and not structured.is_symlink()
+
+
 @pytest.mark.parametrize("command", ["transcribe", "batch"])
 def test_comment_write_failure_preserves_successful_transcript(command, invoke, tmp_path, monkeypatch):
     monkeypatch.setattr(comments, "fetch_comments", sample)
