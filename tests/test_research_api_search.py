@@ -129,3 +129,131 @@ def test_api_unavailable_runs_preset_once_per_language_with_one_notice(
     assert capsys.readouterr().err.splitlines() == [
         f"YouTube Data API: {reason}. Falling back to yt-dlp.",
     ]
+
+
+def test_search_statistics_reach_picker_and_manifest_from_one_details_request(
+    monkeypatch, tmp_path,
+):
+    import json
+    import questionary
+
+    from skills.neurolearn.backends.base import TranscriptionResult
+    from skills.neurolearn.utils.output_writer import Segment
+
+    requests = []
+
+    def http(url, params, headers, timeout):
+        resource = url.rsplit("/", 1)[-1]
+        requests.append(resource)
+        if resource == "search":
+            return 200, {"items": [{"id": {"videoId": "low"}}]}
+        return 200, {"items": [{
+            "id": "low", "snippet": {"title": "Demo"},
+            "contentDetails": {"duration": "PT41S"},
+            "statistics": {"viewCount": "10", "likeCount": "0"},
+        }]}
+
+    labels = []
+
+    class Picker:
+        def ask(self):
+            return [0]
+
+    def checkbox(message, choices):
+        labels.extend(choice.title for choice in choices)
+        return Picker()
+
+    transcript = TranscriptionResult(
+        "Transcript.", [Segment(0, 1, "Transcript.")], "en", "subtitles", 1,
+    )
+    monkeypatch.setenv("YOUTUBE_API_KEY", "synthetic")
+    monkeypatch.setattr(youtube_api, "_http_get", http)
+    monkeypatch.setattr(questionary, "checkbox", checkbox)
+    monkeypatch.setattr(pipeline, "_stdin_is_tty", lambda: True)
+    monkeypatch.setattr(pipeline, "_append_history", lambda **kw: None)
+    monkeypatch.setattr("skills.neurolearn.transcribe.run_pipeline", lambda *a, **kw: transcript)
+    result = CliRunner().invoke(cli, [
+        "research", "topic", "--languages", "en", "--no-analyze", "--backend", "subtitles",
+        "--output-dir", str(tmp_path), "--batch-name", "result",
+    ], catch_exceptions=False)
+    assert result.exit_code == 0, result.output
+    assert all(text in labels[0] for text in ("Views: 10", "Likes: 0", "Comments: —", "41s"))
+    manifest = json.loads((tmp_path / "result" / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["videos"][0]["statistics"] == {
+        "view_count": 10, "like_count": 0, "comment_count": None,
+    }
+    assert requests == ["search", "videos"]
+
+
+@pytest.mark.parametrize(("flags", "order", "expected"), [
+    (["--sort-by-views"], "viewCount", ["popular", "mid", "zero", "hidden"]),
+    (["--min-views", "10"], "relevance", ["mid", "popular"]),
+    (["--sort-by-views", "--min-views", "0"], "viewCount", ["popular", "mid", "zero"]),
+])
+def test_view_options_apply_to_all_language_results(monkeypatch, flags, order, expected):
+    def http(url, params, headers, timeout):
+        if url.endswith("/search"):
+            assert params["order"] == order
+            ids = ["hidden", "mid"] if params["relevanceLanguage"] == "en" else ["zero", "popular"]
+            return 200, {"items": [{"id": {"videoId": vid}} for vid in ids]}
+        counts = {"hidden": {}, "mid": {"viewCount": "10"}, "zero": {"viewCount": "0"},
+                  "popular": {"viewCount": "100"}}
+        return 200, {"items": [{"id": vid, "statistics": counts[vid]}
+                               for vid in params["id"].split(",")]}
+
+    monkeypatch.setenv("YOUTUBE_API_KEY", "synthetic")
+    monkeypatch.setattr(youtube_api, "_http_get", http)
+    monkeypatch.setattr("skills.neurolearn.research.translator.translate_query",
+                        lambda *args, **kwargs: "sujet")
+    selected = []
+    monkeypatch.setattr(pipeline, "_run_batch_pipeline",
+                        lambda **kw: selected.extend(v.video_id for v in kw["targets"]))
+    monkeypatch.setattr(pipeline, "_append_history", lambda **kw: None)
+    result = CliRunner().invoke(cli, [
+        "research", "topic", "--languages", "en,fr", "--no-analyze", "--yes", *flags,
+    ], catch_exceptions=False)
+    assert result.exit_code == 0, result.output
+    assert selected == expected
+
+
+@pytest.mark.parametrize("flags", [["--sort-by-views"], ["--min-views", "0"]])
+def test_popularity_without_key_explains_before_search(monkeypatch, flags):
+    monkeypatch.setattr(source, "_extract", lambda *a, **kw: pytest.fail("unexpected search"))
+    result = CliRunner().invoke(cli, [
+        "research", "topic", "--languages", "en", "--no-analyze", "--yes", *flags,
+    ])
+    assert result.exit_code == 2
+    assert "YouTube API key" in result.output
+
+
+def test_view_sort_includes_fallback_language_when_search_quota_is_spent(monkeypatch):
+    from dataclasses import replace
+
+    from skills.neurolearn import config
+
+    config.save_config(replace(config.DEFAULT_CONFIG, youtube_daily_searches=1), config.CONFIG_PATH)
+    monkeypatch.setenv("YOUTUBE_API_KEY", "synthetic")
+    detail_pages = []
+
+    def http(url, params, headers, timeout):
+        if url.endswith("/search"):
+            return 200, {"items": [{"id": {"videoId": "first"}}]}
+        detail_pages.append(params["id"])
+        views = {"first": "10", "fallback": "50"}
+        return 200, {"items": [{"id": vid, "statistics": {"viewCount": views[vid]}}
+                               for vid in params["id"].split(",")]}
+
+    monkeypatch.setattr(youtube_api, "_http_get", http)
+    monkeypatch.setattr(source, "_extract", lambda *a, **kw: {"entries": [{"id": "fallback"}]})
+    monkeypatch.setattr("skills.neurolearn.research.translator.translate_query",
+                        lambda *a, **kw: "sujet")
+    selected = []
+    monkeypatch.setattr(pipeline, "_run_batch_pipeline",
+                        lambda **kw: selected.extend(v.video_id for v in kw["targets"]))
+    monkeypatch.setattr(pipeline, "_append_history", lambda **kw: None)
+    result = CliRunner().invoke(cli, [
+        "research", "topic", "--languages", "en,fr", "--no-analyze", "--yes", "--sort-by-views",
+    ], catch_exceptions=False)
+    assert result.exit_code == 0, result.output
+    assert selected == ["fallback", "first"]
+    assert detail_pages == ["first", "fallback"]

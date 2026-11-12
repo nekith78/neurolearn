@@ -42,6 +42,7 @@ class ResolvedTarget:
     # Set by research.pipeline when converting SearchCandidate → ResolvedTarget;
     # None for everything else. Lands in manifest.json for downstream filtering.
     source_language: str | None = None
+    statistics: dict[str, int | None] | None = None
 
 
 @dataclass
