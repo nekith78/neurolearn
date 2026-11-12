@@ -1744,6 +1744,9 @@ _KEY_GUIDE_URLS: dict[str, str] = {
     "custom":     "(specify base URL + key in config.toml)",
 }
 
+# Where the user creates the optional YouTube Data API key.
+_YOUTUBE_KEY_URL = "https://console.cloud.google.com/apis/credentials"
+
 # Backends whose configured key gives a "fast cloud" audio backend.
 _FAST_AUDIO_BACKENDS = ("groq", "gemini", "deepgram", "openai", "assemblyai")
 
@@ -1777,6 +1780,14 @@ def _build_doctor_payload() -> dict:
                 has_fast_vision = True
                 has_analyze_backend = True
         keys_section[backend] = entry
+
+    yt_key = get_api_key("youtube", env_path=ENV_PATH)
+    youtube_section: dict = {
+        "key_configured": bool(yt_key),
+        "key_url": _YOUTUBE_KEY_URL,
+    }
+    if yt_key:
+        youtube_section["masked"] = mask_key(yt_key)
 
     info = detect_platform()
     platform = {
@@ -1970,6 +1981,9 @@ def _build_doctor_payload() -> dict:
             "language": cfg.language,
         },
         "keys": keys_section,
+        # Optional YouTube Data API key. Kept out of `keys`: it is not a
+        # transcription / vision / analysis backend and never affects `ready`.
+        "youtube": youtube_section,
         "platform": platform,
         # v0.15.0: anti-block cascade visibility for Claude in chat
         "anti_block": anti_block,
@@ -2036,6 +2050,13 @@ def doctor_cmd(as_json: bool) -> None:
         else:
             url = entry["key_url"]
             console.print(f"  [dim]✗ {backend}: not set    ({url})[/dim]")
+
+    yt = payload["youtube"]
+    console.print("\n[bold]YouTube Data API:[/bold]")
+    if yt["key_configured"]:
+        console.print(f"  [green]✓[/green] key: {yt['masked']}")
+    else:
+        console.print(f"  [dim]key: not set (optional)    ({yt['key_url']})[/dim]")
 
     rd = payload["ready"]
     console.print("\n[bold]Readiness:[/bold]")
@@ -2129,7 +2150,7 @@ def config_show() -> None:
     for field_name, value in cfg.__dict__.items():
         console.print(f"  {field_name} = {value}")
     console.print("\n[bold]API keys:[/bold]")
-    for backend in ["gemini", "groq", "openai", "deepgram", "assemblyai", "custom"]:
+    for backend in ["gemini", "groq", "openai", "deepgram", "assemblyai", "custom", "youtube"]:
         k = get_api_key(backend)
         status = mask_key(k) if k else "[dim]not set[/dim]"
         console.print(f"  {backend}: {status}")
@@ -2220,7 +2241,7 @@ def config_get(key: str, as_json: bool) -> None:
 
 @config.command("set-key")
 @click.argument("backend", type=click.Choice(
-    ["gemini", "groq", "openai", "deepgram", "assemblyai", "custom"]
+    ["gemini", "groq", "openai", "deepgram", "assemblyai", "custom", "youtube"]
 ))
 @click.argument("value", required=False, default=None)
 @click.option("--from-env", "from_env", default=None, metavar="VAR_NAME",
@@ -2378,10 +2399,52 @@ def config_set_cookies(path: str | None, from_file: str | None) -> None:
     )
 
 
+def _test_youtube_key() -> None:
+    """Validate the stored YouTube API key with one request; exit per outcome."""
+    from rich.markup import escape as _escape
+
+    from skills.neurolearn import youtube_api
+
+    key = get_api_key("youtube", env_path=ENV_PATH)
+    if not key:
+        console.print(
+            "[red]✗[/red] youtube: key not set. "
+            "Run `neurolearn config set-key youtube --from-file <path>` "
+            f"(create a key at {_YOUTUBE_KEY_URL})."
+        )
+        sys.exit(3)
+    try:
+        youtube_api.check_key(key)
+    except youtube_api.QuotaExhausted:
+        console.print(
+            "[green]✓[/green] youtube: key is valid "
+            "[yellow](today's quota is already spent)[/yellow]"
+        )
+    except youtube_api.InvalidKey as e:
+        console.print(f"[red]✗[/red] youtube: key was rejected by the API: {_escape(str(e))}")
+        sys.exit(4)
+    except youtube_api.YouTubeApiError as e:
+        console.print(
+            f"[red]✗[/red] youtube: could not reach the API, key not verified: "
+            f"{_escape(str(e))}"
+        )
+        sys.exit(5)
+    else:
+        console.print("[green]✓[/green] youtube: key is valid")
+
+
 @config.command("test")
-@click.argument("backend", type=click.Choice(BACKEND_CHOICES))
+@click.argument("backend", type=click.Choice(BACKEND_CHOICES + ["youtube"]))
 def config_test(backend: str) -> None:
-    """Run a quick configuration sanity-check for BACKEND (no real audio)."""
+    """Run a quick configuration sanity-check for BACKEND (no real audio).
+
+    `youtube` checks the optional YouTube Data API key with one cheap
+    request. Exit codes: 0 key works, 3 no key, 4 key rejected, 5 the API
+    could not be reached.
+    """
+    if backend == "youtube":
+        _test_youtube_key()
+        return
     cfg = load_config(CONFIG_PATH)
     try:
         b = build_backend(backend, cfg)

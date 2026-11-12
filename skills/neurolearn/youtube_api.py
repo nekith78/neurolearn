@@ -1,0 +1,177 @@
+"""YouTube Data API v3 client.
+
+One module owns all communication with the Data API. Layout:
+
+- ``_http_get`` — the single HTTP transport function. Everything else goes
+  through it; it is the seam unit tests replace.
+- ``api_get`` — one authenticated call: resolves the key, sends it in the
+  ``X-goog-api-key`` header (never in the URL), maps failures to typed
+  outcomes and scrubs the key from every message.
+- Task-shaped functions (``check_key`` today) built on ``api_get``.
+
+Callers decide what to do (fall back, report, skip) from the exception
+type, never from message strings.
+"""
+from __future__ import annotations
+
+from typing import Any
+
+from skills.neurolearn import config as _config
+
+API_BASE = "https://www.googleapis.com/youtube/v3"
+KEY_BACKEND = "youtube"
+DEFAULT_TIMEOUT = 15.0
+
+
+class YouTubeApiError(Exception):
+    """Base for every failure of the YouTube Data API client.
+
+    Raised directly only for an error the client cannot classify (e.g. a
+    malformed request). ``reason`` is Google's machine-readable reason
+    (``quotaExceeded``, ``playlistNotFound``, ...) when one was returned.
+    """
+
+    def __init__(self, message: str = "", *, reason: str = "", status: int | None = None):
+        super().__init__(message)
+        self.reason = reason
+        self.status = status
+
+
+class NotConfigured(YouTubeApiError):
+    """No YouTube API key is stored. No request was made."""
+
+
+class InvalidKey(YouTubeApiError):
+    """The key was rejected: wrong, revoked, restricted, or API not enabled."""
+
+
+class QuotaExhausted(YouTubeApiError):
+    """The daily quota is spent."""
+
+
+class NotFound(YouTubeApiError):
+    """The requested video, playlist, channel or comment does not exist."""
+
+
+class CommentsDisabled(YouTubeApiError):
+    """The video has comments turned off."""
+
+
+class TransientFailure(YouTubeApiError):
+    """Network error, timeout, rate limit or server-side failure."""
+
+
+_QUOTA_REASONS = frozenset({"quotaExceeded", "dailyLimitExceeded"})
+_RATE_LIMIT_REASONS = frozenset({"rateLimitExceeded", "userRateLimitExceeded"})
+_INVALID_KEY_REASONS = frozenset({"keyInvalid", "keyExpired", "API_KEY_INVALID"})
+
+
+def _http_get(
+    url: str, params: dict[str, Any], headers: dict[str, str], timeout: float
+) -> tuple[int, Any]:
+    """The single HTTP transport. Returns ``(status_code, body)``.
+
+    ``body`` is the parsed JSON, or the raw text when the response is not
+    JSON. Raises ``TransientFailure`` when no response was obtained.
+    """
+    import httpx
+
+    try:
+        resp = httpx.get(url, params=params, headers=headers, timeout=timeout)
+    except httpx.HTTPError as e:
+        raise TransientFailure(f"{type(e).__name__}: {e}") from None
+    try:
+        return resp.status_code, resp.json()
+    except ValueError:
+        return resp.status_code, resp.text
+
+
+def _scrub(text: str, key: str) -> str:
+    return text.replace(key, "***") if key else text
+
+
+def _error_details(body: Any) -> tuple[str, str]:
+    """Pull ``(reason, message)`` out of a Data API error body."""
+    if not isinstance(body, dict) or not isinstance(body.get("error"), dict):
+        return "", str(body)[:300]
+    err = body["error"]
+    reason = ""
+    for item in list(err.get("errors") or []) + list(err.get("details") or []):
+        if isinstance(item, dict) and item.get("reason"):
+            reason = str(item["reason"])
+            break
+    return reason, str(err.get("message") or "")
+
+
+def _classify(status: int, reason: str) -> type[YouTubeApiError]:
+    if reason in _INVALID_KEY_REASONS or status == 401:
+        return InvalidKey
+    if reason in _QUOTA_REASONS:
+        return QuotaExhausted
+    if reason in _RATE_LIMIT_REASONS or status == 429 or status >= 500:
+        return TransientFailure
+    if reason == "commentsDisabled":
+        return CommentsDisabled
+    if status == 404:
+        return NotFound
+    if status == 403:
+        return InvalidKey
+    return YouTubeApiError
+
+
+def api_get(
+    resource: str,
+    params: dict[str, Any],
+    *,
+    api_key: str | None = None,
+    timeout: float = DEFAULT_TIMEOUT,
+) -> dict:
+    """GET one Data API resource (``videos``, ``channels``, ...) and return its body.
+
+    ``api_key`` defaults to the stored key. Raises a ``YouTubeApiError``
+    subclass on any failure; no raised message ever contains the key.
+    """
+    key = api_key or _config.get_api_key(KEY_BACKEND, env_path=_config.ENV_PATH)
+    if not key:
+        raise NotConfigured(
+            "No YouTube API key configured. "
+            "Run: neurolearn config set-key youtube --from-file <path>"
+        )
+    failure: TransientFailure | None = None
+    try:
+        status, body = _http_get(
+            f"{API_BASE}/{resource}", params, {"X-goog-api-key": key}, timeout
+        )
+    except TransientFailure as e:
+        failure = e
+    if failure is not None:
+        # Raised outside the except block so the unscrubbed original is not
+        # kept alive as __context__ of the error callers see.
+        raise TransientFailure(
+            _scrub(str(failure), key), reason=failure.reason, status=failure.status
+        )
+
+    if status == 200 and isinstance(body, dict):
+        return body
+
+    reason, message = _error_details(body)
+    if not isinstance(body, dict):
+        raise TransientFailure(
+            _scrub(f"HTTP {status}: unexpected non-JSON response: {message}", key),
+            status=status,
+        )
+    raise _classify(status, reason)(
+        _scrub(f"HTTP {status} {reason}: {message}".strip(), key),
+        reason=reason,
+        status=status,
+    )
+
+
+def check_key(api_key: str | None = None) -> None:
+    """Validate the key with one cheap request (1 quota unit).
+
+    Returns ``None`` when the key works. Raises ``NotConfigured``,
+    ``InvalidKey``, ``QuotaExhausted`` (key accepted, quota spent) or
+    ``TransientFailure``.
+    """
+    api_get("i18nLanguages", {"part": "id"}, api_key=api_key)

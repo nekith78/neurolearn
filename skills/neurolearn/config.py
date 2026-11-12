@@ -296,6 +296,8 @@ _BACKEND_ENV_VAR = {
     "deepgram": "DEEPGRAM_API_KEY",
     "assemblyai": "ASSEMBLYAI_API_KEY",
     "custom": "CUSTOM_API_KEY",
+    # Key backend only (YouTube Data API) — not a transcription backend.
+    "youtube": "YOUTUBE_API_KEY",
 }
 
 
