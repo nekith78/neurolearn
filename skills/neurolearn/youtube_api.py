@@ -282,11 +282,11 @@ def _comment_pages(resource: str, params: dict, cap: int | None, *, single_page:
     return items
 
 
-def list_comment_threads(video_id: str, *, cap: int = DEFAULT_COMMENT_CAP, order: str = "relevance") -> list[dict]:
+def list_comment_threads(video_id: str, *, cap: int | None = None, order: str = "relevance") -> list[dict]:
     """Get a capped sample of threads, including their free inline replies."""
     return _comment_pages("commentThreads", {
         "part": "snippet,replies", "videoId": video_id, "order": order,
-    }, cap, single_page=cap == DEFAULT_COMMENT_CAP)
+    }, DEFAULT_COMMENT_CAP if cap is None else cap, single_page=cap is None)
 
 
 def list_comment_replies(parent_id: str) -> list[dict]:

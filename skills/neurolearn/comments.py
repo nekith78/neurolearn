@@ -18,7 +18,7 @@ class CommentsFetchError(Exception):
 
 @dataclass(frozen=True)
 class CommentOptions:
-    cap: int = youtube_api.DEFAULT_COMMENT_CAP
+    cap: int | None = None
     order: str = "relevance"
     full_replies: bool = False
     markers: bool = False
@@ -103,7 +103,7 @@ def _yt_dlp_sample(
     video_id: str, cookies_file: str | Path | None, options: CommentOptions,
     marker_reply_budget: int | None = None,
 ) -> CommentSample:
-    cap = options.cap
+    cap = options.cap if options.cap is not None else youtube_api.DEFAULT_COMMENT_CAP
     # With no published total, allow one sample's worth of replies and report truncation.
     reply_budget = cap if options.full_replies else 0
     if marker_reply_budget is not None:
@@ -192,7 +192,7 @@ def _yt_dlp_sample(
 
 def _apply_order(sample: CommentSample, options: CommentOptions) -> CommentSample:
     sample.requested_options = options
-    sample.cap = options.cap
+    sample.cap = options.cap if options.cap is not None else youtube_api.DEFAULT_COMMENT_CAP
     sample.order = options.order
     if options.order == "likes":
         sample.notes.append("Likes are sorted within the fetched relevance sample.")
