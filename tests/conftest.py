@@ -32,6 +32,13 @@ def _skip_onboarding_gate(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _isolate_youtube_quota(monkeypatch, tmp_path_factory):
+    """Fake API requests must never consume the user's local quota."""
+    config_path = tmp_path_factory.mktemp("youtube-config") / "config.toml"
+    monkeypatch.setattr("skills.neurolearn.config.CONFIG_PATH", config_path)
+
+
+@pytest.fixture(autouse=True)
 def _isolate_youtube_credentials(monkeypatch, tmp_path):
     """Automatic statistics lookup must never use a developer's key in unit tests."""
     monkeypatch.delenv("YOUTUBE_API_KEY", raising=False)
