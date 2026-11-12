@@ -188,6 +188,7 @@ def _youtube_collection_targets(url: str, filters: ResolverFilters) -> list[Reso
             url=video_url, title=row.title, upload_date=row.published_at.date(),
             duration_sec=detail.duration_sec if detail else None, channel=row.channel_title,
             source="playlist" if tab is None else "channel", video_id=row.video_id, is_short=is_short,
+            statistics=detail.statistics if detail else None,
         ))
     return targets
 

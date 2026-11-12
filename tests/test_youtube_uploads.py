@@ -177,3 +177,38 @@ def test_batch_discards_partial_api_result_on_later_page_failure(monkeypatch, tm
                              "--since", "2026-05-01", "--until", "2026-05-15")
     assert [r.video_id for r in rows] == ["fallback"]
     assert "Falling back" in output and "date filter" not in output
+
+
+def test_batch_manifest_reuses_statistics_from_playlist_resolution(monkeypatch, tmp_path):
+    import json
+    from click.testing import CliRunner
+    from skills.neurolearn import transcribe
+    from skills.neurolearn.backends.base import TranscriptionResult
+    from skills.neurolearn.utils.output_writer import Segment
+
+    monkeypatch.setenv("YOUTUBE_API_KEY", "test")
+    config = tmp_path / "config.toml"
+    config.write_text("onboarding_complete = true\n", encoding="utf-8")
+    monkeypatch.setattr(transcribe, "CONFIG_PATH", config)
+    transcript = TranscriptionResult("Talk", [Segment(0, 1, "Talk")], "en", "subtitles", 1)
+    monkeypatch.setattr(transcribe, "run_pipeline", lambda *args, **kwargs: transcript)
+    requests = []
+
+    def transport(url, params, headers, timeout):
+        if url.endswith("/playlistItems"):
+            return 200, {"items": [playlist_item("abcdefghijk")]}
+        assert url.endswith("/videos")
+        requests.append(params["id"])
+        if len(requests) == 1:
+            return 200, {"items": [{"id": "abcdefghijk", "statistics": {"viewCount": "42"}}]}
+        return 403, {"error": {"errors": [{"reason": "quotaExceeded"}]}}
+
+    monkeypatch.setattr(api, "_http_get", transport)
+    result = CliRunner().invoke(transcribe.cli, [
+        "batch", "https://www.youtube.com/playlist?list=PLdemo", "--backend", "subtitles",
+        "--output-dir", str(tmp_path), "--batch-name", "study",
+    ], catch_exceptions=False)
+    assert result.exit_code == 0, result.output
+    video, = json.loads((tmp_path / "study/manifest.json").read_text(encoding="utf-8"))["videos"]
+    assert video["statistics"] == {"view_count": 42, "like_count": None, "comment_count": None}
+    assert requests == ["abcdefghijk"]
