@@ -61,6 +61,22 @@ def _install(monkeypatch, **kwargs) -> FakeTransport:
 
 
 class TestApiGet:
+    @pytest.mark.parametrize("suffix", ["é", "\n", "\x7f", " "])
+    def test_invalid_header_key_is_rejected_before_transport(self, monkeypatch, suffix):
+        fake = _install(monkeypatch)
+        with pytest.raises(InvalidKey) as error:
+            youtube_api.check_key(FAKE_KEY + suffix)
+        assert FAKE_KEY not in str(error.value)
+        assert fake.calls == []
+
+    def test_unreadable_key_store_reports_a_typed_error(self, monkeypatch, no_stored_key):
+        youtube_api._config.ENV_PATH.write_bytes(b"\xff")
+        fake = _install(monkeypatch)
+        with pytest.raises(TransientFailure, match="key store") as error:
+            youtube_api.api_get("videos", {"part": "id"})
+        assert error.value.__context__ is None
+        assert fake.calls == []
+
     def test_returns_the_response_body(self, monkeypatch):
         _install(monkeypatch, body={"items": [{"id": "abc"}]})
         assert youtube_api.api_get("videos", {"part": "id", "id": "abc"}, api_key=FAKE_KEY) == {
@@ -169,6 +185,23 @@ class TestErrorMapping:
 
 
 class TestKeyNeverLeaks:
+    def test_non_json_response_omits_the_body_entirely(self, monkeypatch):
+        body = "x" * 290 + FAKE_KEY
+        _install(monkeypatch, status=500, body=body)
+        with pytest.raises(TransientFailure) as error:
+            youtube_api.check_key(FAKE_KEY)
+        assert FAKE_KEY[:10] not in str(error.value)
+
+    @pytest.mark.parametrize("transport_error", [False, True])
+    def test_exposed_reason_is_scrubbed(self, monkeypatch, transport_error):
+        if transport_error:
+            _install(monkeypatch, raises=TransientFailure("timeout", reason=FAKE_KEY))
+        else:
+            _install(monkeypatch, status=400, body=_google_error(400, FAKE_KEY))
+        with pytest.raises(YouTubeApiError) as error:
+            youtube_api.check_key(FAKE_KEY)
+        assert FAKE_KEY not in error.value.reason
+
     def test_key_echoed_in_an_error_body_is_scrubbed(self, monkeypatch):
         body = _google_error(400, "keyInvalid", f"API key {FAKE_KEY} not valid")
         _install(monkeypatch, status=400, body=body)
