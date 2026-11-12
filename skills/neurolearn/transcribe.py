@@ -3013,7 +3013,7 @@ def analyze_cmd(
 @click.option("--until", "until_opt", default=None,
               help="Window end YYYY-MM-DD.")
 @click.option("--limit", "limit_opt", type=int, default=20, show_default=True,
-              help="Videos to take from top YouTube results per language.")
+              help="Videos to take per language (YouTube Data API: up to 50 per query).")
 @click.option("--match", "match_opt", default=None,
               help="Case-insensitive substring filter on title.")
 @click.option("--filter", "filter_opt", default=None,
