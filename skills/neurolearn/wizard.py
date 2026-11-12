@@ -16,7 +16,9 @@ from rich.prompt import Prompt
 from skills.neurolearn.config import (
     CONFIG_PATH,
     ENV_PATH,
+    get_api_key,
     load_config,
+    read_key_file,
     save_config,
     set_api_key,
 )
@@ -186,6 +188,7 @@ def run_wizard() -> None:
     # optional, non-blocking.
     if "youtube" in (cfg.selected_platforms or []):
         _ask_po_token_setup(console)
+        _ask_youtube_key(console)
 
     # === Stage 5 + 6: tier-aware paid-model overrides ===
     chosen_providers = _collect_providers(audio_backend, vision_backend, analyze_backend)
@@ -395,6 +398,34 @@ def _ask_research_platforms_and_cookies(console, cfg) -> None:
     console.print()
 
 
+def _ask_youtube_key(console) -> None:
+    try:
+        if get_api_key("youtube", env_path=ENV_PATH):
+            return
+    except (OSError, UnicodeError):
+        console.print("[yellow]Skipping optional YouTube key: the existing key store "
+                      "could not be read.[/yellow]")
+        return
+
+    console.print(
+        "\n[bold]Optional YouTube Data API v3 key[/bold] for video statistics "
+        "and comments. In Google Cloud, select a project, enable YouTube "
+        "Data API v3, then create an API key under APIs & Services > Credentials.\n"
+        "https://console.cloud.google.com/apis/credentials\n"
+        "Save the key on one line in a text file. To add it later:\n"
+        "  neurolearn config set-key youtube --from-file <path>"
+    )
+    path = Prompt.ask("Path to the YouTube key file (Enter = skip)", default="").strip()
+    if path:
+        try:
+            set_api_key("youtube", read_key_file(path), env_path=ENV_PATH)
+        except (OSError, ValueError):
+            console.print("[yellow]YouTube key was not saved. Check the file and "
+                          "use the command above to retry after setup.[/yellow]")
+        else:
+            console.print("YouTube key saved. You can now delete the handoff file.")
+
+
 def _ask_po_token_setup(console) -> None:
     """v0.19.0: offer to stand up the bgutil PO Token provider.
 
@@ -528,7 +559,6 @@ def _ask_model_override(label: str, *, default: str, suggestions: str) -> str:
 def _collect_keys(console, providers: set[str]) -> None:
     """For each cloud provider that needs a key and isn't already configured,
     prompt for the key value and write it to .env."""
-    from skills.neurolearn.config import get_api_key
     for backend in sorted(providers):
         if backend not in _CLOUD_BACKENDS:
             continue

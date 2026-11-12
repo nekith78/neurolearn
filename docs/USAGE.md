@@ -7,9 +7,11 @@ for backend selection see [BACKENDS.md](BACKENDS.md); for Claude Code chat patte
 ## Table of contents
 
 - [`transcribe` — one URL / file](#transcribe)
+- [`comments` — YouTube discussion and video statistics](#comments)
 - [`batch` — many URLs, channel, playlist](#batch)
 - [`analyze` — free-form LLM over transcripts](#analyze)
 - [`research` — discover videos by topic](#research)
+- [`channel-list` — browse dated YouTube publications](#channel-list)
 - [`subscribes` — channels you follow](#subscribes)
 - [`report` — PDF from a batch](#report)
 - [`history` — log of past runs](#history)
@@ -96,6 +98,46 @@ neurolearn URL --preset smart --frames-per-window 5
 
 ---
 
+## comments
+
+Fetch audience comments without downloading a transcript:
+
+```bash
+neurolearn comments "https://youtu.be/dQw4w9WgXcQ" --output-dir transcripts
+```
+
+This saves `<video-id>.comments.txt` and `<video-id>.comments.json`. To save
+comments alongside transcripts, add `--with-comments` to `transcribe` or
+`batch`. With `analyze`, the same flag includes comments in the analysis.
+By default the sample contains up to 100 top-level comments in YouTube's
+relevance order. All four commands accept these options:
+
+| Option | Effect |
+|---|---|
+| `--comment-count N` | Cap the number of top-level comments. |
+| `--comment-order relevance\|newest\|likes` | Use relevance or newest order, or rank the fetched relevance sample by likes. |
+| `--comment-full-replies` | Fetch more public replies than the ones returned inline by the API. |
+| `--comment-markers` | Look up pinned and creator-heart markers on YouTube. |
+
+An optional YouTube Data API key enables exact comment metadata and
+automatic video statistics. With the key, a YouTube transcript or batch
+records available view, like and comment counts under `videos[].statistics`
+in `manifest.json`. Without the key, transcription works normally and
+requested comments come from yt-dlp. The sample identifies its source and
+labels approximate values.
+
+To configure the key later, save it to a one-line file and register its path:
+
+```bash
+neurolearn config set-key youtube --from-file "path/to/key.txt"
+```
+
+```bash
+neurolearn config test youtube
+```
+
+`doctor --json` shows key status and daily quota use in its `youtube` section.
+
 ## batch
 
 Transcribe a list of URLs, a whole channel, or a playlist with one command.
@@ -121,6 +163,17 @@ neurolearn batch https://youtube.com/playlist?list=PLxxx --limit 5 \
 **Defaults:** `--limit 10`, sequential (not parallel), `continue-on-error` (if
 one video fails, the remaining 9 still run). Stop on first failure with
 `--fail-fast`.
+
+A YouTube channel URL such as `https://www.youtube.com/@jawed` selects
+Ordinary Videos (the channel's `/videos` tab). Use an explicit `/shorts`
+or `/streams` URL to select that publication type.
+
+With a YouTube Data API key, channel and playlist entries carry publication
+dates. Both ends of the `--since` and `--until` window are inclusive.
+`--limit` bounds the entries examined per source, so increase it when
+looking for older uploads. If the key is missing, its quota is exhausted,
+or the API is unavailable, NeuroLearn uses yt-dlp. If yt-dlp omits dates,
+the batch keeps those entries and prints one warning about the date filter.
 
 ### Output layout
 
@@ -161,7 +214,7 @@ neurolearn batch --search "transformer architecture" \
 | `--since YYYY-MM-DD` | Only videos uploaded on or after this date |
 | `--until YYYY-MM-DD` | Only videos uploaded on or before this date |
 | `--min-duration N` / `--max-duration N` | Filter by duration in seconds |
-| `--no-shorts` | Skip YouTube Shorts (≤60s) |
+| `--no-shorts` | Skip YouTube Shorts. When the publication type is unknown, use the duration cutoff of 60 seconds. |
 | `--skip-existing` | Don't re-transcribe a video if `_<video_id>.txt` already exists |
 | `--workers N` | Process N videos in parallel; incompatible with `--fail-fast` |
 | `--search "query"` | YouTube search via yt-dlp (no API key needed) |
@@ -217,6 +270,27 @@ called from Claude Code.
 
 Discover and analyze new videos on a topic in one command.
 
+With a YouTube Data API key, each language query searches the exact publication
+window in UTC. Use `--days N` or an inclusive `--since YYYY-MM-DD` with an
+optional `--until YYYY-MM-DD`. Results follow YouTube's relevance order by
+default. The API returns up to 50 candidates per language, and videos appearing
+in multiple searches are kept once.
+
+The interactive selection shows available views, likes and comment counts. Use
+`--sort-by-views` for descending views (unknown counts last), and `--min-views N`
+to keep only candidates with a known count of at least N. Both options require
+a configured YouTube key. Selected videos carry the available statistics in the
+batch manifest.
+
+```bash
+neurolearn research "NASA space news" --languages en --days 14 --limit 5 --sort-by-views --min-views 1000 --no-analyze
+```
+
+If the key is missing, search quota is spent or the API fails, search continues
+with yt-dlp and prints one fallback notice. For 1, 7, 30 and 365 days, yt-dlp
+uses YouTube's date presets. For intermediate windows such as 14 days, it
+requests the next larger preset and checks the available publication dates.
+
 ```bash
 # Interactive
 neurolearn research --prompt "Outline the key ideas" --analyze-backend gemini
@@ -258,6 +332,28 @@ chat-side LLM does the analysis. Force-skip with `--no-analyze`.
 
 ---
 
+## channel-list
+
+List public uploads from a YouTube channel URL or @handle, newest first.
+This command requires a YouTube Data API key. It prints a table by default
+and does not transcribe the videos.
+
+```bash
+neurolearn channel-list @NASA --type videos --since 2026-10-01 --until 2026-10-31 --limit 10 --json
+```
+
+`--type` (alias `--publication-type`) accepts `all` (default), `videos`
+(Ordinary Videos), `shorts` and `streams`. YouTube's channel playlists
+determine the publication type. Both date bounds are inclusive and each is
+optional. `--limit` caps the number of matching publications and defaults to 50.
+
+`--json` writes an array with `video_id`, `url`, `title`, `published_at`,
+`publication_type`, `duration_sec`, `view_count`, `like_count` and
+`comment_count`. Unavailable duration and counts appear as `null` (a dash in
+the table). An empty result is `[]`.
+
+---
+
 ## subscribes
 
 ```bash
@@ -265,7 +361,7 @@ chat-side LLM does the analysis. Force-skip with `--no-analyze`.
 neurolearn subscribes add --group ai
 
 # Or inline
-neurolearn subscribes add https://www.youtube.com/@anthropic-ai --group ai
+neurolearn subscribes add @anthropic-ai --group ai
 neurolearn subscribes add https://www.youtube.com/@lexfridman --group philosophy
 
 # List
@@ -294,16 +390,13 @@ hand-edit; CLI mutations preserve your comments via `tomlkit`.
 
 ### YouTube content modes (Shorts handling) — v0.17+
 
-By default, `subscribes update` fetches full uploads from the channel's
-`/videos` tab. **The `/videos` tab excludes Shorts** (and livestreams),
-so channels that publish nothing but Shorts (or paused full uploads)
-look silent. v0.17 adds a per-channel `mode` field that tells
-`subscribes update` which content streams to pull.
-
-> **v0.20:** the YouTube video source switched from the RSS feed to the
-> `/videos` tab. RSS mixed in livestreams/premieres (and was empty for
-> some channels), so it could surface a stream as "the latest video".
-> The `--no-rss` flag is now a deprecated no-op.
+`subscribes add` accepts a YouTube @handle, channel URL, or video URL.
+With a YouTube Data API key it resolves these to the channel that owns
+the uploads. `subscribes update` reads the dated uploads for the selected
+mode and fetches details for the videos in the update window. Without a
+usable key, the CLI resolves the channel with yt-dlp and checks dates
+from the channel tabs. Both paths follow the same modes and Shorts cap.
+The `--no-rss` flag is a deprecated no-op.
 
 ```bash
 # Set the mode when adding a channel (YouTube only)

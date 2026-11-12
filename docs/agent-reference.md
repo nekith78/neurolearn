@@ -65,6 +65,33 @@ Key flags (full list via `--help`):
 
 Output: `./transcripts/<slug>_<video_id>.txt` and `.srt`.
 
+### YouTube comments and statistics
+
+`comments <YouTube-URL> [--output-dir DIR]` saves `<id>.comments.txt` for
+reading and `<id>.comments.json` for structured processing. Use
+`--with-comments` on `transcribe` or `batch` to save the pair alongside
+each YouTube transcript, or on `analyze` to include audience discussion
+in the analysis. Other sources skip comments. If comment retrieval fails,
+the transcript is still usable.
+
+All four entry points accept the following sampling options:
+
+- `--comment-count N` caps top-level comments (default 100).
+- `--comment-order relevance|newest|likes` defaults to YouTube relevance.
+  Likes sorts the fetched relevance sample locally.
+- `--comment-full-replies` fetches additional public replies. By default
+  only the replies included with API threads are kept.
+- `--comment-markers` requests pinned and creator-heart markers from the
+  site. The sample header reports coverage and source limitations.
+
+Comments use the YouTube Data API when available and fall back to yt-dlp
+when the key is absent, quota runs out, or the API cannot serve the request.
+The sidecars flag approximate counts and timestamps from yt-dlp. With a
+key, `transcribe` and `batch` also fetch video statistics automatically.
+Look in `manifest.json` at `videos[].statistics` for `view_count`,
+`like_count` and `comment_count`. An unavailable counter is null, and a
+video without statistics has no `statistics` object.
+
 ### `batch [<URLs>...] [flags]`
 
 Many inputs. Accepts inline URLs, channel URLs, playlist URLs, or `--from-file`.
@@ -190,6 +217,12 @@ config complete-onboarding             # v0.13.0+: flip the gate to True
 config test <backend>                  # sanity-check a backend's configuration
 config wizard                          # interactive TTY-only setup; refuses non-TTY w/ exit 2
 ```
+
+Use `config set-key youtube --from-file <path>` for the optional metadata
+key and `config test youtube` for a live check. The `youtube` section of
+`doctor --json` reports `key_configured` and local daily `quota` counters
+for general units and search calls. Skipping the key during setup leaves
+onboarding and transcription available.
 
 ### Hidden / experimental
 

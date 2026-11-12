@@ -32,7 +32,7 @@ from the terminal **and** from a Claude Code chat.
 - **Smart cascade by default** — tries YouTube subtitles first, falls back to Groq Whisper, then local Whisper.
 - **Any-length videos, transparently** — Opus 24k recompression + adaptive silence-aligned chunking handles 4-hour videos on Groq's free tier. Silence-edge trim + word-variety hallucination filter prevent Whisper from inventing text on silent intros/outros — validated across music / tech-talk / interview / news / tutorial formats with zero false positives.
 - **Fast** — 1 hour of audio → 3.2 minutes wall time on Groq (~19× realtime). See [benchmarks](docs/BENCHMARKS.md).
-- **Research + subscribes** — discover videos by topic across YouTube, IG, TikTok; subscribe to channels with incremental updates (YouTube pulls the `/videos` + `/shorts` tabs, so livestreams never masquerade as the latest upload).
+- **Research + subscribes** — discover videos by topic across YouTube, IG, and TikTok. Subscribe to a YouTube @handle and track Ordinary Videos, Shorts, or both. The optional YouTube Data API key supplies dated uploads for incremental updates and channel batches.
 - **Visual mode** — keyframes + per-moment vision-LLM annotations. Inside Claude Code, neurolearn writes a manifest and Claude reads the frames natively — no extra API call.
 - **PDF reports** — `neurolearn report --latest` renders structured PDFs (tutorial / vlog / generic layouts) from any batch.
 - **Offline-capable** — `--backend whisper-local` is fully offline. `--backend subtitles` retrieves YouTube captions, optionally through your configured proxy.
@@ -146,6 +146,23 @@ From any Claude Code chat:
 
 Claude picks the right neurolearn subcommand, runs it, reads the output, and
 writes the summary. The skill produces transcripts; analysis is the LLM's job.
+
+## Choosing YouTube videos
+
+With a YouTube Data API key, `research` can search an exact date window and
+show views, likes and comment counts before transcription. To find the most
+watched matches above a threshold, use `--sort-by-views` and `--min-views`.
+Without a key, topic searches use yt-dlp's date presets.
+
+To browse one channel before choosing videos, run `channel-list` with the key.
+For example, list its five newest Ordinary Videos as JSON:
+
+```bash
+neurolearn channel-list @NASA --type videos --limit 5 --json
+```
+
+See the [research](docs/USAGE.md#research) and
+[channel listing](docs/USAGE.md#channel-list) command reference.
 
 ## Rotating proxy for blocked subtitles
 

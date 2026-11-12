@@ -83,6 +83,51 @@ def test_wizard_pure_local_path(tmp_path: Path, monkeypatch):
     assert not (tmp_path / ".env").exists()
 
 
+def test_wizard_offers_optional_youtube_key_and_completes_on_skip(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr("skills.neurolearn.utils.po_token.status",
+                        lambda: {"po_token_can_generate": True})
+    cfg = _run_wizard(tmp_path, monkeypatch, ["3", "2", "4", "1", "", "1", ""])
+    output = capsys.readouterr().out
+    assert "YouTube Data API v3" in output
+    assert "config set-key youtube --from-file" in output
+    assert cfg.onboarding_complete
+    assert not (tmp_path / ".env").exists()
+
+
+def test_wizard_registers_youtube_key_from_file_without_printing_it(tmp_path, monkeypatch, capsys):
+    from skills.neurolearn.config import get_api_key
+
+    monkeypatch.setattr("skills.neurolearn.utils.po_token.status",
+                        lambda: {"po_token_can_generate": True})
+    path = tmp_path / "key file.txt"
+    path.write_text("\n  example-youtube-test-key\n", encoding="utf-8-sig")
+    cfg = _run_wizard(tmp_path, monkeypatch, ["3", "2", "4", "1", "", "1", str(path)])
+    assert cfg.onboarding_complete
+    assert get_api_key("youtube", env_path=tmp_path / ".env") == "example-youtube-test-key"
+    assert "example-youtube-test-key" not in capsys.readouterr().out
+
+
+def test_wizard_finishes_if_optional_youtube_key_file_is_unreadable(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr("skills.neurolearn.utils.po_token.status",
+                        lambda: {"po_token_can_generate": True})
+    cfg = _run_wizard(tmp_path, monkeypatch, ["3", "2", "4", "1", "", "1", str(tmp_path / "missing")])
+    assert cfg.onboarding_complete
+    assert "YouTube key was not saved" in capsys.readouterr().out
+    assert not (tmp_path / ".env").exists()
+
+
+def test_offline_wizard_preserves_unreadable_existing_key_store(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr("skills.neurolearn.utils.po_token.status",
+                        lambda: {"po_token_can_generate": True})
+    store = tmp_path / ".env"
+    original = b"EXISTING_KEY=\xff\n"
+    store.write_bytes(original)
+    cfg = _run_wizard(tmp_path, monkeypatch, ["3", "2", "4", "1", "", "1"])
+    assert cfg.onboarding_complete
+    assert store.read_bytes() == original
+    assert "Skipping optional YouTube key" in capsys.readouterr().out
+
+
 # ---------------------------------------------------------------------------
 # Smart path with Groq fallback + Groq vision + Groq analyze
 # ---------------------------------------------------------------------------

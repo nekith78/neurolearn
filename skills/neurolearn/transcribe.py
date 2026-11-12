@@ -28,6 +28,7 @@ from skills.neurolearn.config import (
     get_api_key,
     load_config,
     mask_key,
+    read_key_file,
     save_config,
     set_api_key,
 )
@@ -643,6 +644,7 @@ def _build_video_status(
     idx: int, target: ResolvedTarget, result, files: dict
 ) -> BatchVideoStatus:
     """Convert a successful pipeline result into a BatchVideoStatus manifest entry."""
+    statistics = getattr(target, "statistics", None)
     return BatchVideoStatus(
         index=idx,
         url=target.url,
@@ -665,7 +667,7 @@ def _build_video_status(
         quality=getattr(result, "quality", None),
         # === v0.7: multi-lang attribution from research/source ===
         source_language=getattr(target, "source_language", None),
-        statistics=target.statistics if target.source == "search" else None,
+        statistics=statistics if isinstance(statistics, dict) else None,
         # === v0.10: forward the budget tracker into manifest.json ===
         budget=getattr(result, "budget", None),
     )
@@ -2483,30 +2485,17 @@ def config_set_key(
     the path, and Claude registers it without ever seeing the key in
     chat. After registration, prompt the user to delete the file.
     """
-    from pathlib import Path as _P
     # Recommended explicit > flag-based > interactive
     if from_file is not None:
         try:
-            raw_bytes = _P(from_file).expanduser().read_bytes()
+            key = read_key_file(from_file)
         except OSError as e:
             raise click.BadParameter(
                 f"Cannot read {from_file!r}: {e}",
                 param_hint="--from-file",
             )
-        # Take the first non-empty line. Strip BOM + whitespace.
-        text = raw_bytes.decode("utf-8-sig", errors="replace")
-        first_line = ""
-        for line in text.splitlines():
-            stripped = line.strip()
-            if stripped:
-                first_line = stripped
-                break
-        if not first_line:
-            raise click.BadParameter(
-                f"{from_file} contains no non-empty line.",
-                param_hint="--from-file",
-            )
-        key = first_line
+        except ValueError as e:
+            raise click.BadParameter(str(e), param_hint="--from-file")
     elif value is not None:
         if not value.strip():
             raise click.BadArgumentUsage(

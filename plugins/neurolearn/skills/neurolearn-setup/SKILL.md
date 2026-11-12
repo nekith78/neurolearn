@@ -16,7 +16,13 @@ the skill.
    the user chooses a change.
 4. Never ask the user to paste a secret into chat. If the wizard needs a new
    key, use a user-created file and `config set-key <backend> --from-file
-   <path>` instead.
+   <path>` instead. For YouTube sources, the wizard offers an optional key
+   for statistics and comments. Enter skips this step. If requested, guide
+   the user to enable **YouTube Data API v3** in their Google Cloud project,
+   create a key under **APIs & Services → Credentials**, and save it to a
+   one-line file. Supply only its path at the wizard prompt, or register it
+   later with `config set-key youtube --from-file <path>`. Verify a newly
+   registered key with `config test youtube`.
 5. Run `doctor --json` again and require `config.onboarding_complete == true`
    before resuming the original task.
 

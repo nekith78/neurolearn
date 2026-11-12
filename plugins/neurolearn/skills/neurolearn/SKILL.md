@@ -1,6 +1,6 @@
 ---
 name: "neurolearn"
-description: "Transcribe or analyze a YouTube, Instagram, TikTok, or local video; research video topics; follow channels; extract frames; or build NeuroLearn reports from Codex."
+description: "Transcribe or analyze videos from YouTube, Instagram, TikTok or local files, fetch YouTube comments, research video topics, follow channels, extract frames or build NeuroLearn reports from Codex."
 ---
 
 # NeuroLearn for Codex
@@ -39,6 +39,12 @@ list, not a shell string. If the checkout lives elsewhere, set
    disk when the user asks for content, analysis, or a summary.
 5. For visuals, the agent reads extracted frames itself. Use NeuroLearn only
    for deterministic extraction/cropping/rendering steps.
+
+For audience comments, run `comments <YouTube-URL>` or add `--with-comments`
+to `transcribe`, `batch`, or `analyze`. Read the sample header in
+`*.comments.txt` for the source, order, and number fetched. With an optional
+YouTube Data API key, transcribe and batch also record available view, like
+and comment counts in the manifest. Without it, comments use yt-dlp.
 
 For the full CLI decision tables and feature mechanics, read the canonical
 `skills/neurolearn/SKILL.md` and `docs/agent-reference.md` relative to the
