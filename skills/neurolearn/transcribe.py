@@ -721,21 +721,16 @@ def _read_audience_comments(video: VideoSource, path: Path) -> None:
         click.echo(f"Could not read comments for {video.transcript_path.name}: {exc}", err=True)
 
 
-def _attach_youtube_statistics(
-    videos: list[BatchVideoStatus], known_details: dict[str, youtube_api.VideoDetails] | None = None,
-) -> None:
+def _attach_youtube_statistics(videos: list[BatchVideoStatus]) -> None:
     """Enrich successful YouTube results in one batched lookup when available."""
     youtube_videos = [
         (video.video_id, video) for video in videos
         if video.statistics is None and video.video_id and _YOUTUBE_VIDEO_HOST.match(video.url)
     ]
-    details = dict(known_details or {})
-    missing = [video_id for video_id, _ in youtube_videos if video_id not in details]
-    if missing:
-        try:
-            details.update(youtube_api.fetch_video_details(missing))
-        except youtube_api.YouTubeApiError:
-            pass
+    try:
+        details = youtube_api.fetch_video_details(video_id for video_id, _ in youtube_videos)
+    except youtube_api.YouTubeApiError:
+        return
     for video_id, video in youtube_videos:
         detail = details.get(video_id)
         if detail is not None:
@@ -1469,7 +1464,7 @@ def _run_batch_pipeline(
         research=opts.get("research_meta"),
     )
 
-    _attach_youtube_statistics(statuses, opts.get("youtube_details"))
+    _attach_youtube_statistics(statuses)
     if not no_combined:
         write_combined_md(statuses, meta, batch_dir)
     write_manifest_json(statuses, failures, meta, batch_dir)

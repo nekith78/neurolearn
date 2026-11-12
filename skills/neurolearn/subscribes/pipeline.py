@@ -70,6 +70,7 @@ class _ChannelVideo:
     title: str
     duration_sec: int | None  # None on RSS path; populated by yt-dlp path
     published: datetime
+    statistics: dict[str, int | None] | None = None
 
 
 _console = make_console()
@@ -637,7 +638,6 @@ def _fetch_youtube_entries(
     shorts_cap: int,
     youtube_cookies_file: str,
     notice: FallbackNotice,
-    batch_details: dict[str, youtube_api.VideoDetails],
 ) -> list[_ChannelVideo]:
     """Select a complete channel from one provider, keeping API details for batch output."""
     in_window_pred = _make_in_window_predicate(ch, window)
@@ -674,7 +674,7 @@ def _fetch_youtube_entries(
             if detail is None or detail.duration_sec is None:
                 raise youtube_api.TransientFailure("Missing duration for a subscription upload")
             entry.duration_sec = detail.duration_sec
-        batch_details.update(details)
+            entry.statistics = detail.statistics
     except youtube_api.YouTubeApiError as error:
         notice.report(error)
         entries, short_count = _select_youtube_entries(effective_mode, ytdlp_tab)
@@ -752,7 +752,6 @@ def run_subscribes_update(
     state_updates: list[tuple[str, str, str]] = []
 
     notice = fallback_notice_for_run()
-    batch_details: dict[str, youtube_api.VideoDetails] = {}
     for ch in channels:
         if not ch.channel_id:
             continue
@@ -793,7 +792,6 @@ def run_subscribes_update(
                     shorts_cap=shorts_cap,
                     youtube_cookies_file=youtube_cookies_file,
                     notice=notice,
-                    batch_details=batch_details,
                 )
         except ChannelNotFoundError:
             # Username changed (or account deleted / privated). Surface a clear
@@ -845,7 +843,7 @@ def run_subscribes_update(
                 channel=ch.handle or ch.url,
                 duration_sec=e.duration_sec,
                 upload_date=e.published.date(),
-                source_language="(subscribes)",
+                source_language="(subscribes)", statistics=e.statistics,
             ))
 
         # Should state advance? Two cases that DO update:
@@ -897,7 +895,7 @@ def run_subscribes_update(
             url=c.url, video_id=c.video_id, title=c.title,
             channel=c.channel, duration_sec=c.duration_sec,
             upload_date=c.upload_date, source="channel",
-            source_language=getattr(c, "source_language", None),
+            source_language=getattr(c, "source_language", None), statistics=c.statistics,
         )
         for c in candidates
     ]
@@ -912,7 +910,6 @@ def run_subscribes_update(
         "no_combined": batch_opts.get("no_combined", False),
         "fail_fast": batch_opts.get("fail_fast", False),
         **batch_opts,
-        "youtube_details": batch_details,
     }
     batch_dir = _run_batch_pipeline(targets=targets, cfg=cfg, opts=opts)
 
