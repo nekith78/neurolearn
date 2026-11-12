@@ -12,7 +12,7 @@ from pathlib import Path
 import click
 from skills.neurolearn.utils.console import make_console
 
-from skills.neurolearn import __version__
+from skills.neurolearn import __version__, youtube_api
 from skills.neurolearn.backends.base import BackendError, BackendNotConfigured
 from skills.neurolearn.utils.anti_block_cascade import (
     PlatformBlockError,
@@ -110,6 +110,31 @@ def cli() -> None:
 from skills.neurolearn.updates import check_updates_cmd, update_deps_cmd
 cli.add_command(check_updates_cmd)
 cli.add_command(update_deps_cmd)
+
+@cli.command(name="comments")
+@click.argument("url")
+@click.option("--output-dir", type=click.Path(file_okay=False, path_type=Path),
+              help="Output directory (defaults to the configured output directory).")
+def comments_cmd(url: str, output_dir: Path | None) -> None:
+    """Fetch comments for a YouTube video."""
+    from skills.neurolearn import comments, youtube_api
+
+    video_id = extract_youtube_video_id(url)
+    if not video_id:
+        raise click.BadParameter("Expected a YouTube video URL.", param_hint="URL")
+    try:
+        sample = comments.fetch_comments(video_id)
+    except youtube_api.CommentsDisabled:
+        click.echo("Comments are disabled for this video.")
+        return
+    except youtube_api.NotFound:
+        raise click.ClickException(f"Video not found: {video_id}") from None
+    except youtube_api.YouTubeApiError as exc:
+        raise click.ClickException(str(exc)) from None
+    dest = (output_dir or Path(load_config(CONFIG_PATH).output_dir)).expanduser()
+    text_path, json_path = comments.write_comments(sample, dest, video_id)
+    click.echo(f"Comments: {text_path}\nStructured comments: {json_path}")
+
 
 @cli.command(name="transcribe")
 @click.argument("audio_or_url", required=False)
@@ -435,16 +460,6 @@ def transcribe_cmd(audio_or_url: str | None, **opts) -> None:
             write_txt_plain(result.segments, txt_path)
     if write_srt_pick:
         write_srt(result.segments, srt_path)
-    if write_json_pick:
-        from skills.neurolearn.utils.output_writer import write_json
-        write_json(
-            result.segments, json_path,
-            language=getattr(result, "language_detected", None),
-            backend=getattr(result, "backend_name", None),
-            duration_sec=getattr(result, "duration_seconds", None),
-            quality=getattr(result, "quality", None),
-            visual_segments=list(getattr(result, "visual_segments", []) or []),
-        )
 
     # === v0.2: write .visual.md if the visual stage ran ===
     # Mode 1 (extract-only) populates no visual_segments — it leaves a keyframe
@@ -480,6 +495,20 @@ def transcribe_cmd(audio_or_url: str | None, **opts) -> None:
         files_map["json"] = json_path.name
     if visual_path is not None:
         files_map["visual"] = visual_path.name
+    status = _build_video_status(0, target, result, files_map)
+    _attach_youtube_statistics([status])
+    if write_json_pick:
+        from skills.neurolearn.utils.output_writer import write_json
+        write_json(
+            result.segments, json_path,
+            language=getattr(result, "language_detected", None),
+            backend=getattr(result, "backend_name", None),
+            duration_sec=getattr(result, "duration_seconds", None),
+            statistics=status.statistics,
+            quality=getattr(result, "quality", None),
+            visual_segments=list(getattr(result, "visual_segments", []) or []),
+        )
+
     manifest_meta = BatchMeta(
         batch_name=output_dir.name,
         created_at=datetime.now(),
@@ -493,7 +522,7 @@ def transcribe_cmd(audio_or_url: str | None, **opts) -> None:
     # not fail the whole command (just lose the downstream-convenience index).
     try:
         write_manifest_json(
-            [_build_video_status(0, target, result, files_map)],
+            [status],
             [], manifest_meta, output_dir,
         )
     except Exception as e:
@@ -504,6 +533,8 @@ def transcribe_cmd(audio_or_url: str | None, **opts) -> None:
     console.print(f"[green]✓[/green] {result.backend_name} | "
                   f"language={result.language_detected or 'auto'} | "
                   f"duration={result.duration_seconds:.1f}s")
+    if status.statistics is not None:
+        console.print(f"  {status.format_statistics()}")
     if write_txt:
         console.print(f"  [bold]{txt_path}[/bold]")
     if write_srt_pick:
@@ -604,6 +635,34 @@ def _build_video_status(
         # === v0.10: forward the budget tracker into manifest.json ===
         budget=getattr(result, "budget", None),
     )
+
+
+# Resolution supplies the video ID even for mobile, live, and embed URLs.
+# Check the actual source as other platforms also supply an ID.
+_YOUTUBE_VIDEO_HOST = re.compile(
+    r"^(?:https?://)?(?:(?:[a-z0-9-]+\.)*youtube(?:-nocookie)?\.com|"
+    r"(?:www\.)?youtu\.be)(?::[0-9]+)?/", re.IGNORECASE,
+)
+
+
+def _attach_youtube_statistics(videos: list[BatchVideoStatus]) -> None:
+    """Enrich successful YouTube results in one batched lookup when available."""
+    youtube_videos = [
+        (video.video_id, video) for video in videos
+        if video.video_id and _YOUTUBE_VIDEO_HOST.match(video.url)
+    ]
+    try:
+        details = youtube_api.fetch_video_details(video_id for video_id, _ in youtube_videos)
+    except youtube_api.YouTubeApiError:
+        return
+    for video_id, video in youtube_videos:
+        detail = details.get(video_id)
+        if detail is not None:
+            video.statistics = {
+                "view_count": detail.view_count,
+                "like_count": detail.like_count,
+                "comment_count": detail.comment_count,
+            }
 
 
 def _ensure_config_or_skip_wizard() -> None:
@@ -1313,6 +1372,7 @@ def _run_batch_pipeline(
         research=opts.get("research_meta"),
     )
 
+    _attach_youtube_statistics(statuses)
     if not no_combined:
         write_combined_md(statuses, meta, batch_dir)
     write_manifest_json(statuses, failures, meta, batch_dir)

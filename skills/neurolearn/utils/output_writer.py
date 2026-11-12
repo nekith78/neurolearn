@@ -140,6 +140,17 @@ class BatchVideoStatus:
     # None for batch/analyze/subscribes flows that don't have per-candidate
     # language attribution.
     source_language: str | None = None
+    statistics: dict[str, int | None] | None = None
+
+    def format_statistics(self) -> str:
+        if self.statistics is None:
+            return ""
+        labels = (("Views", "view_count"), ("Likes", "like_count"), ("Comments", "comment_count"))
+        fields = []
+        for label, key in labels:
+            count = self.statistics[key]
+            fields.append(f"{label}: {count if count is not None else '—'}")
+        return " · ".join(fields)
 
 
 @dataclass
@@ -281,6 +292,8 @@ def write_combined_md(
         parts.append(f"| Date | {_fmt_date(v.upload_date)} |\n")
         parts.append(f"| Duration | {_fmt_duration(v.duration_sec)} |\n")
         parts.append(f"| Channel | {v.channel or '—'} |\n")
+        if v.statistics is not None:
+            parts.append(f"| Statistics | {v.format_statistics()} |\n")
         parts.append(f"| Language detected | {v.language_detected or '—'} |\n\n")
         parts.append(v.text.strip() + "\n")
 
@@ -339,6 +352,8 @@ def write_manifest_json(
             "status": v.status,
             "error": v.error,
         }
+        if v.statistics is not None:
+            entry["statistics"] = v.statistics
         # === v0.2 ===
         if v.quality is not None:
             entry["quality"] = {
@@ -422,6 +437,7 @@ def write_json(
     language: str | None = None,
     backend: str | None = None,
     duration_sec: float | None = None,
+    statistics: dict[str, int | None] | None = None,
     quality: object | None = None,
     visual_segments: list | None = None,
 ) -> None:
@@ -447,6 +463,8 @@ def write_json(
             for s in segs
         ],
     }
+    if statistics is not None:
+        payload["statistics"] = statistics
     if quality is not None:
         payload["quality"] = {
             "score": getattr(quality, "score", None),

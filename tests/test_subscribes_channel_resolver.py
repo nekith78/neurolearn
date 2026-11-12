@@ -9,12 +9,6 @@ from skills.neurolearn.subscribes.channel_resolver import (
 )
 
 
-@pytest.fixture(autouse=True)
-def isolated_youtube_key(monkeypatch, tmp_path):
-    monkeypatch.delenv("YOUTUBE_API_KEY", raising=False)
-    monkeypatch.setattr("skills.neurolearn.config.ENV_PATH", tmp_path / ".env")
-
-
 def test_add_handle_resolves_and_stores_api_channel(monkeypatch, tmp_path):
     from click.testing import CliRunner
     from skills.neurolearn.subscribes.cli import subscribes_group
