@@ -21,6 +21,7 @@ from skills.neurolearn.utils.downloader import (
     extract_youtube_video_id,
     is_url,
     is_youtube_url,
+    normalize_youtube_channel_url,
     probe_input,
 )
 
@@ -155,10 +156,12 @@ def resolve(
     # the I/O-bound metadata fetch; downstream processing (kind dispatch,
     # dedup, playlist expansion) stays single-threaded so the seen_video_ids
     # set needs no lock and result ordering is identical to the serial version.
+    # A bare YouTube channel URL is probed (and later expanded) as the
+    # channel's Ordinary Videos; `url` stays the user's input for reporting.
     def _safe_probe(item: tuple[str, Source]) -> tuple[str, Source, tuple | Exception]:
         url, src = item
         try:
-            return url, src, probe_input(url)
+            return url, src, probe_input(normalize_youtube_channel_url(url))
         except Exception as e:    # noqa: BLE001 — re-raised below per-url
             return url, src, e
 
@@ -190,7 +193,9 @@ def resolve(
             continue
 
         # kind == "playlist" → expand and apply limit per source
-        entries = expand_channel_or_playlist(url, limit=filters.limit)
+        entries = expand_channel_or_playlist(
+            normalize_youtube_channel_url(url), limit=filters.limit,
+        )
         playlist_source: Source = "channel"  # we don't strictly distinguish
         for e in entries:
             t = _channel_entry_to_target(e, source=playlist_source)
