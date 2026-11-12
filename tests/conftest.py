@@ -32,9 +32,10 @@ def _skip_onboarding_gate(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
-def _isolate_youtube_quota(monkeypatch, tmp_path):
+def _isolate_youtube_quota(monkeypatch, tmp_path_factory):
     """Fake API requests must never consume the user's local quota."""
-    monkeypatch.setattr("skills.neurolearn.config.CONFIG_PATH", tmp_path / "config.toml")
+    config_path = tmp_path_factory.mktemp("youtube-config") / "config.toml"
+    monkeypatch.setattr("skills.neurolearn.config.CONFIG_PATH", config_path)
 
 
 @pytest.fixture(autouse=True)
