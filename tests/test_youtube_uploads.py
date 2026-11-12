@@ -61,13 +61,14 @@ def run_batch(monkeypatch, tmp_path, *args):
     return targets, result.output
 
 
-def test_batch_window_applies_to_first_n_per_channel_before_duration_and_shorts_filters(monkeypatch, tmp_path):
+def test_batch_window_applies_before_duration_and_shorts_filters(monkeypatch, tmp_path):
     monkeypatch.setenv("YOUTUBE_API_KEY", "test")
     def transport(url, params, headers, timeout):
         if url.endswith("/channels"):
             return 200, {"items": [{"id": "UCcreator", "snippet": {"title": "Creator"}}]}
         if url.endswith("/playlistItems"):
-            assert params["playlistId"] == "UULFcreator" and params["maxResults"] == 4
+            # A date window is filled from eligible uploads, so the page is not cut to --limit.
+            assert params["playlistId"] == "UULFcreator" and params["maxResults"] == 50
             return 200, {"items": [
                 playlist_item("new", "2026-06-01"), playlist_item("first", "2026-05-15"),
                 playlist_item("last", "2026-05-01"), playlist_item("old", "2026-04-01"),
@@ -225,3 +226,61 @@ def test_batch_no_shorts_fallback_uses_channel_tab_before_duration(monkeypatch, 
     })
     rows, _ = run_batch(monkeypatch, tmp_path, f"https://youtube.com/{path}", "--no-shorts")
     assert [r.video_id for r in rows] == (["the-video"] if keep else [])
+
+
+def _channel_transport(pages, calls):
+    def transport(url, params, headers, timeout):
+        if url.endswith("/channels"):
+            return 200, {"items": [{"id": "UCcreator", "snippet": {"title": "Creator"}}]}
+        if url.endswith("/playlistItems"):
+            calls.append(dict(params))
+            return 200, pages[params.get("pageToken", "")]
+        if url.endswith("/videos"):
+            return 200, {"items": [{"id": vid, "contentDetails": {"duration": "PT5M"}}
+                                   for vid in params["id"].split(",")]}
+        pytest.fail(url)
+    return transport
+
+
+def test_batch_limit_counts_uploads_inside_the_until_window(monkeypatch, tmp_path):
+    """"2 videos up to 15 May" is the 2 newest eligible uploads, read past newer ones."""
+    monkeypatch.setenv("YOUTUBE_API_KEY", "test")
+    calls = []
+    pages = {
+        "": {"items": [playlist_item("jul", "2026-07-01"), playlist_item("jun", "2026-06-01")],
+             "nextPageToken": "p2"},
+        "p2": {"items": [playlist_item("may15", "2026-05-15"), playlist_item("may01", "2026-05-01"),
+                         playlist_item("apr", "2026-04-01")], "nextPageToken": "never"},
+    }
+    monkeypatch.setattr(api, "_http_get", _channel_transport(pages, calls))
+    monkeypatch.setattr("skills.neurolearn.utils.downloader._extract_flat", lambda *a, **kw: pytest.fail("yt-dlp"))
+    rows, output = run_batch(monkeypatch, tmp_path, "https://www.youtube.com/@creator",
+                             "--limit", "2", "--until", "2026-05-15")
+    assert [r.video_id for r in rows] == ["may15", "may01"]
+    assert [c.get("pageToken") for c in calls] == [None, "p2"]
+    assert "Falling back" not in output
+
+
+def test_batch_window_scan_stops_at_the_first_upload_before_since(monkeypatch, tmp_path):
+    monkeypatch.setenv("YOUTUBE_API_KEY", "test")
+    calls = []
+    pages = {"": {"items": [playlist_item("jun", "2026-06-01"), playlist_item("may", "2026-05-10"),
+                            playlist_item("apr", "2026-04-01")], "nextPageToken": "never"}}
+    monkeypatch.setattr(api, "_http_get", _channel_transport(pages, calls))
+    monkeypatch.setattr("skills.neurolearn.utils.downloader._extract_flat", lambda *a, **kw: pytest.fail("yt-dlp"))
+    rows, _ = run_batch(monkeypatch, tmp_path, "https://www.youtube.com/@creator",
+                        "--limit", "5", "--since", "2026-05-01", "--until", "2026-05-31")
+    assert [r.video_id for r in rows] == ["may"]
+    assert len(calls) == 1
+
+
+def test_batch_without_dates_still_requests_only_the_limit(monkeypatch, tmp_path):
+    monkeypatch.setenv("YOUTUBE_API_KEY", "test")
+    calls = []
+    pages = {"": {"items": [playlist_item("a"), playlist_item("b"), playlist_item("c")],
+                  "nextPageToken": "never"}}
+    monkeypatch.setattr(api, "_http_get", _channel_transport(pages, calls))
+    monkeypatch.setattr("skills.neurolearn.utils.downloader._extract_flat", lambda *a, **kw: pytest.fail("yt-dlp"))
+    rows, _ = run_batch(monkeypatch, tmp_path, "https://www.youtube.com/@creator", "--limit", "3")
+    assert [r.video_id for r in rows] == ["a", "b", "c"]
+    assert [c["maxResults"] for c in calls] == [3]

@@ -34,7 +34,7 @@ def test_research_uses_exact_search_dates_and_retains_relevance_order(monkeypatc
     monkeypatch.setattr(pipeline, "_append_history", lambda **kw: None)
     result = CliRunner().invoke(cli, [
         "research", "query", "--languages", "en", "--since", "2026-10-10",
-        "--until", "2026-10-24", "--limit", "80", "--yes", "--no-analyze",
+        "--until", "2026-10-24", "--limit", "2", "--yes", "--no-analyze",
     ])
 
     assert result.exit_code == 0, result.exception
@@ -50,7 +50,7 @@ def test_research_uses_exact_search_dates_and_retains_relevance_order(monkeypatc
         "query", "en", "relevance",
     )
     assert params["type"] == "video"
-    assert params["maxResults"] == 50
+    assert params["maxResults"] == 2
 
 
 @pytest.mark.parametrize("search_cap,expected_searches", [(1, ["en"]), (2, ["en", "fr"])])
@@ -331,3 +331,40 @@ def test_relative_api_window_uses_utc_when_the_local_day_is_ahead(monkeypatch, e
     else:
         source.search_multi_language({"en": "topic"}, days=14, limit=2)
     assert windows == [("2026-10-29T00:00:00Z", "2026-11-12T23:59:59.999999Z")]
+
+
+def test_search_follows_pages_until_the_limit(monkeypatch):
+    """A limit above one page is honoured; each page is one search call."""
+    searches = []
+
+    def http(url, params, headers, timeout):
+        if url.endswith("/search"):
+            searches.append((params["maxResults"], params.get("pageToken")))
+            start = 0 if not params.get("pageToken") else 50
+            ids = [f"v{n:03d}" for n in range(start, start + params["maxResults"])]
+            return 200, {"items": [{"id": {"videoId": v}} for v in ids], "nextPageToken": "page2"}
+        return 200, {"items": [{"id": vid, "snippet": {"title": vid}} for vid in params["id"].split(",")]}
+
+    monkeypatch.setenv("YOUTUBE_API_KEY", "synthetic")
+    monkeypatch.setattr(youtube_api, "_http_get", http)
+    monkeypatch.setattr(source, "_extract", lambda *a, **kw: pytest.fail("yt-dlp used"))
+    found = source.search_multi_language({"en": "query"}, limit=60)
+    assert [c.video_id for c in found] == [f"v{n:03d}" for n in range(60)]
+    assert searches == [(50, None), (50, "page2")]
+
+
+def test_search_within_one_page_makes_one_search_call(monkeypatch):
+    searches = []
+
+    def http(url, params, headers, timeout):
+        if url.endswith("/search"):
+            searches.append(params["maxResults"])
+            # A short page with a continuation token must not trigger a second call.
+            return 200, {"items": [{"id": {"videoId": f"v{n}"}} for n in range(15)],
+                         "nextPageToken": "more"}
+        return 200, {"items": [{"id": vid, "snippet": {"title": vid}} for vid in params["id"].split(",")]}
+
+    monkeypatch.setenv("YOUTUBE_API_KEY", "synthetic")
+    monkeypatch.setattr(youtube_api, "_http_get", http)
+    assert len(source.search_multi_language({"en": "query"}, limit=20)) == 15
+    assert searches == [20]

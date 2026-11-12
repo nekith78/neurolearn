@@ -156,8 +156,12 @@ def _youtube_collection_targets(url: str, filters: ResolverFilters) -> list[Reso
     parts = parsed.path.strip("/").split("/")
     tab: youtube_api.PublicationType | None = None
     playlist_ids = parse_qs(parsed.query).get("list")
+    # With a date window, --limit counts uploads inside it, so the listing
+    # is read past ineligible uploads instead of being cut to the limit.
+    windowed = bool(filters.since or filters.until) and filters.limit > 0
+    fetch_limit = None if windowed else filters.limit
     if parts in (["playlist"], ["watch"]) and playlist_ids:
-        rows = youtube_api.iter_playlist_videos(playlist_ids[0], limit=filters.limit)
+        rows = youtube_api.iter_playlist_videos(playlist_ids[0], limit=fetch_limit)
     else:
         tab = _youtube_channel_tab(parsed)
         if tab is None:
@@ -165,7 +169,7 @@ def _youtube_collection_targets(url: str, filters: ResolverFilters) -> list[Reso
         channel = youtube_api.resolve_channel(url)
         if channel is None:
             return None
-        rows = youtube_api.iter_channel_uploads(channel.channel_id, tab, limit=filters.limit)
+        rows = youtube_api.iter_channel_uploads(channel.channel_id, tab, limit=fetch_limit)
 
     selected = []
     for row in rows:
@@ -177,6 +181,8 @@ def _youtube_collection_targets(url: str, filters: ResolverFilters) -> list[Reso
         if filters.until and upload_date > filters.until:
             continue
         selected.append(row)
+        if windowed and len(selected) >= filters.limit:
+            break
     if tab == "shorts" and not filters.include_shorts:
         return []
     details = youtube_api.fetch_video_details(row.video_id for row in selected)

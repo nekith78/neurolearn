@@ -400,27 +400,45 @@ def search_videos(
     query: str, *, language: str, limit: int, window: DateWindow | None,
     sort_by_views: bool = False,
 ) -> list[VideoDetails]:
-    """Search one page, then hydrate its IDs in one details call."""
+    """Search up to `limit` videos, then hydrate their IDs in batched details calls."""
     if limit <= 0:
         return []
     params = {
         "part": "snippet", "type": "video", "q": query,
         "order": "viewCount" if sort_by_views else "relevance",
-        "relevanceLanguage": language, "maxResults": min(limit, 50),
-        "fields": "items(id/videoId)",
+        "relevanceLanguage": language,
+        "fields": "nextPageToken,items(id/videoId)",
     }
     if window:
         params["publishedAfter"] = f"{window.start.isoformat()}T00:00:00Z"
         params["publishedBefore"] = f"{window.end.isoformat()}T23:59:59.999999Z"
-    body = api_get("search", params)
-    try:
-        if not isinstance(body["items"], list):
-            raise TypeError
-        ids = [item["id"]["videoId"] for item in body["items"]]
-        if not all(isinstance(vid, str) and vid for vid in ids):
-            raise ValueError
-    except (KeyError, TypeError, ValueError):
-        raise TransientFailure("Unexpected search.list response") from None
+    # One search call per page of 50; a limit within one page costs one call.
+    ids: list[str] = []
+    seen_tokens: set[str] = set()
+    while len(ids) < limit:
+        # Later pages ask for a full page: results repeat across pages, and a
+        # short request would need one more call to replace the repeats.
+        body = api_get("search", {**params, "maxResults": 50 if ids else min(limit, 50)})
+        try:
+            if not isinstance(body["items"], list):
+                raise TypeError
+            page = [item["id"]["videoId"] for item in body["items"]]
+            if not all(isinstance(vid, str) and vid for vid in page):
+                raise ValueError
+        except (KeyError, TypeError, ValueError):
+            raise TransientFailure("Unexpected search.list response") from None
+        fresh = [vid for vid in dict.fromkeys(page) if vid not in ids]
+        ids.extend(fresh)
+        token = body.get("nextPageToken")
+        # A page with nothing new ends the search: never spend calls on repeats.
+        # A limit within one page stays one call even when that page is short.
+        if limit <= 50 or len(ids) >= limit or not fresh or not token:
+            break
+        if not isinstance(token, str) or token in seen_tokens:
+            raise TransientFailure("Invalid search.list page token")
+        seen_tokens.add(token)
+        params["pageToken"] = token
+    ids = ids[:limit]
     details = fetch_video_details(ids)
     return [details[vid] for vid in ids if vid in details]
 

@@ -1557,7 +1557,8 @@ def _run_batch_pipeline(
 @click.option("--from-file", "from_file", type=click.Path(path_type=Path),
               default=None, help="File with a list of URLs (1 per line, # — comment).")
 @click.option("--limit", type=int, default=10, show_default=True,
-              help="How many videos to take from a channel/playlist.")
+              help="How many videos to take from a channel/playlist "
+                   "(with a YouTube key: counted inside --since/--until).")
 @click.option("--batch-name", default=None,
               help="Batch directory name (default: batch_<ts>_<auto-slug>).")
 @click.option("--no-combined", is_flag=True, help="Skip combined.md generation.")
@@ -3145,7 +3146,7 @@ def analyze_cmd(
 @click.option("--until", "until_opt", default=None,
               help="Window end YYYY-MM-DD.")
 @click.option("--limit", "limit_opt", type=int, default=20, show_default=True,
-              help="Videos to take per language (YouTube Data API: up to 50 per query).")
+              help="Videos to take per language (YouTube Data API: one search call per 50).")
 @click.option("--sort-by-views", is_flag=True,
               help="Most viewed first, unknown counts last. Requires a YouTube API key.")
 @click.option("--min-views", type=click.IntRange(min=0),

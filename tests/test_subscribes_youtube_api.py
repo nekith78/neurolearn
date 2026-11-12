@@ -136,8 +136,9 @@ def install_tabs(monkeypatch, rows, failure=None):
     ("shorts-and-videos", [("shared00001", 5), ("ordinary001", 4)],
      [("shared00001", 5), ("short000001", 3)], 6,
      ["shorts/shared00001", "watch?v=ordinary001", "shorts/short000001"], ["videos", "shorts"]),
-    # The existing early-exit walk stops even when the first item is newer than --until.
-    ("videos-only", [("toonew00001", 7), ("ordinary001", 5)], [], 6, [], ["videos"]),
+    # An upload newer than --until is skipped; the walk continues into the window.
+    ("videos-only", [("toonew00001", 7), ("ordinary001", 5)], [], 6,
+     ["watch?v=ordinary001"], ["videos"]),
 ])
 def test_equivalent_update_modes_and_override_state(
     tmp_path, monkeypatch, mode, videos, shorts, until, expected, tabs,
@@ -191,3 +192,49 @@ def test_fallback_restarts_each_channel_and_shares_one_notice(tmp_path, monkeypa
     assert [ch.last_seen_published for ch in load_subscribes(path)] == [
         "2026-03-05T11:00:00+00:00", "2026-03-05T11:00:00+00:00",
     ]
+
+
+def _past_window_update(tmp_path, monkeypatch, *, with_key):
+    path = tmp_path / "subscribes.toml"
+    save_subscribes(path, [channel(mode="videos-only")])
+    monkeypatch.setattr("skills.neurolearn.subscribes.cli.SUBSCRIBES_PATH", path)
+    monkeypatch.setattr(pipeline, "_append_history", lambda **kwargs: None)
+    captured = []
+    def transcribe(target, cfg, **kwargs):
+        captured.append(target.video_id)
+        return TranscriptionResult("Test", [Segment(0, 1, "Test")], "en", "subtitles", 1)
+    monkeypatch.setattr("skills.neurolearn.transcribe.run_pipeline", transcribe)
+    dates = {"newest00001": "2026-03-20", "inwindow001": "2026-03-10",
+             "inwindow002": "2026-03-06", "tooold00001": "2026-03-01", "neverseen01": "2026-02-01"}
+    probed = []
+    if with_key:
+        monkeypatch.setenv("YOUTUBE_API_KEY", "test-only")
+        monkeypatch.setattr(pipeline, "_list_tab_ids", lambda *a, **kw: pytest.fail("yt-dlp"))
+        def transport(url, params, headers, timeout):
+            if url.endswith("/playlistItems"):
+                return 200, {"items": [upload(v, d + "T10:00:00Z") for v, d in dates.items()]}
+            return 200, {"items": [{"id": v, "contentDetails": {"duration": "PT5M"}}
+                                   for v in params["id"].split(",")]}
+        monkeypatch.setattr(youtube_api, "_http_get", transport)
+    else:
+        monkeypatch.delenv("YOUTUBE_API_KEY", raising=False)
+        monkeypatch.setattr(pipeline, "_list_video_ids", lambda *a, **kw: list(dates))
+        def extract(video_id, *, cookies_file=None):
+            probed.append(video_id)
+            return pipeline._ChannelVideo(
+                video_id=video_id, url=f"https://www.youtube.com/watch?v={video_id}", title=video_id,
+                duration_sec=300, published=datetime.fromisoformat(dates[video_id] + "T10:00:00+00:00"),
+            )
+        monkeypatch.setattr(pipeline, "_extract_video_metadata", extract)
+    result = update("--output-dir", str(tmp_path), "--since", "2026-03-05", "--until", "2026-03-15")
+    assert result.exit_code == 0, result.output
+    return captured, probed
+
+
+@pytest.mark.parametrize("with_key", [True, False])
+def test_past_window_skips_newer_uploads_and_returns_the_window(tmp_path, monkeypatch, with_key):
+    captured, probed = _past_window_update(tmp_path, monkeypatch, with_key=with_key)
+    assert sorted(captured) == ["inwindow001", "inwindow002"]
+    if not with_key:
+        # The walk still ends at the first upload older than the window.
+        assert probed == ["newest00001", "inwindow001", "inwindow002", "tooold00001"]

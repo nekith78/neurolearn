@@ -449,8 +449,13 @@ def _fetch_tab(
     cap: int,
     cookies_file: str | None = None,
     max_probe: int = _SHORTS_PROBE_LIMIT,
+    after_window_fn=None,
 ) -> list[_ChannelVideo]:
     """Early-exit walk through a channel tab (`videos` / `shorts`), newest-first.
+
+    `after_window_fn` marks uploads newer than an explicit window end:
+    those are skipped and the walk continues, so a window in the past
+    still reaches its uploads. `max_probe` bounds the walk either way.
 
     Algorithm (v0.17.1 for shorts, generalized v0.20 for videos):
       1. Flat-extract IDs from `<channel>/<tab>` (~1s, no dates).
@@ -498,6 +503,8 @@ def _fetch_tab(
             continue
         if entry is None:
             continue
+        if after_window_fn is not None and after_window_fn(entry.published):
+            continue
         if not in_window_fn(entry.published):
             # First out-of-window → stop. YouTube returns newest-first,
             # so everything past this point is even older.
@@ -515,11 +522,13 @@ def _fetch_shorts(
     cap: int,
     cookies_file: str | None = None,
     max_probe: int = _SHORTS_PROBE_LIMIT,
+    after_window_fn=None,
 ) -> list[_ChannelVideo]:
     """Early-exit walk through the `/shorts` tab. See `_fetch_tab`."""
     return _fetch_tab(
         channel_url, tab="shorts", in_window_fn=in_window_fn, cap=cap,
         cookies_file=cookies_file, max_probe=max_probe,
+        after_window_fn=after_window_fn,
     )
 
 
@@ -529,6 +538,7 @@ def _fetch_videos(
     in_window_fn,
     cookies_file: str | None = None,
     max_probe: int = _VIDEO_PROBE_LIMIT,
+    after_window_fn=None,
 ) -> list[_ChannelVideo]:
     """Early-exit walk through the `/videos` tab. See `_fetch_tab`.
 
@@ -538,6 +548,7 @@ def _fetch_videos(
     return _fetch_tab(
         channel_url, tab="videos", in_window_fn=in_window_fn, cap=0,
         cookies_file=cookies_file, max_probe=max_probe,
+        after_window_fn=after_window_fn,
     )
 
 
@@ -546,6 +557,7 @@ def _fetch_youtube_videos(
     *,
     in_window_fn,
     cookies_file: str | None = None,
+    after_window_fn=None,
 ) -> list[_ChannelVideo]:
     """YouTube full-video stream via the channel's `/videos` tab.
 
@@ -560,6 +572,7 @@ def _fetch_youtube_videos(
     """
     return _fetch_videos(
         ch.url, in_window_fn=in_window_fn, cookies_file=cookies_file,
+        after_window_fn=after_window_fn,
     )
 
 
@@ -578,6 +591,17 @@ def _make_in_window_predicate(ch: Channel, window):
         if cutoff is not None:
             return lambda dt: dt > cutoff
     return lambda dt: True
+
+
+def _make_after_window_predicate(window):
+    """`(datetime) -> bool`: is this upload newer than an explicit window end?
+
+    Only an explicit window has an end; the stored cursor and the
+    no-filter case never skip anything.
+    """
+    if window is None:
+        return None
+    return lambda dt: dt.date() > window.end
 
 
 def _maybe_warn_cap_hit(
@@ -642,29 +666,36 @@ def _fetch_youtube_entries(
     """Select a complete channel from one provider, keeping API details for batch output."""
     in_window_pred = _make_in_window_predicate(ch, window)
 
+    after_window_pred = _make_after_window_predicate(window)
+
     def api_tab(tab: _SubscriptionTab) -> list[_ChannelVideo]:
-        # Match both the fallback's probe limits and its break on the first
-        # out-of-window item (including an item newer than an explicit --until).
-        limit = _VIDEO_PROBE_LIMIT
-        if tab == "shorts":
-            limit = min(shorts_cap or _SHORTS_PROBE_LIMIT, _SHORTS_PROBE_LIMIT)
+        # Mirror the fallback walk: same probe limits, skip uploads newer
+        # than an explicit window end, stop at the first older upload, and
+        # stop once the shorts cap is met.
+        limit = _SHORTS_PROBE_LIMIT if tab == "shorts" else _VIDEO_PROBE_LIMIT
+        cap = shorts_cap if tab == "shorts" else 0
         prefix = "shorts/" if tab == "shorts" else "watch?v="
         entries = []
         for row in youtube_api.iter_channel_uploads(ch.channel_id, tab, limit=limit):
+            if after_window_pred is not None and after_window_pred(row.published_at):
+                continue
             if not in_window_pred(row.published_at):
                 break
             entries.append(_ChannelVideo(
                 video_id=row.video_id, url=f"https://www.youtube.com/{prefix}{row.video_id}",
                 title=row.title or "", published=row.published_at, duration_sec=None,
             ))
+            if cap > 0 and len(entries) >= cap:
+                break
         return entries
 
     def ytdlp_tab(tab: _SubscriptionTab) -> list[_ChannelVideo]:
         cookies = youtube_cookies_file or None
         if tab == "shorts":
             return _fetch_shorts(ch.url, in_window_fn=in_window_pred, cap=shorts_cap,
-                                 cookies_file=cookies)
-        return _fetch_youtube_videos(ch, in_window_fn=in_window_pred, cookies_file=cookies)
+                                 cookies_file=cookies, after_window_fn=after_window_pred)
+        return _fetch_youtube_videos(ch, in_window_fn=in_window_pred, cookies_file=cookies,
+                                     after_window_fn=after_window_pred)
 
     try:
         entries, short_count = _select_youtube_entries(effective_mode, api_tab)
