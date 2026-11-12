@@ -212,3 +212,16 @@ def test_batch_manifest_reuses_statistics_from_playlist_resolution(monkeypatch, 
     video, = json.loads((tmp_path / "study/manifest.json").read_text(encoding="utf-8"))["videos"]
     assert video["statistics"] == {"view_count": 42, "like_count": None, "comment_count": None}
     assert requests == ["abcdefghijk"]
+
+
+@pytest.mark.parametrize(("path", "duration", "keep"), [
+    ("@creator", 40, True), ("@creator/videos", 40, True), ("@creator/streams", 40, True),
+    ("c/creator/shorts", 90, False), ("channel/UCcreator/shorts", 90, False),
+    ("playlist?list=PLcustom", 40, False),
+])
+def test_batch_no_shorts_fallback_uses_channel_tab_before_duration(monkeypatch, tmp_path, path, duration, keep):
+    monkeypatch.setattr("skills.neurolearn.utils.downloader._extract_flat", lambda *args, **kwargs: {
+        "_type": "playlist", "entries": [{"id": "the-video", "duration": duration}],
+    })
+    rows, _ = run_batch(monkeypatch, tmp_path, f"https://youtube.com/{path}", "--no-shorts")
+    assert [r.video_id for r in rows] == (["the-video"] if keep else [])

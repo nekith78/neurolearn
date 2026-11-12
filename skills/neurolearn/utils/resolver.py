@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 from typing import Literal
-from urllib.parse import parse_qs, urlsplit
+from urllib.parse import SplitResult, parse_qs, urlsplit
 
 import click
 
@@ -103,7 +103,7 @@ def parse_from_file(path: Path) -> list[str]:
     return urls
 
 
-def _channel_entry_to_target(e: ChannelEntry, source: Source) -> ResolvedTarget:
+def _channel_entry_to_target(e: ChannelEntry, source: Source, *, is_short: bool | None = None) -> ResolvedTarget:
     return ResolvedTarget(
         url=e.url,
         title=e.title,
@@ -111,7 +111,7 @@ def _channel_entry_to_target(e: ChannelEntry, source: Source) -> ResolvedTarget:
         duration_sec=e.duration_sec,
         channel=e.channel,
         source=source,
-        video_id=e.video_id,
+        video_id=e.video_id, is_short=is_short,
     )
 
 
@@ -135,6 +135,17 @@ def _local_to_target(path_str: str) -> ResolvedTarget:
     )
 
 
+def _youtube_channel_tab(parsed: SplitResult) -> youtube_api.PublicationType | None:
+    if parsed.hostname not in _YOUTUBE_HOSTS:
+        return None
+    parts = parsed.path.strip("/").split("/")
+    if ((len(parts) == 2 and parts[0].startswith("@"))
+            or (len(parts) == 3 and parts[0] in {"channel", "user", "c"})):
+        if parts[-1] in ("videos", "shorts", "streams"):
+            return parts[-1]
+    return None
+
+
 def _youtube_collection_targets(url: str, filters: ResolverFilters) -> list[ResolvedTarget] | None:
     """Expand a recognized YouTube collection, leaving other URL shapes to yt-dlp."""
     if not is_url(url):
@@ -148,16 +159,12 @@ def _youtube_collection_targets(url: str, filters: ResolverFilters) -> list[Reso
     if parts in (["playlist"], ["watch"]) and playlist_ids:
         rows = youtube_api.iter_playlist_videos(playlist_ids[0], limit=filters.limit)
     else:
-        is_channel = (
-            (len(parts) == 2 and parts[0].startswith("@"))
-            or (len(parts) == 3 and parts[0] in {"channel", "user"})
-        )
-        if not is_channel or parts[-1] not in ("videos", "shorts", "streams"):
+        tab = _youtube_channel_tab(parsed)
+        if tab is None:
             return None
         channel = youtube_api.resolve_channel(url)
         if channel is None:
             return None
-        tab = parts[-1]
         rows = youtube_api.iter_channel_uploads(channel.channel_id, tab, limit=filters.limit)
 
     selected = []
@@ -279,7 +286,9 @@ def resolve(
             entries = expand_channel_or_playlist(
                 url, limit=filters.limit,
             )
-            expanded = [_channel_entry_to_target(e, source="channel") for e in entries]
+            tab = _youtube_channel_tab(urlsplit(url))
+            is_short = (tab == "shorts") if tab is not None else None
+            expanded = [_channel_entry_to_target(e, source="channel", is_short=is_short) for e in entries]
             if ((filters.since or filters.until) and urlsplit(url).hostname in _YOUTUBE_HOSTS
                     and any(t.upload_date is None for t in expanded)):
                 missing_youtube_dates = True
