@@ -95,11 +95,15 @@ def _error_details(body: Any) -> tuple[str, str]:
     if not isinstance(body, dict) or not isinstance(body.get("error"), dict):
         return "", str(body)[:300]
     err = body["error"]
-    reason = ""
-    for item in list(err.get("errors") or []) + list(err.get("details") or []):
-        if isinstance(item, dict) and item.get("reason"):
-            reason = str(item["reason"])
-            break
+    reasons = [
+        str(item["reason"])
+        for item in list(err.get("errors") or []) + list(err.get("details") or [])
+        if isinstance(item, dict) and item.get("reason")
+    ]
+    # A rejected key arrives as a generic `badRequest` in `errors` with the
+    # real cause (`API_KEY_INVALID`) only in `details` — prefer the latter.
+    reason = next((r for r in reasons if r in _INVALID_KEY_REASONS), "")
+    reason = reason or (reasons[0] if reasons else "")
     return reason, str(err.get("message") or "")
 
 
