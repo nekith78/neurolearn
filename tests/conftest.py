@@ -29,3 +29,10 @@ def _skip_onboarding_gate(monkeypatch):
         "skills.neurolearn.transcribe._require_onboarding_complete",
         lambda *args, **kwargs: None,
     )
+
+
+@pytest.fixture(autouse=True)
+def _isolate_youtube_credentials(monkeypatch, tmp_path):
+    """Automatic statistics lookup must never use a developer's key in unit tests."""
+    monkeypatch.delenv("YOUTUBE_API_KEY", raising=False)
+    monkeypatch.setattr("skills.neurolearn.config.ENV_PATH", tmp_path / ".env")
