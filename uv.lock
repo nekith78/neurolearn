@@ -2053,6 +2053,7 @@ dependencies = [
     { name = "sentence-transformers" },
     { name = "tomli-w" },
     { name = "tomlkit" },
+    { name = "tzdata" },
     { name = "youtube-transcript-api" },
     { name = "yt-dlp", extra = ["default", "deno"] },
 ]
@@ -2119,6 +2120,7 @@ requires-dist = [
     { name = "sentence-transformers", specifier = ">=3.0.0" },
     { name = "tomli-w", specifier = ">=1.0" },
     { name = "tomlkit", specifier = ">=0.13.0" },
+    { name = "tzdata" },
     { name = "weasyprint", marker = "extra == 'report'", specifier = ">=62.0" },
     { name = "youtube-transcript-api", specifier = ">=1.2.4" },
     { name = "yt-dlp", extras = ["default", "deno"], specifier = ">=2026.10.26" },
