@@ -80,3 +80,42 @@ def test_api_relevance_order_and_inline_replies_reach_both_files(monkeypatch, tm
     assert last.startswith("91 | @other | - | ")
     assert last.endswith("…")
     assert len(last) < 800
+
+
+@pytest.mark.parametrize(("statistics", "total", "label"), [
+    ({"commentCount": "312"}, 312, "312"),
+    ({"commentCount": "0"}, 0, "0"),
+    ({}, None, "unknown"),
+])
+def test_video_total_is_reported_in_configured_directory(monkeypatch, tmp_path, statistics, total, label):
+    from skills.neurolearn.config import Config, save_config
+
+    def transport(url, params, headers, timeout):
+        if url.endswith("/videos"):
+            return 200, {"items": [{"id": VIDEO_ID, "statistics": statistics}]}
+        return 200, {"items": []}
+
+    output_dir = tmp_path / "configured"
+    config_path = tmp_path / "config.toml"
+    save_config(Config(output_dir=str(output_dir)), config_path)
+    monkeypatch.setattr("skills.neurolearn.transcribe.CONFIG_PATH", config_path)
+    monkeypatch.setenv("YOUTUBE_API_KEY", "fake-key")
+    monkeypatch.setattr(youtube_api, "_http_get", transport)
+    result = CliRunner().invoke(cli, ["comments", URL])
+    assert result.exit_code == 0, result.output
+    data = json.loads((output_dir / f"{VIDEO_ID}.comments.json").read_text("utf-8"))
+    assert data["total"] == total
+    assert data["fetched"] == 0
+    assert f"total={label}" in (output_dir / f"{VIDEO_ID}.comments.txt").read_text("utf-8")
+
+
+def test_unknown_video_is_reported_clearly(monkeypatch, tmp_path):
+    def transport(url, params, headers, timeout):
+        return 404, {"error": {"errors": [{"reason": "videoNotFound"}]}}
+
+    monkeypatch.setenv("YOUTUBE_API_KEY", "fake-key")
+    monkeypatch.setattr(youtube_api, "_http_get", transport)
+    result = CliRunner().invoke(cli, ["comments", URL, "--output-dir", str(tmp_path)])
+    assert result.exit_code != 0
+    assert "video not found" in result.output.lower()
+    assert not list(tmp_path.iterdir())

@@ -46,11 +46,12 @@ def _parse_comment(item: dict, owner_id: str | None) -> Comment:
 def fetch_comments(video_id: str) -> CommentSample:
     """Fetch the default relevance sample, preserving YouTube's thread order."""
     threads = youtube_api.list_comment_threads(video_id)
+    details = youtube_api.fetch_video_details([video_id]).get(video_id)
     comments = []
     try:
         for thread in threads:
             snippet = thread["snippet"]
-            owner_id = snippet.get("channelId")
+            owner_id = (details.channel_id if details else None) or snippet.get("channelId")
             comment = _parse_comment(snippet["topLevelComment"], owner_id)
             comment.reply_count = snippet["totalReplyCount"]
             comment.replies = [
@@ -60,7 +61,8 @@ def fetch_comments(video_id: str) -> CommentSample:
             comments.append(comment)
     except (AttributeError, KeyError, TypeError):
         raise youtube_api.TransientFailure("Unexpected commentThreads.list response") from None
-    return CommentSample(video_id=video_id, comments=comments)
+    total = details.comment_count if details else None
+    return CommentSample(video_id=video_id, comments=comments, total=total)
 
 
 def _compact_line(comment: Comment) -> str:

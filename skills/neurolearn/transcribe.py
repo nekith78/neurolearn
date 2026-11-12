@@ -127,6 +127,10 @@ def comments_cmd(url: str, output_dir: Path | None) -> None:
     except youtube_api.CommentsDisabled:
         click.echo("Comments are disabled for this video.")
         return
+    except youtube_api.NotFound:
+        raise click.ClickException(f"Video not found: {video_id}") from None
+    except youtube_api.YouTubeApiError as exc:
+        raise click.ClickException(str(exc)) from None
     dest = (output_dir or Path(load_config(CONFIG_PATH).output_dir)).expanduser()
     text_path, json_path = comments.write_comments(sample, dest, video_id)
     click.echo(f"Comments: {text_path}\nStructured comments: {json_path}")
