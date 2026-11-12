@@ -57,6 +57,7 @@ from skills.neurolearn.utils.resolver import (
     resolve,
 )
 from skills.neurolearn.utils.transcript_loader import is_comment_sidecar
+from skills.neurolearn.utils.files import is_regular_file, read_regular_text
 from skills.neurolearn.wizard import run_wizard
 
 console = make_console()
@@ -699,14 +700,13 @@ class _CommentAttachments:
         import json
         from dataclasses import asdict
 
-        if not transcript.with_suffix(".comments.txt").is_file():
+        if not is_regular_file(transcript.with_suffix(".comments.txt")):
             return False
         structured = transcript.with_suffix(".comments.json")
         if not self.custom_settings:
-            return not require_json or structured.is_file()
+            return not require_json or is_regular_file(structured)
         try:
-            with structured.open(encoding="utf-8") as f:
-                sample = json.load(f)
+            sample = json.loads(read_regular_text(structured))
         except (OSError, ValueError):
             return False
         return isinstance(sample, dict) and sample.get("requested_options") == asdict(self.settings)
@@ -762,7 +762,7 @@ class _CommentAttachments:
 
 def _read_audience_comments(video: VideoSource, path: Path) -> None:
     try:
-        video.comments_text = path.read_text(encoding="utf-8")
+        video.comments_text = read_regular_text(path)
     except (OSError, UnicodeError) as exc:
         click.echo(f"Could not read comments for {video.transcript_path.name}: {exc}", err=True)
 
