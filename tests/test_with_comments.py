@@ -49,6 +49,15 @@ def test_transcribe_writes_comment_files_next_to_the_transcript(invoke, tmp_path
     assert json.loads(structured.read_text())["video_id"] == VIDEO_ID
 
 
+def test_updating_a_sample_replaces_each_sidecar(tmp_path):
+    import os
+
+    paths = comments.write_comments(sample(VIDEO_ID), tmp_path, "talk")
+    previous = [path.stat() for path in paths]
+    assert comments.write_comments(sample(VIDEO_ID), tmp_path, "talk") == paths
+    assert all(not os.path.samestat(old, path.stat()) for old, path in zip(previous, paths))
+
+
 def test_batch_saves_comments_and_continues_after_disabled_and_non_youtube_sources(
     invoke, tmp_path, monkeypatch,
 ):
@@ -142,6 +151,22 @@ def test_loose_folder_never_selects_comment_sidecars_as_transcripts(invoke, tmp_
     assert prompts[1].count("From a viewer.") == 1
 
 
+def test_analyze_reads_only_regular_sibling_comment_files(invoke, tmp_path, monkeypatch):
+    (tmp_path / "talk.txt").write_text("Transcript body.", encoding="utf-8")
+    (tmp_path / "original.comments.txt").write_text("Sample from another talk.", encoding="utf-8")
+    link = tmp_path / "talk.comments.txt"
+    try:
+        link.symlink_to("original.comments.txt")
+    except OSError as exc:
+        pytest.skip(f"Symlink creation unavailable: {exc}")
+    prompts = []
+    monkeypatch.setattr("skills.neurolearn.analyze.runner.run_analysis",
+                        lambda prompt, **kw: prompts.append(prompt) or "Done.")
+    invoke("analyze", tmp_path / "talk.txt", "--with-comments", "--prompt", "Review", "--backend", "ollama")
+    assert len(prompts) == 1
+    assert "Sample from another talk." not in prompts[0]
+
+
 def test_custom_comment_options_apply_on_all_attachment_commands_and_reuse_matching_samples(invoke, tmp_path, monkeypatch):
     from skills.neurolearn import youtube_api
 
@@ -176,6 +201,24 @@ def test_custom_comment_options_apply_on_all_attachment_commands_and_reuse_match
     invoke(*run, "--skip-existing", *selection)
     invoke(*run, "--skip-existing", *selection)
     assert requests == [(5, "time"), (5, "time"), (8, "relevance"), (5, "time")]
+
+
+def test_batch_refreshes_linked_sample_metadata(invoke, tmp_path, monkeypatch):
+    from skills.neurolearn import youtube_api
+
+    monkeypatch.setenv("YOUTUBE_API_KEY", "fake-key")
+    monkeypatch.setattr(youtube_api, "_http_get", lambda *args: (200, {"items": []}))
+    run = ["batch", URL, "--batch-name", "study", "--output-dir", tmp_path, "--preset", "eco",
+           "--with-comments", "--comment-count", "5"]
+    invoke(*run)
+    structured, = (tmp_path / "study/videos").glob("*.comments.json")
+    backup = structured.rename(structured.with_suffix(".backup"))
+    try:
+        structured.symlink_to(backup.name)
+    except OSError as exc:
+        pytest.skip(f"Symlink creation unavailable: {exc}")
+    invoke(*run, "--skip-existing")
+    assert structured.is_file() and not structured.is_symlink()
 
 
 @pytest.mark.parametrize("command", ["transcribe", "batch"])

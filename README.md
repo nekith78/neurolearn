@@ -147,6 +147,23 @@ From any Claude Code chat:
 Claude picks the right neurolearn subcommand, runs it, reads the output, and
 writes the summary. The skill produces transcripts; analysis is the LLM's job.
 
+## Choosing YouTube videos
+
+With a YouTube Data API key, `research` can search an exact date window and
+show views, likes and comment counts before transcription. To find the most
+watched matches above a threshold, use `--sort-by-views` and `--min-views`.
+Without a key, topic searches use yt-dlp's date presets.
+
+To browse one channel before choosing videos, run `channel-list` with the key.
+For example, list its five newest Ordinary Videos as JSON:
+
+```bash
+neurolearn channel-list @NASA --type videos --limit 5 --json
+```
+
+See the [research](docs/USAGE.md#research) and
+[channel listing](docs/USAGE.md#channel-list) command reference.
+
 ## Rotating proxy for blocked subtitles
 
 Set the secret `NEUROLEARN_YOUTUBE_PROXY` in `~/.neurolearn/.env` to your
