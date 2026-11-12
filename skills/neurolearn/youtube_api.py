@@ -25,6 +25,7 @@ from skills.neurolearn import config as _config
 API_BASE = "https://www.googleapis.com/youtube/v3"
 KEY_BACKEND = "youtube"
 DEFAULT_TIMEOUT = 15.0
+DEFAULT_COMMENT_CAP = 100
 
 
 class YouTubeApiError(Exception):
@@ -183,6 +184,20 @@ def check_key(api_key: str | None = None) -> None:
     ``TransientFailure``.
     """
     api_get("i18nLanguages", {"part": "id"}, api_key=api_key)
+
+
+def list_comment_threads(video_id: str) -> list[dict]:
+    """Get one relevance-ordered page, including the free inline replies."""
+    body = api_get("commentThreads", {
+        "part": "snippet,replies",
+        "videoId": video_id,
+        "order": "relevance",
+        "maxResults": DEFAULT_COMMENT_CAP,
+        "textFormat": "plainText",
+    })
+    if not isinstance(body.get("items"), list):
+        raise TransientFailure("Unexpected commentThreads.list response")
+    return body["items"]
 
 
 @dataclass(frozen=True)
