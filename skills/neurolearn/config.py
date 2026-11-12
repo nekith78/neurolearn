@@ -547,6 +547,15 @@ def get_api_key(backend: str, env_path: Path = ENV_PATH) -> str | None:
     return None
 
 
+def read_key_file(path: str) -> str:
+    """Read the first non-empty line of a UTF-8 key handoff file."""
+    text = Path(path).expanduser().read_text(encoding="utf-8-sig", errors="replace")
+    for line in text.splitlines():
+        if line.strip():
+            return line.strip()
+    raise ValueError(f"{path} contains no non-empty line.")
+
+
 def set_api_key(backend: str, value: str, env_path: Path = ENV_PATH) -> None:
     if "\n" in value or "\r" in value:
         raise ValueError("API key value cannot contain newline characters")
