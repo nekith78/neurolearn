@@ -58,7 +58,7 @@ def test_language_searches_share_quota_and_keep_first_occurrence(
     monkeypatch, capsys, search_cap, expected_searches,
 ):
     from dataclasses import replace
-    from datetime import timedelta
+    from datetime import datetime, timedelta, timezone
 
     from skills.neurolearn import config
     from skills.neurolearn.youtube_quota import DailyQuota
@@ -72,7 +72,7 @@ def test_language_searches_share_quota_and_keep_first_occurrence(
         if url.endswith("/search"):
             lang = params["relevanceLanguage"]
             searches.append(lang)
-            start = date.today() - timedelta(days=14)
+            start = datetime.now(timezone.utc).date() - timedelta(days=14)
             assert params["publishedAfter"] == f"{start}T00:00:00Z"
             return 200, {"items": [{"id": {"videoId": v}} for v in ("shared", lang)]}
         return 200, {"items": [{"id": v} for v in params["id"].split(",")]}
@@ -98,7 +98,8 @@ def test_language_searches_share_quota_and_keep_first_occurrence(
                          if search_cap == 1 else [])
     assert capsys.readouterr().err.count("Falling back") == (1 if search_cap == 1 else 0)
     quota = DailyQuota(config.CONFIG_PATH.parent, cfg).snapshot()
-    assert quota["search"]["used"] == quota["general"]["used"] == search_cap
+    assert quota["search"]["used"] == search_cap
+    assert quota["general"]["used"] == 2  # Each language supplied one new video.
 
 
 @pytest.mark.parametrize("key,reason", [(None, "no key configured"), ("synthetic", "request failed")])
@@ -131,8 +132,9 @@ def test_api_unavailable_runs_preset_once_per_language_with_one_notice(
     ]
 
 
+@pytest.mark.parametrize("origin", ["api", "search-quota", "rss"])
 def test_search_statistics_reach_picker_and_manifest_from_one_details_request(
-    monkeypatch, tmp_path,
+    monkeypatch, tmp_path, origin,
 ):
     import json
     import questionary
@@ -168,12 +170,27 @@ def test_search_statistics_reach_picker_and_manifest_from_one_details_request(
     )
     monkeypatch.setenv("YOUTUBE_API_KEY", "synthetic")
     monkeypatch.setattr(youtube_api, "_http_get", http)
+    args = ["topic"]
+    if origin == "search-quota":
+        from dataclasses import replace
+        from skills.neurolearn import config
+        config.save_config(replace(config.DEFAULT_CONFIG, youtube_daily_searches=0), config.CONFIG_PATH)
+        monkeypatch.setattr(source, "_extract", lambda *a, **kw: {"entries": [{"id": "low", "title": "Demo"}]})
+    elif origin == "rss":
+        from datetime import datetime, timezone
+        from types import SimpleNamespace
+        from skills.neurolearn.subscribes.rss import RssEntry
+        args = ["--in-subscribes"]
+        monkeypatch.setattr(pipeline, "load_subscribes", lambda path: [SimpleNamespace(channel_id="UCa", handle="@a")])
+        monkeypatch.setattr(pipeline, "fetch_rss", lambda channel: [
+            RssEntry("low", "https://youtu.be/low", "Demo", channel, datetime.now(timezone.utc)),
+        ])
     monkeypatch.setattr(questionary, "checkbox", checkbox)
     monkeypatch.setattr(pipeline, "_stdin_is_tty", lambda: True)
     monkeypatch.setattr(pipeline, "_append_history", lambda **kw: None)
     monkeypatch.setattr("skills.neurolearn.transcribe.run_pipeline", lambda *a, **kw: transcript)
     result = CliRunner().invoke(cli, [
-        "research", "topic", "--languages", "en", "--no-analyze", "--backend", "subtitles",
+        "research", *args, "--languages", "en", "--no-analyze", "--backend", "subtitles",
         "--output-dir", str(tmp_path), "--batch-name", "result",
     ], catch_exceptions=False)
     assert result.exit_code == 0, result.output
@@ -182,7 +199,7 @@ def test_search_statistics_reach_picker_and_manifest_from_one_details_request(
     assert manifest["videos"][0]["statistics"] == {
         "view_count": 10, "like_count": 0, "comment_count": None,
     }
-    assert requests == ["search", "videos"]
+    assert requests == (["search", "videos"] if origin == "api" else ["videos"])
 
 
 @pytest.mark.parametrize(("flags", "order", "expected"), [
@@ -257,3 +274,60 @@ def test_view_sort_includes_fallback_language_when_search_quota_is_spent(monkeyp
     assert result.exit_code == 0, result.output
     assert selected == ["fallback", "first"]
     assert detail_pages == ["first", "fallback"]
+
+
+def test_explicit_view_filter_can_use_details_after_search_failure(monkeypatch):
+    monkeypatch.setenv("YOUTUBE_API_KEY", "synthetic")
+    requests = []
+
+    def http(url, params, *_):
+        requests.append(url.rsplit("/", 1)[-1])
+        if url.endswith("/search"):
+            return 503, {"error": {"message": "search unavailable"}}
+        return 200, {"items": [{"id": "item", "statistics": {"viewCount": "42"}}]}
+
+    monkeypatch.setattr(youtube_api, "_http_get", http)
+    monkeypatch.setattr(source, "_extract", lambda *a, **kw: {"entries": [{"id": "item"}]})
+    selected = []
+    monkeypatch.setattr(pipeline, "_run_batch_pipeline", lambda **kw: selected.extend(kw["targets"]))
+    monkeypatch.setattr(pipeline, "_append_history", lambda **kw: None)
+    result = CliRunner().invoke(cli, [
+        "research", "topic", "--languages", "en", "--no-analyze", "--yes", "--min-views", "20",
+    ], catch_exceptions=False)
+    assert result.exit_code == 0, result.output
+    assert [v.video_id for v in selected] == ["item"]
+    assert requests == ["search", "videos"]
+
+
+@pytest.mark.parametrize("entry", ["cli", "source"])
+def test_relative_api_window_uses_utc_when_the_local_day_is_ahead(monkeypatch, entry):
+    from datetime import datetime, timezone
+
+    class LocalDate(date):
+        @classmethod
+        def today(cls):
+            return date(2026, 11, 13)
+
+    class Clock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            assert tz is timezone.utc
+            return datetime(2026, 11, 12, 23, 30, tzinfo=timezone.utc)
+
+    monkeypatch.setenv("YOUTUBE_API_KEY", "synthetic")
+    for module in (pipeline, source):
+        monkeypatch.setattr(module, "date", LocalDate)
+        monkeypatch.setattr(module, "datetime", Clock)
+    windows = []
+    def http(url, params, *_):
+        windows.append((params["publishedAfter"], params["publishedBefore"]))
+        return 200, {"items": []}
+    monkeypatch.setattr(youtube_api, "_http_get", http)
+    if entry == "cli":
+        result = CliRunner().invoke(cli, [
+            "research", "topic", "--languages", "en", "--days", "14", "--yes", "--no-analyze",
+        ], catch_exceptions=False)
+        assert result.exit_code == 0, result.output
+    else:
+        source.search_multi_language({"en": "topic"}, days=14, limit=2)
+    assert windows == [("2026-10-29T00:00:00Z", "2026-11-12T23:59:59.999999Z")]
