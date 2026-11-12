@@ -32,6 +32,7 @@ from skills.neurolearn.report.prompts import (
 )
 from skills.neurolearn.report.renderer import render_pdf
 from skills.neurolearn.utils.output_writer import Segment
+from skills.neurolearn.utils.transcript_loader import is_comment_sidecar
 
 
 @dataclass
@@ -179,7 +180,7 @@ def _try_synthesize_single_video_manifest(transcribe_dir: Path) -> Path | None:
     txt_files = sorted(transcribe_dir.glob("*.txt"))
     txt_files = [
         p for p in txt_files
-        if not p.name.endswith(".visual.md") and "errors" not in p.name.lower()
+        if not is_comment_sidecar(p) and "errors" not in p.name.lower()
     ]
     if not txt_files:
         return None

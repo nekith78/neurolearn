@@ -13,6 +13,7 @@ import click
 from skills.neurolearn.utils.console import make_console
 
 from skills.neurolearn import __version__, youtube_api
+from skills.neurolearn.analyze.source_resolver import VideoSource
 from skills.neurolearn.backends.base import BackendError, BackendNotConfigured
 from skills.neurolearn.utils.anti_block_cascade import (
     PlatformBlockError,
@@ -55,6 +56,7 @@ from skills.neurolearn.utils.resolver import (
     ResolverFilters,
     resolve,
 )
+from skills.neurolearn.utils.transcript_loader import is_comment_sidecar
 from skills.neurolearn.wizard import run_wizard
 
 console = make_console()
@@ -162,6 +164,7 @@ def comments_cmd(url: str, output_dir: Path | None) -> None:
 @click.option("--beam-size", type=int, default=None)
 @click.option("--vad/--no-vad", default=None)
 @click.option("--verbose", is_flag=True)
+@click.option("--with-comments", is_flag=True, help="Save YouTube comments next to the transcript.")
 @click.option("--with-visuals", is_flag=True,
               help="Extract keyframes for an illustrated report — Claude reads "
                    "them in chat (Mode 1, offline, no API key).")
@@ -496,6 +499,9 @@ def transcribe_cmd(audio_or_url: str | None, **opts) -> None:
     if visual_path is not None:
         files_map["visual"] = visual_path.name
     status = _build_video_status(0, target, result, files_map)
+    if opts.get("with_comments"):
+        attachments = _CommentAttachments(cfg, opts)
+        attachments.record(status, output_dir, txt_path)
     _attach_youtube_statistics([status])
     if write_json_pick:
         from skills.neurolearn.utils.output_writer import write_json
@@ -643,6 +649,67 @@ _YOUTUBE_VIDEO_HOST = re.compile(
     r"^(?:https?://)?(?:(?:[a-z0-9-]+\.)*youtube(?:-nocookie)?\.com|"
     r"(?:www\.)?youtu\.be)(?::[0-9]+)?/", re.IGNORECASE,
 )
+
+
+class _CommentAttachments:
+    """Best-effort sidecars for one command, sharing its fallback and skip notices."""
+
+    def __init__(self, cfg: Config, opts: dict) -> None:
+        from skills.neurolearn.youtube_fallback import fallback_notice_for_run
+
+        self.notice = fallback_notice_for_run()
+        self.cookies_file = (
+            opts.get("cookies_file") or cfg.youtube_cookies_file or cfg.cookies_file or None
+        )
+        self.reported_skip = False
+
+    def fetch(
+        self, url: str | None, video_id: str | None, transcript: Path,
+    ) -> tuple[Path, Path] | None:
+        from skills.neurolearn import comments
+
+        if not url or not _YOUTUBE_VIDEO_HOST.match(url):
+            if not self.reported_skip:
+                click.echo("Skipping comments for sources without a YouTube video URL.", err=True)
+                self.reported_skip = True
+            return None
+        video_id = video_id or extract_youtube_video_id(url)
+        if not video_id:
+            click.echo(f"Could not identify the video for comments: {url}", err=True)
+            return None
+        try:
+            sample = comments.fetch_comments(
+                video_id, notice=self.notice, cookies_file=self.cookies_file,
+            )
+            return comments.write_comments(sample, transcript.parent, transcript.stem)
+        except youtube_api.CommentsDisabled:
+            click.echo(f"Comments are disabled for {video_id}.", err=True)
+        except Exception as exc:
+            click.echo(f"Could not save comments for {video_id}: {exc}", err=True)
+        return None
+
+    def for_analysis(self, video: VideoSource) -> None:
+        transcript = video.transcript_path
+        path = transcript.with_suffix(".comments.txt")
+        if not path.is_file():
+            paths = self.fetch(video.url, video.video_id, transcript)
+            if not paths:
+                return
+        _read_audience_comments(video, path)
+
+    def record(self, status: BatchVideoStatus, output_dir: Path, transcript: Path) -> None:
+        paths = self.fetch(status.url, status.video_id, transcript)
+        if paths:
+            text, structured = paths
+            status.files["comments"] = str(text.relative_to(output_dir))
+            status.files["comments_json"] = str(structured.relative_to(output_dir))
+
+
+def _read_audience_comments(video: VideoSource, path: Path) -> None:
+    try:
+        video.comments_text = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeError) as exc:
+        click.echo(f"Could not read comments for {video.transcript_path.name}: {exc}", err=True)
 
 
 def _attach_youtube_statistics(videos: list[BatchVideoStatus]) -> None:
@@ -845,6 +912,7 @@ def _run_then_analyze(
     prompt_inline: str | None,
     prompt_file: Path | None,
     backend: str,
+    with_comments: bool = False,
 ) -> None:
     """Post-batch hook for `batch --then-analyze`.
 
@@ -907,6 +975,11 @@ def _run_then_analyze(
     if not chosen:
         console.print("[yellow]Empty selection — analyze skipped.[/yellow]")
         return
+
+    if with_comments:
+        for video in chosen:
+            if video.comments_recorded:
+                _read_audience_comments(video, video.transcript_path.with_suffix(".comments.txt"))
 
     response = ""
     used_backend = backends_to_try[0]
@@ -1051,17 +1124,22 @@ def _run_batch_pipeline(
     failures: list[BatchFailure] = list(initial_failures)
     target_index_offset = len(initial_failures)
 
+    attachments = _CommentAttachments(cfg, opts) if opts.get("with_comments") else None
+
     # === v0.3 --skip-existing: build set of already-transcribed video_ids ===
     skip_existing = bool(opts.get("skip_existing_opt"))
-    existing_ids: set[str] = set()
+    existing_transcripts: dict[str, Path] = {}
     if skip_existing and output_root.exists():
         for txt in output_root.rglob("*.txt"):
+            if is_comment_sidecar(txt):
+                continue
             stem = txt.stem
-            # Filename pattern: <prefix>_<slug>_<video_id>.txt or <slug>_<video_id>.txt
-            if "_" in stem:
-                candidate = stem.rsplit("_", 1)[-1]
-                if candidate and len(candidate) >= 8:  # YouTube ids are 11 chars
-                    existing_ids.add(candidate)
+            # YouTube IDs are 11 characters and may themselves contain underscores.
+            if len(stem) >= 12 and stem[-12] == "_":
+                existing_transcripts.setdefault(stem[-11:], txt)
+            candidate = stem.rpartition("_")[2]
+            if "_" in stem and len(candidate) >= 8:
+                existing_transcripts.setdefault(candidate, txt)
 
     workers = max(1, int(opts.get("workers_opt") or 1))
     if workers > 1 and fail_fast:
@@ -1207,18 +1285,27 @@ def _run_batch_pipeline(
             write_txt_plain(result.segments, txt_path)
         if write_srt_flag:
             write_srt(result.segments, srt_path)
-        statuses.append(_build_video_status(
+        status = _build_video_status(
             i, target, result,
             files={
                 "txt": str(txt_path.relative_to(batch_dir)),
                 "srt": str(srt_path.relative_to(batch_dir)) if write_srt_flag else None,
             },
-        ))
+        )
+        if attachments:
+            attachments.record(status, batch_dir, txt_path)
+        statuses.append(status)
 
     # Filter out skip-existing targets first (so workers don't waste time on them).
     pending: list[tuple[int, ResolvedTarget]] = []
     for i, target in enumerate(targets, start=1 + target_index_offset):
-        if skip_existing and target.video_id and target.video_id in existing_ids:
+        if skip_existing and target.video_id and target.video_id in existing_transcripts:
+            transcript = existing_transcripts[target.video_id]
+            if attachments and not (
+                transcript.with_suffix(".comments.txt").is_file()
+                and transcript.with_suffix(".comments.json").is_file()
+            ):
+                attachments.fetch(target.url, target.video_id, transcript)
             skipped_count += 1
             console.print(
                 f"  [dim]· skip #{i} {target.title or target.video_id} "
@@ -1465,6 +1552,7 @@ def _run_batch_pipeline(
 @click.option("--beam-size", type=int, default=None)
 @click.option("--vad/--no-vad", default=None)
 @click.option("--verbose", is_flag=True)
+@click.option("--with-comments", is_flag=True, help="Save YouTube comments next to each transcript.")
 @click.option("--with-visuals", is_flag=True,
               help="Extract keyframes for an illustrated report — Claude reads "
                    "them in chat (Mode 1, offline, no API key).")
@@ -1765,6 +1853,7 @@ def batch_cmd(
             prompt_inline=analyze_prompt,
             prompt_file=analyze_prompt_file,
             backend=analyze_backend,
+            with_comments=bool(opts.get("with_comments")),
         )
     elif then_analyze and analyze_backend is None and batch_dir is not None:
         console.print(
@@ -2748,6 +2837,8 @@ def summarize_cmd(
 @cli.command(name="analyze")
 @click.argument("source", required=False,
                 type=click.Path(path_type=Path))
+@click.option("--with-comments", is_flag=True,
+              help="Include saved YouTube comments, fetching missing samples for selected videos.")
 @click.option("--prompt", "prompt_inline", default=None,
               help="User query passed verbatim to the LLM.")
 @click.option("--prompt-file", "prompt_file", default=None,
@@ -2793,6 +2884,7 @@ def analyze_cmd(
     ollama_host_opt: str | None,
     no_stdout: bool,
     max_chars: int,
+    with_comments: bool,
 ) -> None:
     """Analyze one or more transcripts via an external LLM."""
     from datetime import datetime
@@ -2864,7 +2956,9 @@ def analyze_cmd(
             sys.exit(5)
 
     try:
-        videos = resolve_source(source, outputs_dir=outputs_dir, latest=latest)
+        videos = resolve_source(
+            source, outputs_dir=outputs_dir, latest=latest, include_file_metadata=with_comments,
+        )
     except FileNotFoundError as e:
         console.print(f"[red]{e}[/red]")
         sys.exit(3)
@@ -2902,6 +2996,11 @@ def analyze_cmd(
         except PickerCancelled:
             console.print("[yellow]Cancelled.[/yellow]")
             sys.exit(5)
+
+    if with_comments:
+        attachments = _CommentAttachments(cfg, {})
+        for video in chosen:
+            attachments.for_analysis(video)
 
     # 5-6. Build prompt + call LLM. run_analysis_chunked single-shots
     # non-groq / small prompts and map-reduces large groq prompts so they
@@ -3481,7 +3580,7 @@ def report_cmd(
             # batch's *.txt transcripts are that second grounding source.
             transcript = "\n".join(
                 p.read_text(encoding="utf-8", errors="ignore")
-                for p in sorted(rb.glob("*.txt"))
+                for p in sorted(rb.glob("*.txt")) if not is_comment_sidecar(p)
             )
             try:
                 issues = verify_markdown_grounding(
