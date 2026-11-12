@@ -1,13 +1,14 @@
 """Fetch a YouTube comment sample and preserve its compact and structured forms."""
 from __future__ import annotations
 
+import hashlib
 import json
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
 from skills.neurolearn import youtube_api
-from skills.neurolearn.utils.files import atomic_write_text
+from skills.neurolearn.utils.files import atomic_write_text, read_regular_text
 from skills.neurolearn.utils.platform_errors import diagnose
 from skills.neurolearn.utils.ytdlp import create_ytdlp
 from skills.neurolearn.youtube_fallback import FallbackNotice, fallback_notice_for_run
@@ -295,9 +296,34 @@ def write_comments(sample: CommentSample, output_dir: Path, base_name: str) -> t
     output_dir.mkdir(parents=True, exist_ok=True)
     text_path = output_dir / f"{base_name}.comments.txt"
     json_path = output_dir / f"{base_name}.comments.json"
-    atomic_write_text(
-        json_path,
-        json.dumps({**asdict(sample), "fetched": fetched}, ensure_ascii=False, indent=2) + "\n",
-    )
-    atomic_write_text(text_path, "\n".join(lines) + "\n")
+    compact = ("\n".join(lines) + "\n").replace("\r\n", "\n").replace("\r", "\n")
+    record = {**asdict(sample), "fetched": fetched,
+              "compact_sha256": hashlib.sha256(compact.encode("utf-8")).hexdigest()}
+    atomic_write_text(json_path, json.dumps(record, ensure_ascii=False, indent=2) + "\n")
+    atomic_write_text(text_path, compact)
     return text_path, json_path
+
+
+def read_cached_comments(
+    transcript: Path, options: CommentOptions | None = None, *, require_json: bool = False,
+) -> str | None:
+    """Return the checked text snapshot, including legacy hand-supplied text samples."""
+    try:
+        compact = read_regular_text(transcript.with_suffix(".comments.txt"))
+        try:
+            record = json.loads(read_regular_text(transcript.with_suffix(".comments.json")))
+        except FileNotFoundError:
+            return compact if options is None and not require_json else None
+    except (OSError, ValueError):
+        return None
+    if not isinstance(record, dict):
+        return None
+    if options is not None and record.get("requested_options") != asdict(options):
+        return None
+    if "compact_sha256" in record:
+        if record["compact_sha256"] != hashlib.sha256(compact.encode("utf-8")).hexdigest():
+            return None
+    elif options is not None or "requested_options" in record:
+        # Old generated records with options cannot attest to the text file they accompany.
+        return None
+    return compact
