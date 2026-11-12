@@ -12,6 +12,8 @@ from dataclasses import dataclass
 from pathlib import Path
 import json
 
+from skills.neurolearn.utils.transcript_loader import is_comment_sidecar
+
 _TRANSCRIPT_EXTS = {".txt", ".json", ".srt"}
 
 
@@ -24,6 +26,9 @@ class VideoSource:
     duration_sec: int | None = None
     language: str | None = None
     url: str | None = None
+    video_id: str | None = None
+    comments_text: str | None = None
+    comments_recorded: bool = False
 
 
 def resolve_source(
@@ -31,6 +36,7 @@ def resolve_source(
     *,
     outputs_dir: Path,
     latest: bool,
+    include_file_metadata: bool = False,
 ) -> list[VideoSource]:
     """Return list of VideoSource based on SOURCE / --latest.
 
@@ -48,6 +54,18 @@ def resolve_source(
         raise FileNotFoundError(f"SOURCE does not exist: {source}")
 
     if source.is_file():
+        if include_file_metadata:
+            folder = source.parent
+            if folder.name == "videos" and not (folder / "manifest.json").exists():
+                folder = folder.parent
+            manifest = folder / "manifest.json"
+            if manifest.is_file():
+                try:
+                    matched = _from_manifest(folder, manifest, source_file=source)
+                except (OSError, ValueError):
+                    matched = []
+                if matched:
+                    return matched
         return [VideoSource(transcript_path=source)]
 
     manifest = source / "manifest.json"
@@ -57,7 +75,7 @@ def resolve_source(
     # Folder without manifest — pick up loose transcripts.
     files = sorted(
         p for p in source.iterdir()
-        if p.is_file() and p.suffix.lower() in _TRANSCRIPT_EXTS
+        if p.is_file() and p.suffix.lower() in _TRANSCRIPT_EXTS and not is_comment_sidecar(p)
     )
     return [VideoSource(transcript_path=p) for p in files]
 
@@ -75,7 +93,9 @@ def pick_latest_batch(outputs_dir: Path) -> Path:
     return max(candidates, key=lambda p: p.stat().st_mtime)
 
 
-def _from_manifest(batch_dir: Path, manifest: Path) -> list[VideoSource]:
+def _from_manifest(
+    batch_dir: Path, manifest: Path, *, source_file: Path | None = None,
+) -> list[VideoSource]:
     data = json.loads(manifest.read_text(encoding="utf-8"))
     out: list[VideoSource] = []
     for v in data.get("videos") or []:
@@ -83,7 +103,10 @@ def _from_manifest(batch_dir: Path, manifest: Path) -> list[VideoSource]:
             continue
         files = v.get("files") or {}
         # Prefer .txt, fall back to .json, then .srt.
-        rel = files.get("txt") or files.get("json") or files.get("srt")
+        formats = [files.get(ext) for ext in ("txt", "json", "srt") if files.get(ext)]
+        if source_file is not None:
+            formats = [rel for rel in formats if (batch_dir / rel).resolve() == source_file.resolve()]
+        rel = next(iter(formats), None)
         if not rel:
             continue
         path = batch_dir / rel
@@ -103,5 +126,7 @@ def _from_manifest(batch_dir: Path, manifest: Path) -> list[VideoSource]:
             duration_sec=v.get("duration_sec"),
             language=v.get("language_detected"),
             url=v.get("url"),
+            video_id=v.get("video_id"),
+            comments_recorded=bool(files.get("comments")),
         ))
     return out

@@ -95,6 +95,13 @@ def _fmt_duration(sec: int) -> str:
 
 
 def _video_body(v: VideoSource, max_chars: int) -> str:
+    text = _transcript_body(v, max_chars)
+    if v.comments_text is not None:
+        text += "\n\nAudience comments (viewer statements):\n" + _truncate(v.comments_text, max_chars)
+    return text
+
+
+def _transcript_body(v: VideoSource, max_chars: int) -> str:
     """Read transcript from disk and format. Truncate at max_chars."""
     try:
         segs, _ = load_transcript_segments(v.transcript_path)

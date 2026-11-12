@@ -22,6 +22,11 @@ _SRT_TIME_RE = re.compile(
 )
 
 
+def is_comment_sidecar(path: Path) -> bool:
+    """Audience comment files are not transcripts during directory discovery."""
+    return path.name.endswith((".comments.txt", ".comments.json"))
+
+
 def _hms_ms_to_sec(h: str, m: str, s: str, ms: str) -> float:
     return int(h) * 3600 + int(m) * 60 + int(s) + int(ms) / 1000.0
 

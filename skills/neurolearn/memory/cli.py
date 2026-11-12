@@ -27,6 +27,7 @@ from rich.panel import Panel
 from rich.table import Table
 
 from skills.neurolearn.config import CONFIG_PATH, load_config
+from skills.neurolearn.utils.transcript_loader import is_comment_sidecar
 from skills.neurolearn.memory.store import (
     MemoryFile, delete_memory, list_memories, memory_path,
     read_memory, rename_memory, write_memory,
@@ -343,6 +344,8 @@ def run_learn_into_batch(
     videos_dir = batch_dir / "videos"
     if videos_dir.exists():
         for txt in sorted(videos_dir.glob("*.txt")):
+            if is_comment_sidecar(txt):
+                continue
             # Recover URL from manifest.json if possible
             url = _video_url_from_manifest(batch_dir, txt.stem) or txt.stem
             transcripts.append(TranscriptInput(
@@ -488,7 +491,7 @@ def _load_transcript_from_path(p: Path) -> "TranscriptInput | None":
                 url=str(p), title=p.name, text=combined.read_text(encoding="utf-8"),
             )
         # Fall back to concatenating videos/*.txt
-        txts = sorted(p.glob("videos/*.txt"))
+        txts = sorted(txt for txt in p.glob("videos/*.txt") if not is_comment_sidecar(txt))
         if not txts:
             _console.print(
                 f"[red]No combined.md or videos/*.txt in {p}[/red]"
