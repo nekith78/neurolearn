@@ -14,7 +14,9 @@ type, never from message strings.
 """
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any
+from urllib.parse import parse_qs, unquote, urlsplit
 
 from skills.neurolearn import config as _config
 
@@ -179,3 +181,62 @@ def check_key(api_key: str | None = None) -> None:
     ``TransientFailure``.
     """
     api_get("i18nLanguages", {"part": "id"}, api_key=api_key)
+
+
+@dataclass(frozen=True)
+class YouTubeChannel:
+    channel_id: str
+    title: str | None
+    handle: str | None
+
+
+def resolve_channel(source: str) -> YouTubeChannel | None:
+    """Look up a YouTube channel. Return None for inputs the API cannot resolve."""
+    if source.startswith("@"):
+        source = f"https://www.youtube.com/{source}"
+    try:
+        url = urlsplit(source if "://" in source else f"https://{source}")
+    except ValueError:
+        return None
+    if url.scheme not in ("https", "http"):
+        return None
+    parts = url.path.strip("/").split("/")
+    first = unquote(parts[0])
+    resource = "channels"
+    if url.hostname in ("youtu.be", "www.youtu.be"):
+        resource, lookup = "videos", {"id": first}
+    elif url.hostname not in ("youtube.com", "www.youtube.com", "m.youtube.com"):
+        return None
+    elif first == "watch" and "v" in (query := parse_qs(url.query)):
+        resource, lookup = "videos", {"id": query["v"][0]}
+    elif len(parts) >= 2 and first in ("shorts", "embed", "live"):
+        resource, lookup = "videos", {"id": parts[1]}
+    elif first.startswith("@") and len(first) > 1:
+        lookup = {"forHandle": first}
+    elif len(parts) >= 2 and first in ("channel", "user"):
+        lookup = {"id" if first == "channel" else "forUsername": unquote(parts[1])}
+    else:
+        # Legacy /c/ names have no exact channels.list filter.
+        return None
+    fields = ("items(snippet(channelId,channelTitle))" if resource == "videos"
+              else "items(id,snippet(title,customUrl))")
+    body = api_get(resource, {"part": "snippet", "fields": fields, **lookup})
+    items = body.get("items")
+    if items == []:
+        raise NotFound(f"Channel not found: {source}")
+    if not isinstance(items, list) or not isinstance(items[0], dict):
+        raise TransientFailure(f"Unexpected {resource}.list response")
+    item = items[0]
+    snippet = item.get("snippet")
+    if not isinstance(snippet, dict):
+        raise TransientFailure(f"Missing snippet in {resource}.list response")
+    if resource == "videos":
+        channel_id, title, handle = snippet.get("channelId"), snippet.get("channelTitle"), None
+    else:
+        channel_id, title = item.get("id"), snippet.get("title")
+        custom_url = snippet.get("customUrl")
+        handle = (custom_url if isinstance(custom_url, str) and custom_url.startswith("@")
+                  else lookup.get("forHandle"))
+    if not isinstance(channel_id, str) or not channel_id:
+        raise TransientFailure(f"Missing channel id in {resource}.list response")
+    return YouTubeChannel(channel_id, title, handle)

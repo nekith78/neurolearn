@@ -9,6 +9,122 @@ from skills.neurolearn.subscribes.channel_resolver import (
 )
 
 
+@pytest.fixture(autouse=True)
+def isolated_youtube_key(monkeypatch, tmp_path):
+    monkeypatch.delenv("YOUTUBE_API_KEY", raising=False)
+    monkeypatch.setattr("skills.neurolearn.config.ENV_PATH", tmp_path / ".env")
+
+
+def test_add_handle_resolves_and_stores_api_channel(monkeypatch, tmp_path):
+    from click.testing import CliRunner
+    from skills.neurolearn.subscribes.cli import subscribes_group
+    from skills.neurolearn.subscribes.store import load_subscribes
+
+    def transport(url, params, headers, timeout):
+        assert url.endswith("/channels")
+        assert params["forHandle"] == "@creator"
+        return 200, {"items": [{"id": "UC_creator", "snippet": {"title": "Creator"}}]}
+
+    monkeypatch.setenv("YOUTUBE_API_KEY", "test-key")
+    monkeypatch.setattr("skills.neurolearn.youtube_api._http_get", transport)
+    path = tmp_path / "subscribes.toml"
+    monkeypatch.setattr("skills.neurolearn.subscribes.cli.SUBSCRIBES_PATH", path)
+    result = CliRunner().invoke(subscribes_group, ["add", "@creator"])
+
+    assert result.exit_code == 0, result.output
+    channel, = load_subscribes(path)
+    assert channel.channel_id == "UC_creator"
+    assert channel.handle == "@creator"
+    assert channel.url == "https://www.youtube.com/@creator"
+
+
+@pytest.mark.parametrize(("source", "lookup"), [
+    ("youtube.com/@creator/videos?view=0", {"forHandle": "@creator"}),
+    ("https://m.youtube.com/@%ED%95%9C%EA%B8%80/shorts", {"forHandle": "@한글"}),
+    ("https://www.youtube.com/channel/UC_creator", {"id": "UC_creator"}),
+    ("https://youtube.com/user/OldName", {"forUsername": "OldName"}),
+])
+def test_channel_urls_resolve_via_api(monkeypatch, source, lookup):
+    def transport(url, params, headers, timeout):
+        assert url.endswith("/channels")
+        assert lookup.items() <= params.items()
+        return 200, {"items": [{"id": "UC_creator", "snippet": {
+            "title": "Creator", "customUrl": "@official",
+        }}]}
+
+    monkeypatch.setenv("YOUTUBE_API_KEY", "test-key")
+    monkeypatch.setattr("skills.neurolearn.youtube_api._http_get", transport)
+    with patch("skills.neurolearn.subscribes.channel_resolver._extract_flat",
+               side_effect=AssertionError("unexpected yt-dlp fallback")):
+        channel = resolve_channel(source)
+    assert channel == ResolvedChannel("https://www.youtube.com/@official", "@official",
+                                      "UC_creator", "Creator")
+
+
+@pytest.mark.parametrize("source", [
+    "https://youtu.be/dQw4w9WgXcQ?t=20",
+    "https://www.youtube.com/watch?list=PL_xyz&v=dQw4w9WgXcQ",
+    "https://m.youtube.com/shorts/dQw4w9WgXcQ",
+    "youtube.com/live/dQw4w9WgXcQ",
+    "https://www.youtube.com/embed/dQw4w9WgXcQ",
+])
+def test_video_resolves_to_its_owning_channel(monkeypatch, source):
+    def transport(url, params, headers, timeout):
+        assert url.endswith("/videos") and params["id"] == "dQw4w9WgXcQ"
+        return 200, {"items": [{"id": "dQw4w9WgXcQ", "snippet": {
+            "title": "Video title", "channelId": "UC_creator", "channelTitle": "Creator",
+        }}]}
+
+    monkeypatch.setenv("YOUTUBE_API_KEY", "test-key")
+    monkeypatch.setattr("skills.neurolearn.youtube_api._http_get", transport)
+    with patch("skills.neurolearn.subscribes.channel_resolver._extract_flat",
+               side_effect=AssertionError("unexpected yt-dlp fallback")):
+        channel = resolve_channel(source)
+    assert channel == ResolvedChannel("https://www.youtube.com/channel/UC_creator", None,
+                                      "UC_creator", "Creator")
+
+
+def test_unknown_api_handle_is_channel_not_found(monkeypatch):
+    from skills.neurolearn.subscribes.pipeline import ChannelNotFoundError
+
+    monkeypatch.setenv("YOUTUBE_API_KEY", "test-key")
+    monkeypatch.setattr("skills.neurolearn.youtube_api._http_get",
+                        lambda *args: (200, {"items": []}))
+    with patch("skills.neurolearn.subscribes.channel_resolver._extract_flat",
+               side_effect=AssertionError("a confirmed miss must not fall back")):
+        with pytest.raises(ChannelNotFoundError, match="Channel not found"):
+            resolve_channel("https://www.youtube.com/@unknown")
+
+
+def test_new_bare_handle_input_can_use_keyless_fallback():
+    with patch("skills.neurolearn.subscribes.channel_resolver._extract_flat",
+               return_value={"channel_id": "UC_legacy", "channel": "Legacy"}):
+        channel = resolve_channel("@legacy")
+    assert channel == ResolvedChannel("https://www.youtube.com/@legacy", "@legacy",
+                                      "UC_legacy", "Legacy")
+
+
+@pytest.mark.parametrize(("status", "body"), [
+    (403, {"error": {"errors": [{"reason": "quotaExceeded"}]}}),
+    (503, {"error": {"message": "unavailable"}}),
+    (200, {}),
+    (200, {"items": [{"snippet": {"channelTitle": "Creator"}}]}),
+])
+def test_failed_video_lookup_uses_the_original_video_and_channel_fallback(
+    monkeypatch, capsys, status, body,
+):
+    monkeypatch.setenv("YOUTUBE_API_KEY", "test-key")
+    monkeypatch.setattr("skills.neurolearn.youtube_api._http_get",
+                        lambda *args: (status, body))
+    channel_url = "https://www.youtube.com/@from_video"
+    with patch("skills.neurolearn.subscribes.channel_resolver._extract_flat", side_effect=[
+        {"channel_url": channel_url}, {"channel_id": "UC_fallback", "channel": "Fallback"},
+    ]):
+        channel = resolve_channel("https://youtu.be/dQw4w9WgXcQ")
+    assert channel == ResolvedChannel(channel_url, "@from_video", "UC_fallback", "Fallback")
+    assert capsys.readouterr().err.count("Falling back to yt-dlp") == 1
+
+
 def test_resolve_handle_url():
     fake = {
         "channel_id": "UC_abc123",
