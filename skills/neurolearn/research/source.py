@@ -1,6 +1,6 @@
-"""Multi-language YouTube search via yt-dlp + YouTube's built-in `sp` filter.
+"""Multi-language YouTube search with a yt-dlp preset-window fallback.
 
-When the caller passes a `days` hint, the search URL is built with YouTube's
+On fallback, when the caller passes a `days` hint, the search URL is built with YouTube's
 `sp=...` query parameter — these are YouTube's own "uploaded within last
 hour/day/week/month/year" filters. The server does the date filtering, so
 results are pre-screened without us paying the full-extract cost.
@@ -20,6 +20,9 @@ from dataclasses import dataclass
 from datetime import date
 from urllib.parse import quote_plus
 
+from skills.neurolearn import youtube_api
+from skills.neurolearn.shared.date_filter import DateWindow, parse_window
+from skills.neurolearn.youtube_fallback import fallback_notice_for_run
 from skills.neurolearn.utils.downloader import (
     parse_yt_date,
     _yt_url_from_id,
@@ -36,6 +39,11 @@ class SearchCandidate:
     duration_sec: int | None
     upload_date: date | None
     source_language: str  # which language produced this result
+    statistics: dict[str, int | None] | None = None
+
+    @property
+    def view_count(self) -> int | None:
+        return self.statistics["view_count"] if self.statistics is not None else None
 
 
 # Reverse-engineered from YouTube's search UI. Each entry: (days, sp_code).
@@ -69,6 +77,42 @@ def _build_search_url(query: str, sp_code: str | None) -> str:
 
 
 def search_multi_language(
+    queries: dict[str, str], *, limit: int, days: int | None = None,
+    window: DateWindow | None = None, sort_by_views: bool = False,
+) -> list[SearchCandidate]:
+    """Search each language and keep the first occurrence of each video."""
+    if window is None and days and days > 0:
+        window = parse_window(days=days, since=None, until=None, now=date.today())
+    candidates: dict[str, SearchCandidate] = {}
+    remaining = iter(queries.items())
+    for lang, query in remaining:
+        if not query or not query.strip():
+            continue
+        try:
+            videos = youtube_api.search_videos(
+                query.strip(), language=lang, limit=limit, window=window,
+                sort_by_views=sort_by_views,
+            )
+        except youtube_api.YouTubeApiError as error:
+            fallback_notice_for_run().report(error)
+            pending = {lang: query, **dict(remaining)}
+            for candidate in _search_yt_dlp(pending, limit=limit, days=days):
+                candidates.setdefault(candidate.video_id, candidate)
+            break
+        for video in videos:
+            if video.video_id in candidates:
+                continue
+            candidates[video.video_id] = SearchCandidate(
+                video_id=video.video_id, url=_yt_url_from_id(video.video_id),
+                title=video.title, channel=video.channel_title,
+                duration_sec=video.duration_sec,
+                upload_date=video.published_at.date() if video.published_at else None,
+                source_language=lang, statistics=video.statistics,
+            )
+    return list(candidates.values())
+
+
+def _search_yt_dlp(
     queries: dict[str, str],
     *,
     limit: int,

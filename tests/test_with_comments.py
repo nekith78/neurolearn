@@ -176,3 +176,47 @@ def test_custom_comment_options_apply_on_all_attachment_commands_and_reuse_match
     invoke(*run, "--skip-existing", *selection)
     invoke(*run, "--skip-existing", *selection)
     assert requests == [(5, "time"), (5, "time"), (8, "relevance"), (5, "time")]
+
+
+@pytest.mark.parametrize("command", ["transcribe", "batch"])
+def test_comment_write_failure_preserves_successful_transcript(command, invoke, tmp_path, monkeypatch):
+    monkeypatch.setattr(comments, "fetch_comments", sample)
+
+    def read_only_directory(*args):
+        raise OSError("read-only destination")
+
+    monkeypatch.setattr(comments, "write_comments", read_only_directory)
+    output = invoke(command, URL, "--output-dir", tmp_path, "--preset", "eco", "--with-comments")
+    assert "read-only destination" in output
+    manifest, = tmp_path.rglob("manifest.json")
+    video, = json.loads(manifest.read_text())["videos"]
+    assert video["status"] == "ok" and "comments" not in video["files"]
+    assert "A talk" in (manifest.parent / video["files"]["txt"]).read_text()
+
+
+def test_parallel_batch_shares_fallback_notice(invoke, tmp_path, monkeypatch):
+    from contextlib import nullcontext
+    from unittest.mock import Mock
+
+    ydl = Mock()
+    ydl.extract_info.side_effect = lambda *a, **kw: {"comments": [], "comment_count": 0}
+    monkeypatch.setattr(comments, "create_ytdlp", lambda options: nullcontext(ydl))
+    output = invoke("batch", URL, "https://youtu.be/12345678901", "--output-dir", tmp_path,
+                    "--preset", "eco", "--workers", "2", "--with-comments")
+    assert output.count("Falling back to yt-dlp") == 1
+    compact = list(tmp_path.rglob("*.comments.txt"))
+    assert len(compact) == 2 and all("source=yt-dlp" in path.read_text() for path in compact)
+
+
+def test_analyze_skips_foreign_source_even_when_a_same_named_sidecar_exists(
+    invoke, tmp_path, monkeypatch,
+):
+    invoke("transcribe", "https://example.org/video", "--output-dir", tmp_path, "--preset", "eco")
+    transcript, = tmp_path.glob("*.txt")
+    transcript.with_suffix(".comments.txt").write_text("Unrelated old sample.", encoding="utf-8")
+    prompts = []
+    monkeypatch.setattr("skills.neurolearn.analyze.runner.run_analysis",
+                        lambda prompt, **kw: prompts.append(prompt) or "Done.")
+    output = invoke("analyze", transcript, "--with-comments", "--prompt", "Review", "--backend", "ollama")
+    assert "Unrelated old sample." not in prompts[0]
+    assert "Skipping comments" in output

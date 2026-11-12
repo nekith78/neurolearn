@@ -5,6 +5,7 @@ import sys
 from datetime import date, datetime, timezone
 from pathlib import Path
 
+from skills.neurolearn import config, youtube_api
 from skills.neurolearn.utils.console import make_console
 
 from skills.neurolearn.research.translator import (
@@ -27,6 +28,7 @@ from skills.neurolearn.history.store import (
 from skills.neurolearn.transcribe import (
     _run_batch_pipeline, _run_then_analyze, _stdin_is_tty,
 )
+from skills.neurolearn.utils.output_writer import format_statistics
 from skills.neurolearn.utils.resolver import ResolvedTarget
 
 _console = make_console()
@@ -42,6 +44,8 @@ def run_research(
     since: date | None,
     until: date | None,
     limit: int,
+    sort_by_views: bool = False,
+    min_views: int | None = None,
     match: str | None,
     filter_text: str | None,
     in_subscribes: bool,
@@ -63,6 +67,11 @@ def run_research(
 ) -> Path | None:
     """Run the full research pipeline. Returns batch folder Path or None."""
 
+    use_popularity = sort_by_views or min_views is not None
+    if use_popularity and not config.get_api_key("youtube", env_path=config.ENV_PATH):
+        raise ValueError("--sort-by-views and --min-views require a YouTube API key. "
+                         "Run: neurolearn config set-key youtube --from-file <path>")
+
     # 1. Build per-language queries (or use explicit ones).
     if queries_by_language:
         queries = queries_by_language
@@ -80,8 +89,12 @@ def run_research(
         queries = {}
         languages_used = []
 
+    window = parse_window(
+        days=days, since=since, until=until, now=date.today(),
+    )
+
     # 2. Source: search OR cross-pollination from subscribes
-    candidates: list = []
+    candidates: list[SearchCandidate] = []
     if in_subscribes:
         candidates = _fetch_from_subscribes(group, limit)
     else:
@@ -92,7 +105,7 @@ def run_research(
         if days_hint is None and since is not None:
             days_hint = max((date.today() - since).days, 1)
         candidates = search_multi_language(
-            queries, limit=limit, days=days_hint,
+            queries, limit=limit, days=days_hint, window=window, sort_by_views=sort_by_views,
         )
 
     if not candidates:
@@ -100,15 +113,22 @@ def run_research(
         return None
 
     # 3. Date filter
-    window = parse_window(
-        days=days, since=since, until=until, now=date.today(),
-    )
     if window is not None:
         candidates = _filter_by_window(candidates, window)
         if not candidates:
             _console.print(
                 "[yellow]Date filter left 0 candidates.[/yellow]"
             )
+            return None
+
+    if use_popularity:
+        _fill_missing_statistics(candidates)
+    if min_views is not None:
+        candidates = [
+            c for c in candidates if c.view_count is not None and c.view_count >= min_views
+        ]
+        if not candidates:
+            _console.print(f"[yellow]--min-views {min_views} left 0 candidates with known views.[/yellow]")
             return None
 
     # 4. substring --match
@@ -129,6 +149,11 @@ def run_research(
         if not candidates:
             _console.print("[yellow]LLM filter left 0 candidates.[/yellow]")
             return None
+
+    if sort_by_views:
+        candidates.sort(
+            key=lambda c: c.view_count if c.view_count is not None else -1, reverse=True,
+        )
 
     # 6. TTY checkpoint
     if not yes and _stdin_is_tty():
@@ -151,6 +176,8 @@ def run_research(
         "languages": languages_used,
         "source_lang_hint": source_lang_hint,
         "limit_per_language": limit,
+        "sort_by_views": sort_by_views,
+        "min_views": min_views,
         "days": days,
         "since": since.isoformat() if since else None,
         "until": until.isoformat() if until else None,
@@ -254,6 +281,24 @@ def _rss_to_candidate(entry, *, channel_title: str):
     )
 
 
+def _fill_missing_statistics(candidates: list[SearchCandidate]) -> None:
+    """Enrich RSS or yt-dlp candidates using the quota independent of search."""
+    missing = [c for c in candidates if c.statistics is None]
+    if not missing:
+        return
+    try:
+        details = youtube_api.fetch_video_details(c.video_id for c in missing)
+    except youtube_api.YouTubeApiError:
+        _console.print("[yellow]View counts are unavailable for some candidates.[/yellow]")
+        return
+    for c in missing:
+        detail = details.get(c.video_id)
+        if detail is not None:
+            c.statistics = detail.statistics
+            if detail.duration_sec is not None:
+                c.duration_sec = detail.duration_sec
+
+
 def _filter_by_window(candidates: list, window: DateWindow) -> list:
     """Apply a date window. Candidates without a known date are kept.
 
@@ -290,6 +335,9 @@ def _tty_checkpoint(candidates: list) -> list:
         title = (c.title or "—")[:60]
         date_str = c.upload_date.isoformat() if getattr(c, "upload_date", None) else "—"
         label = f"{date_str}  {title}  [{getattr(c, 'channel', '?')}]"
+        if c.statistics is not None:
+            duration = f"{c.duration_sec}s" if c.duration_sec is not None else "—"
+            label += f"  Duration: {duration} · {format_statistics(c.statistics)}"
         choices.append(questionary.Choice(title=label, value=i - 1, checked=True))
     answer = questionary.checkbox(
         "Pick videos to analyze (Space=toggle, Enter=ok):",
@@ -308,6 +356,7 @@ def _to_resolved_target(c) -> ResolvedTarget:
         upload_date=getattr(c, "upload_date", None),
         source="search",
         source_language=getattr(c, "source_language", None),
+        statistics=c.statistics,
     )
 
 
