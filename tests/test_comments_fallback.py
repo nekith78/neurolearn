@@ -160,7 +160,8 @@ def test_site_options_bound_parents_group_replies_and_keep_marks(monkeypatch, tm
     assert result.exit_code == 0, result.output
     args = calls[0]["extractor_args"]["youtube"]
     assert args["comment_sort"] == [site_sort]
-    assert int(args["max_comments"][1]) == 2 and int(args["max_comments"][0]) >= 3
+    assert int(args["max_comments"][1]) == (3 if order == "newest" else 2)
+    assert int(args["max_comments"][0]) >= 3
     data = json.loads((tmp_path / f"{VIDEO_ID}.comments.json").read_text("utf-8"))
     assert (data["cap"], data["fetched"], data["order"]) == (2, 2, order)
     assert data["comments"][0]["id"] == first
@@ -224,3 +225,18 @@ def test_site_full_replies_preserves_nested_discussion(monkeypatch, tmp_path, is
     assert [(reply["id"], reply["parent_id"]) for reply in root["replies"]] == [("R", "A"), ("N", "R")]
     assert int(calls[0]["extractor_args"]["youtube"]["max_comments"][4]) >= 3
     assert "nested answer" in (tmp_path / f"{VIDEO_ID}.comments.txt").read_text("utf-8")
+
+
+def test_site_newest_cap_one_keeps_new_comment_ahead_of_old_pin(monkeypatch, tmp_path, isolated):
+    calls = fake_ytdlp(monkeypatch, iter([[
+        {"id": "old-pin", "parent": "root", "is_pinned": True, "timestamp": 86400},
+        {"id": "latest", "parent": "root", "timestamp": 172800},
+    ]]))
+    result = CliRunner().invoke(cli, [
+        "comments", URL, "--comment-count", "1", "--comment-order", "newest", "--output-dir", str(tmp_path),
+    ])
+    assert result.exit_code == 0, result.output
+    data = json.loads((tmp_path / f"{VIDEO_ID}.comments.json").read_text("utf-8"))
+    assert [row["id"] for row in data["comments"]] == ["latest"]
+    assert (data["cap"], data["fetched"]) == (1, 1)
+    assert calls[0]["extractor_args"]["youtube"]["max_comments"][:2] == ["2", "2"]
