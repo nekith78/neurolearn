@@ -116,6 +116,28 @@ class TestErrorMapping:
         assert type(exc.value) is expected
         assert exc.value.reason == reason
 
+    def test_invalid_key_in_the_live_error_format(self, monkeypatch):
+        """Body recorded from the live API: `errors` says badRequest, the
+        real cause is only in `details`."""
+        msg = "API key not valid. Please pass a valid API key."
+        body = {
+            "error": {
+                "code": 400,
+                "message": msg,
+                "errors": [{"message": msg, "domain": "global", "reason": "badRequest"}],
+                "status": "INVALID_ARGUMENT",
+                "details": [
+                    {"@type": "type.googleapis.com/google.rpc.ErrorInfo",
+                     "reason": "API_KEY_INVALID", "domain": "googleapis.com"},
+                    {"@type": "type.googleapis.com/google.rpc.LocalizedMessage",
+                     "locale": "en-US", "message": msg},
+                ],
+            }
+        }
+        _install(monkeypatch, status=400, body=body)
+        with pytest.raises(InvalidKey):
+            youtube_api.api_get("videos", {"part": "id"}, api_key=FAKE_KEY)
+
     def test_invalid_key_in_the_new_error_format(self, monkeypatch):
         """Google's current 400 body carries the reason only in `details`."""
         body = {
