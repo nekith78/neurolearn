@@ -99,7 +99,7 @@ def _scrub(text: str, key: str) -> str:
 def _error_details(body: Any) -> tuple[str, str]:
     """Pull ``(reason, message)`` out of a Data API error body."""
     if not isinstance(body, dict) or not isinstance(body.get("error"), dict):
-        return "", str(body)[:300]
+        return "", "Unexpected API error response."
     err = body["error"]
     reasons = [
         str(item["reason"])
@@ -129,6 +129,15 @@ def _classify(status: int, reason: str) -> type[YouTubeApiError]:
     return YouTubeApiError
 
 
+def _stored_key() -> str | None:
+    try:
+        return _config.get_api_key(KEY_BACKEND, env_path=_config.ENV_PATH)
+    except (OSError, UnicodeError):
+        pass
+    # Decoding errors retain raw file bytes on the original exception.
+    raise TransientFailure("Could not read the YouTube API key store.")
+
+
 def api_get(
     resource: str,
     params: dict[str, Any],
@@ -141,12 +150,14 @@ def api_get(
     ``api_key`` defaults to the stored key. Raises a ``YouTubeApiError``
     subclass on any failure; no raised message ever contains the key.
     """
-    key = api_key or _config.get_api_key(KEY_BACKEND, env_path=_config.ENV_PATH)
+    key = api_key or _stored_key()
     if not key:
         raise NotConfigured(
             "No YouTube API key configured. "
             "Run: neurolearn config set-key youtube --from-file <path>"
         )
+    if not re.fullmatch(r"[!-~]+", key):
+        raise InvalidKey("The YouTube API key contains an invalid character.")
     path = _config.CONFIG_PATH
     bucket = "search" if resource == "search" else "general"
     try:
@@ -167,18 +178,17 @@ def api_get(
         # Raised outside the except block so the unscrubbed original is not
         # kept alive as __context__ of the error callers see.
         raise TransientFailure(
-            _scrub(str(failure), key), reason=failure.reason, status=failure.status
+            _scrub(str(failure), key), reason=_scrub(failure.reason, key), status=failure.status
         )
 
     if status == 200 and isinstance(body, dict):
         return body
 
-    reason, message = _error_details(body)
     if not isinstance(body, dict):
         raise TransientFailure(
-            _scrub(f"HTTP {status}: unexpected non-JSON response: {message}", key),
-            status=status,
+            f"HTTP {status}: unexpected non-JSON response.", status=status,
         )
+    reason, message = _error_details(body)
     outcome = _classify(status, reason)
     if outcome is QuotaExhausted:
         try:
@@ -187,7 +197,7 @@ def api_get(
             message += f" ({exc})"
     raise outcome(
         _scrub(f"HTTP {status} {reason}: {message}".strip(), key),
-        reason=reason,
+        reason=_scrub(reason, key),
         status=status,
     )
 
