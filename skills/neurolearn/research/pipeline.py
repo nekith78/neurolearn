@@ -5,14 +5,14 @@ import sys
 from datetime import date, datetime, timezone
 from pathlib import Path
 
-from skills.neurolearn import config, youtube_api
+from skills.neurolearn import config
 from skills.neurolearn.utils.console import make_console
 
 from skills.neurolearn.research.translator import (
     build_queries_per_language,
 )
 from skills.neurolearn.research.source import (
-    SearchCandidate, search_multi_language,
+    SearchCandidate, fill_missing_statistics, search_multi_language,
 )
 from skills.neurolearn.shared.date_filter import (
     parse_window, in_window, DateWindow,
@@ -106,6 +106,7 @@ def run_research(
             days_hint = max((date.today() - since).days, 1)
         candidates = search_multi_language(
             queries, limit=limit, days=days_hint, window=window, sort_by_views=sort_by_views,
+            require_view_counts=min_views is not None,
         )
 
     if not candidates:
@@ -121,8 +122,8 @@ def run_research(
             )
             return None
 
-    if use_popularity:
-        _fill_missing_statistics(candidates)
+    if in_subscribes:
+        fill_missing_statistics(candidates)
     if min_views is not None:
         candidates = [
             c for c in candidates if c.view_count is not None and c.view_count >= min_views
@@ -279,24 +280,6 @@ def _rss_to_candidate(entry, *, channel_title: str):
         upload_date=entry.published.date() if entry.published else None,
         source_language="(subscribes)",
     )
-
-
-def _fill_missing_statistics(candidates: list[SearchCandidate]) -> None:
-    """Enrich RSS or yt-dlp candidates using the quota independent of search."""
-    missing = [c for c in candidates if c.statistics is None]
-    if not missing:
-        return
-    try:
-        details = youtube_api.fetch_video_details(c.video_id for c in missing)
-    except youtube_api.YouTubeApiError:
-        _console.print("[yellow]View counts are unavailable for some candidates.[/yellow]")
-        return
-    for c in missing:
-        detail = details.get(c.video_id)
-        if detail is not None:
-            c.statistics = detail.statistics
-            if detail.duration_sec is not None:
-                c.duration_sec = detail.duration_sec
 
 
 def _filter_by_window(candidates: list, window: DateWindow) -> list:

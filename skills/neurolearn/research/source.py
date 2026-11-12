@@ -20,6 +20,8 @@ from dataclasses import dataclass
 from datetime import date
 from urllib.parse import quote_plus
 
+import click
+
 from skills.neurolearn import youtube_api
 from skills.neurolearn.shared.date_filter import DateWindow, parse_window
 from skills.neurolearn.youtube_fallback import fallback_notice_for_run
@@ -76,9 +78,29 @@ def _build_search_url(query: str, sp_code: str | None) -> str:
     return f"https://www.youtube.com/results?search_query={q}"
 
 
+def fill_missing_statistics(candidates: list[SearchCandidate]) -> None:
+    """Enrich RSS or yt-dlp candidates using the quota independent of search."""
+    missing = [c for c in candidates if c.statistics is None]
+    if not missing:
+        return
+    try:
+        details = youtube_api.fetch_video_details(c.video_id for c in missing)
+    except youtube_api.NotConfigured:
+        return
+    except youtube_api.YouTubeApiError:
+        click.echo("View counts are unavailable for some candidates.", err=True)
+        return
+    for c in missing:
+        detail = details.get(c.video_id)
+        if detail is not None:
+            c.statistics = detail.statistics
+            if detail.duration_sec is not None:
+                c.duration_sec = detail.duration_sec
+
+
 def search_multi_language(
     queries: dict[str, str], *, limit: int, days: int | None = None,
-    window: DateWindow | None = None, sort_by_views: bool = False,
+    window: DateWindow | None = None, sort_by_views: bool = False, require_view_counts: bool = False,
 ) -> list[SearchCandidate]:
     """Search each language and keep the first occurrence of each video."""
     if window is None and days and days > 0:
@@ -98,6 +120,12 @@ def search_multi_language(
             pending = {lang: query, **dict(remaining)}
             for candidate in _search_yt_dlp(pending, limit=limit, days=days):
                 candidates.setdefault(candidate.video_id, candidate)
+            if isinstance(error, youtube_api.QuotaExhausted) or (
+                (require_view_counts or sort_by_views)
+                and not isinstance(error, (youtube_api.NotConfigured, youtube_api.InvalidKey))
+            ):
+                # The search bucket can be spent while batched video details remain available.
+                fill_missing_statistics(list(candidates.values()))
             break
         for video in videos:
             if video.video_id in candidates:
