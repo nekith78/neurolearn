@@ -1498,7 +1498,7 @@ def _run_batch_pipeline(
 @click.option("--max-duration", "max_duration_opt", type=int, default=None,
               help="Maximum video duration in seconds.")
 @click.option("--no-shorts", "no_shorts_opt", is_flag=True, default=False,
-              help="Skip YouTube Shorts (videos <= 60s).")
+              help="Skip YouTube Shorts (duration <= 60s when the publication type is unknown).")
 @click.option("--skip-existing", "skip_existing_opt", is_flag=True, default=False,
               help="Skip videos already transcribed (any *_<video_id>.txt under output-dir).")
 @click.option("--workers", "workers_opt", type=int, default=1, show_default=True,
