@@ -10,6 +10,7 @@ for backend selection see [BACKENDS.md](BACKENDS.md); for Claude Code chat patte
 - [`batch` — many URLs, channel, playlist](#batch)
 - [`analyze` — free-form LLM over transcripts](#analyze)
 - [`research` — discover videos by topic](#research)
+- [`channel-list` — browse dated YouTube publications](#channel-list)
 - [`subscribes` — channels you follow](#subscribes)
 - [`report` — PDF from a batch](#report)
 - [`history` — log of past runs](#history)
@@ -217,6 +218,27 @@ called from Claude Code.
 
 Discover and analyze new videos on a topic in one command.
 
+With a YouTube Data API key, each language query searches the exact publication
+window in UTC. Use `--days N` or an inclusive `--since YYYY-MM-DD` with an
+optional `--until YYYY-MM-DD`. Results follow YouTube's relevance order by
+default. The API returns up to 50 candidates per language, and videos appearing
+in multiple searches are kept once.
+
+The interactive selection shows available views, likes and comment counts. Use
+`--sort-by-views` for descending views (unknown counts last), and `--min-views N`
+to keep only candidates with a known count of at least N. Both options require
+a configured YouTube key. Selected videos carry the available statistics in the
+batch manifest.
+
+```bash
+neurolearn research "NASA space news" --languages en --days 14 --limit 5 --sort-by-views --min-views 1000 --no-analyze
+```
+
+If the key is missing, search quota is spent or the API fails, search continues
+with yt-dlp and prints one fallback notice. For 1, 7, 30 and 365 days, yt-dlp
+uses YouTube's date presets. For intermediate windows such as 14 days, it
+requests the next larger preset and checks the available publication dates.
+
 ```bash
 # Interactive
 neurolearn research --prompt "Outline the key ideas" --analyze-backend gemini
@@ -255,6 +277,28 @@ analyze pass (skip / groq / gemini / openai / ollama) and persists the choice in
 non-TTY context (Claude Code subprocess, CI, piped run) the prompt is skipped
 and the analyze pass is silently skipped — `combined.md` is the output and the
 chat-side LLM does the analysis. Force-skip with `--no-analyze`.
+
+---
+
+## channel-list
+
+List public uploads from a YouTube channel URL or @handle, newest first.
+This command requires a YouTube Data API key. It prints a table by default
+and does not transcribe the videos.
+
+```bash
+neurolearn channel-list @NASA --type videos --since 2026-10-01 --until 2026-10-31 --limit 10 --json
+```
+
+`--type` (alias `--publication-type`) accepts `all` (default), `videos`
+(Ordinary Videos), `shorts` and `streams`. YouTube's channel playlists
+determine the publication type. Both date bounds are inclusive and each is
+optional. `--limit` caps the number of matching publications and defaults to 50.
+
+`--json` writes an array with `video_id`, `url`, `title`, `published_at`,
+`publication_type`, `duration_sec`, `view_count`, `like_count` and
+`comment_count`. Unavailable duration and counts appear as `null` (a dash in
+the table). An empty result is `[]`.
 
 ---
 
