@@ -43,6 +43,28 @@ def is_youtube_url(s: str) -> bool:
     return bool(_YOUTUBE_RE.match(s))
 
 
+# A channel URL with no tab: `youtube.com/@handle`, `/channel/UC…`, `/c/name`,
+# `/user/name` — optionally with a trailing slash and a query / fragment.
+_YOUTUBE_BARE_CHANNEL_RE = re.compile(
+    r"^(https?://(?:www\.|m\.)?youtube\.com/"
+    r"(?:@[^/?#]+|(?:channel|c|user)/[^/?#]+))/?(?:[?#].*)?$",
+    re.IGNORECASE,
+)
+
+
+def normalize_youtube_channel_url(url: str) -> str:
+    """Point a bare YouTube channel URL at the channel's Ordinary Videos.
+
+    yt-dlp answers a bare channel URL with the channel's tabs (Videos /
+    Live / Shorts) rather than videos, and every tab carries the channel
+    id as its `id`. `/videos` is the tab that lists Ordinary Videos,
+    newest first. Anything else — an explicit tab, a playlist, a single
+    video, another platform, a local path — is returned unchanged.
+    """
+    m = _YOUTUBE_BARE_CHANNEL_RE.match(url.strip())
+    return f"{m.group(1)}/videos" if m else url
+
+
 def is_instagram_url(s: str) -> bool:
     return bool(_INSTAGRAM_RE.match(s))
 
