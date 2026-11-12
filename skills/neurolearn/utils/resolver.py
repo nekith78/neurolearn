@@ -3,10 +3,16 @@ into a flat list of ResolvedTarget. Does NOT download media."""
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 from typing import Literal
+from urllib.parse import parse_qs, urlsplit
+
+import click
+
+from skills.neurolearn import youtube_api
+from skills.neurolearn.youtube_fallback import fallback_notice_for_run
 
 
 # Probe yt-dlp metadata in parallel for batched URLs. yt-dlp init is
@@ -26,6 +32,9 @@ from skills.neurolearn.utils.downloader import (
 )
 
 
+_YOUTUBE_HOSTS = {"www.youtube.com", "youtube.com", "m.youtube.com"}
+
+
 Source = Literal["inline", "file", "channel", "playlist", "single", "search"]
 
 
@@ -42,6 +51,7 @@ class ResolvedTarget:
     # Set by research.pipeline when converting SearchCandidate → ResolvedTarget;
     # None for everything else. Lands in manifest.json for downstream filtering.
     source_language: str | None = None
+    is_short: bool | None = None  # Known for typed YouTube upload playlists.
 
 
 @dataclass
@@ -124,6 +134,63 @@ def _local_to_target(path_str: str) -> ResolvedTarget:
     )
 
 
+def _youtube_collection_targets(url: str, filters: ResolverFilters) -> list[ResolvedTarget] | None:
+    """Expand a recognized YouTube collection, leaving other URL shapes to yt-dlp."""
+    if not is_url(url):
+        return None
+    parsed = urlsplit(url)
+    if parsed.hostname not in _YOUTUBE_HOSTS:
+        return None
+    parts = parsed.path.strip("/").split("/")
+    tab: youtube_api.PublicationType | None = None
+    playlist_ids = parse_qs(parsed.query).get("list")
+    if parts in (["playlist"], ["watch"]) and playlist_ids:
+        rows = youtube_api.iter_playlist_videos(playlist_ids[0], limit=filters.limit)
+    else:
+        is_channel = (
+            (len(parts) == 2 and parts[0].startswith("@"))
+            or (len(parts) == 3 and parts[0] in {"channel", "user"})
+        )
+        if not is_channel or parts[-1] not in ("videos", "shorts", "streams"):
+            return None
+        channel = youtube_api.resolve_channel(url)
+        if channel is None:
+            return None
+        tab = parts[-1]
+        rows = youtube_api.iter_channel_uploads(channel.channel_id, tab, limit=filters.limit)
+
+    selected = []
+    for row in rows:
+        upload_date = row.published_at.date()
+        if filters.since and upload_date < filters.since:
+            if tab is not None:  # Only channel uploads are guaranteed newest first.
+                break
+            continue
+        if filters.until and upload_date > filters.until:
+            continue
+        selected.append(row)
+    if tab == "shorts" and not filters.include_shorts:
+        return []
+    details = youtube_api.fetch_video_details(row.video_id for row in selected)
+    targets = []
+    for row in selected:
+        detail = details.get(row.video_id)
+        is_short = tab == "shorts" if tab is not None else None
+        if tab is None and not filters.include_shorts:
+            owner = row.channel_id or (detail.channel_id if detail else None)
+            if not owner:
+                raise youtube_api.TransientFailure("Missing playlist video's channel id")
+            is_short = youtube_api.is_channel_short(owner, row.video_id)
+        video_url = (f"https://www.youtube.com/shorts/{row.video_id}" if is_short
+                     else f"https://www.youtube.com/watch?v={row.video_id}")
+        targets.append(ResolvedTarget(
+            url=video_url, title=row.title, upload_date=row.published_at.date(),
+            duration_sec=detail.duration_sec if detail else None, channel=row.channel_title,
+            source="playlist" if tab is None else "channel", video_id=row.video_id, is_short=is_short,
+        ))
+    return targets
+
+
 def resolve(
     inputs: list[str],
     from_file: Path | None,
@@ -158,10 +225,20 @@ def resolve(
     # set needs no lock and result ordering is identical to the serial version.
     # A bare YouTube channel URL is probed (and later expanded) as the
     # channel's Ordinary Videos; `url` stays the user's input for reporting.
+    fallback = fallback_notice_for_run()
+
     def _safe_probe(item: tuple[str, Source]) -> tuple[str, Source, tuple | Exception]:
         url, src = item
         try:
-            return url, src, probe_input(normalize_youtube_channel_url(url))
+            normalized = normalize_youtube_channel_url(url)
+            try:
+                api_targets = _youtube_collection_targets(normalized, filters)
+            except youtube_api.YouTubeApiError as exc:
+                fallback.report(exc)
+            else:
+                if api_targets is not None:
+                    return url, src, ("api", api_targets)
+            return url, src, probe_input(normalized)
         except Exception as e:    # noqa: BLE001 — re-raised below per-url
             return url, src, e
 
@@ -172,6 +249,7 @@ def resolve(
     else:
         probed = []
 
+    missing_youtube_dates = False
     for url, src, result in probed:
         if isinstance(result, Exception):
             failures.append(ResolveFailure(url=url, error=str(result), source=src))
@@ -193,17 +271,26 @@ def resolve(
             continue
 
         # kind == "playlist" → expand and apply limit per source
-        entries = expand_channel_or_playlist(
-            normalize_youtube_channel_url(url), limit=filters.limit,
-        )
-        playlist_source: Source = "channel"  # we don't strictly distinguish
-        for e in entries:
-            t = _channel_entry_to_target(e, source=playlist_source)
+        if kind == "api":
+            expanded = info
+        else:
+            entries = expand_channel_or_playlist(
+                normalize_youtube_channel_url(url), limit=filters.limit,
+            )
+            expanded = [_channel_entry_to_target(e, source="channel") for e in entries]
+            if ((filters.since or filters.until) and urlsplit(url).hostname in _YOUTUBE_HOSTS
+                    and any(t.upload_date is None for t in expanded)):
+                missing_youtube_dates = True
+        for t in expanded:
             if t.video_id and t.video_id in seen_video_ids:
                 continue
             if t.video_id:
                 seen_video_ids.add(t.video_id)
             targets.append(t)
+
+    if missing_youtube_dates:
+        click.echo("Some YouTube entries have no publish date. The date filter could not "
+                   "be applied to those entries.", err=True)
 
     # v0.3 #4: search-by-tags via yt-dlp ytsearchN:query
     if filters.search_query:
@@ -257,10 +344,9 @@ def _apply_filters(
         if filters.max_duration_sec is not None and t.duration_sec is not None:
             if t.duration_sec > filters.max_duration_sec:
                 continue
-        # YouTube Shorts: vertical short-form videos, typically <= 60s.
-        # We use a duration heuristic — yt-dlp doesn't expose a "is_short" flag.
-        if not filters.include_shorts and t.duration_sec is not None:
-            if t.duration_sec <= 60:
+        if not filters.include_shorts:
+            # Keep the historic duration heuristic only when type is unknown.
+            if t.is_short or (t.is_short is None and t.duration_sec is not None and t.duration_sec <= 60):
                 continue
         out.append(t)
     return out
