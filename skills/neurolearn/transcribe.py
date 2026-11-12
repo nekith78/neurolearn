@@ -113,11 +113,34 @@ from skills.neurolearn.updates import check_updates_cmd, update_deps_cmd
 cli.add_command(check_updates_cmd)
 cli.add_command(update_deps_cmd)
 
+def _comment_options(command):
+    command = click.option("--comment-markers", is_flag=True,
+                           help="Look up pinned and creator-heart markers with yt-dlp.")(command)
+    command = click.option("--comment-full-replies", is_flag=True,
+                           help="Request all public replies for the sampled threads.")(command)
+    command = click.option("--comment-count", type=click.IntRange(min=1),
+                           default=youtube_api.DEFAULT_COMMENT_CAP, show_default=True,
+                           help="Maximum number of top-level comments.")(command)
+    return click.option("--comment-order", type=click.Choice(["relevance", "newest", "likes"]),
+                        default="relevance", show_default=True,
+                        help="Likes sorts the fetched relevance sample locally.")(command)
+
+
+def _comment_settings(opts):
+    from skills.neurolearn.comments import CommentOptions
+
+    return CommentOptions(cap=opts.get("comment_count", youtube_api.DEFAULT_COMMENT_CAP),
+                          order=opts.get("comment_order", "relevance"),
+                          full_replies=opts.get("comment_full_replies", False),
+                          markers=opts.get("comment_markers", False))
+
+
 @cli.command(name="comments")
+@_comment_options
 @click.argument("url")
 @click.option("--output-dir", type=click.Path(file_okay=False, path_type=Path),
               help="Output directory (defaults to the configured output directory).")
-def comments_cmd(url: str, output_dir: Path | None) -> None:
+def comments_cmd(url: str, output_dir: Path | None, **opts) -> None:
     """Fetch comments for a YouTube video."""
     from skills.neurolearn import comments, youtube_api
 
@@ -126,7 +149,8 @@ def comments_cmd(url: str, output_dir: Path | None) -> None:
         raise click.BadParameter("Expected a YouTube video URL.", param_hint="URL")
     cfg = load_config(CONFIG_PATH)
     try:
-        sample = comments.fetch_comments(video_id, cookies_file=cfg.youtube_cookies_file or cfg.cookies_file)
+        sample = comments.fetch_comments(video_id, options=_comment_settings(opts),
+                                         cookies_file=cfg.youtube_cookies_file or cfg.cookies_file)
     except youtube_api.CommentsDisabled:
         click.echo("Comments are disabled for this video.")
         return
@@ -165,6 +189,7 @@ def comments_cmd(url: str, output_dir: Path | None) -> None:
 @click.option("--beam-size", type=int, default=None)
 @click.option("--vad/--no-vad", default=None)
 @click.option("--verbose", is_flag=True)
+@_comment_options
 @click.option("--with-comments", is_flag=True, help="Save YouTube comments next to the transcript.")
 @click.option("--with-visuals", is_flag=True,
               help="Extract keyframes for an illustrated report — Claude reads "
@@ -663,6 +688,28 @@ class _CommentAttachments:
             opts.get("cookies_file") or cfg.youtube_cookies_file or cfg.cookies_file or None
         )
         self.reported_skip = False
+        self.settings = _comment_settings(opts)
+        ctx = click.get_current_context(silent=True)
+        self.custom_settings = ctx is not None and any(
+            ctx.get_parameter_source(key) == click.core.ParameterSource.COMMANDLINE
+            for key in ("comment_count", "comment_order", "comment_full_replies", "comment_markers")
+        )
+
+    def can_reuse(self, transcript: Path, *, require_json: bool = False) -> bool:
+        import json
+        from dataclasses import asdict
+
+        if not transcript.with_suffix(".comments.txt").is_file():
+            return False
+        structured = transcript.with_suffix(".comments.json")
+        if not self.custom_settings:
+            return not require_json or structured.is_file()
+        try:
+            with structured.open(encoding="utf-8") as f:
+                sample = json.load(f)
+        except (OSError, ValueError):
+            return False
+        return isinstance(sample, dict) and sample.get("requested_options") == asdict(self.settings)
 
     def fetch(
         self, url: str | None, video_id: str | None, transcript: Path,
@@ -680,7 +727,7 @@ class _CommentAttachments:
             return None
         try:
             sample = comments.fetch_comments(
-                video_id, notice=self.notice, cookies_file=self.cookies_file,
+                video_id, options=self.settings, notice=self.notice, cookies_file=self.cookies_file,
             )
             return comments.write_comments(sample, transcript.parent, transcript.stem)
         except youtube_api.CommentsDisabled:
@@ -692,7 +739,7 @@ class _CommentAttachments:
     def for_analysis(self, video: VideoSource) -> None:
         transcript = video.transcript_path
         path = transcript.with_suffix(".comments.txt")
-        if not path.is_file():
+        if not self.can_reuse(transcript):
             paths = self.fetch(video.url, video.video_id, transcript)
             if not paths:
                 return
@@ -1302,10 +1349,7 @@ def _run_batch_pipeline(
     for i, target in enumerate(targets, start=1 + target_index_offset):
         if skip_existing and target.video_id and target.video_id in existing_transcripts:
             transcript = existing_transcripts[target.video_id]
-            if attachments and not (
-                transcript.with_suffix(".comments.txt").is_file()
-                and transcript.with_suffix(".comments.json").is_file()
-            ):
+            if attachments and not attachments.can_reuse(transcript, require_json=True):
                 attachments.fetch(target.url, target.video_id, transcript)
             skipped_count += 1
             console.print(
@@ -1553,6 +1597,7 @@ def _run_batch_pipeline(
 @click.option("--beam-size", type=int, default=None)
 @click.option("--vad/--no-vad", default=None)
 @click.option("--verbose", is_flag=True)
+@_comment_options
 @click.option("--with-comments", is_flag=True, help="Save YouTube comments next to each transcript.")
 @click.option("--with-visuals", is_flag=True,
               help="Extract keyframes for an illustrated report — Claude reads "
@@ -2862,6 +2907,7 @@ def summarize_cmd(
 @cli.command(name="analyze")
 @click.argument("source", required=False,
                 type=click.Path(path_type=Path))
+@_comment_options
 @click.option("--with-comments", is_flag=True,
               help="Include saved YouTube comments, fetching missing samples for selected videos.")
 @click.option("--prompt", "prompt_inline", default=None,
@@ -2910,6 +2956,7 @@ def analyze_cmd(
     no_stdout: bool,
     max_chars: int,
     with_comments: bool,
+    **opts,
 ) -> None:
     """Analyze one or more transcripts via an external LLM."""
     from datetime import datetime
@@ -3023,7 +3070,7 @@ def analyze_cmd(
             sys.exit(5)
 
     if with_comments:
-        attachments = _CommentAttachments(cfg, {})
+        attachments = _CommentAttachments(cfg, opts)
         for video in chosen:
             attachments.for_analysis(video)
 
