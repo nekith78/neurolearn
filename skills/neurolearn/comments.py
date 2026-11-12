@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from skills.neurolearn import youtube_api
+from skills.neurolearn.utils.files import atomic_write_text
 from skills.neurolearn.utils.platform_errors import diagnose
 from skills.neurolearn.utils.ytdlp import create_ytdlp
 from skills.neurolearn.youtube_fallback import FallbackNotice, fallback_notice_for_run
@@ -164,9 +165,9 @@ def write_comments(sample: CommentSample, output_dir: Path, base_name: str) -> t
     output_dir.mkdir(parents=True, exist_ok=True)
     text_path = output_dir / f"{base_name}.comments.txt"
     json_path = output_dir / f"{base_name}.comments.json"
-    json_path.write_text(
+    atomic_write_text(
+        json_path,
         json.dumps({**asdict(sample), "fetched": fetched}, ensure_ascii=False, indent=2) + "\n",
-        encoding="utf-8",
     )
-    text_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    atomic_write_text(text_path, "\n".join(lines) + "\n")
     return text_path, json_path

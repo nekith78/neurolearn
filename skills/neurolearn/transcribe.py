@@ -57,6 +57,7 @@ from skills.neurolearn.utils.resolver import (
     resolve,
 )
 from skills.neurolearn.utils.transcript_loader import is_comment_sidecar
+from skills.neurolearn.utils.files import is_regular_file, read_regular_text
 from skills.neurolearn.wizard import run_wizard
 
 console = make_console()
@@ -699,7 +700,7 @@ class _CommentAttachments:
             return
         transcript = video.transcript_path
         path = transcript.with_suffix(".comments.txt")
-        if not path.is_file():
+        if not is_regular_file(path):
             paths = self.fetch(video.url, video.video_id, transcript)
             if not paths:
                 return
@@ -715,7 +716,7 @@ class _CommentAttachments:
 
 def _read_audience_comments(video: VideoSource, path: Path) -> None:
     try:
-        video.comments_text = path.read_text(encoding="utf-8")
+        video.comments_text = read_regular_text(path)
     except (OSError, UnicodeError) as exc:
         click.echo(f"Could not read comments for {video.transcript_path.name}: {exc}", err=True)
 
@@ -1310,8 +1311,8 @@ def _run_batch_pipeline(
         if skip_existing and target.video_id and target.video_id in existing_transcripts:
             transcript = existing_transcripts[target.video_id]
             if attachments and not (
-                transcript.with_suffix(".comments.txt").is_file()
-                and transcript.with_suffix(".comments.json").is_file()
+                is_regular_file(transcript.with_suffix(".comments.txt"))
+                and is_regular_file(transcript.with_suffix(".comments.json"))
             ):
                 attachments.fetch(target.url, target.video_id, transcript)
             skipped_count += 1
