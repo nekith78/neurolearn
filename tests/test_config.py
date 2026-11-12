@@ -117,6 +117,64 @@ def test_set_api_key_writes_env(tmp_path: Path):
     assert "OPENAI_API_KEY=sk-test" in content
 
 
+@pytest.mark.skipif(os.name == "nt", reason="POSIX permissions")
+def test_set_api_key_replaces_an_existing_key_store_with_private_permissions(tmp_path):
+    from stat import S_IMODE
+
+    env_path = tmp_path / ".env"
+    env_path.write_text("OPENAI_API_KEY=original\n", encoding="utf-8")
+    env_path.chmod(0o644)
+    set_api_key("youtube", "replacement", env_path)
+    assert S_IMODE(env_path.stat().st_mode) == 0o600
+    assert env_path.read_text() == "OPENAI_API_KEY=original\nYOUTUBE_API_KEY=replacement\n"
+
+
+def test_concurrent_set_api_key_preserves_each_backend(tmp_path):
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Barrier
+
+    env_path = tmp_path / ".env"
+    backends = ["groq", "youtube", "openai", "gemini"]
+    barrier = Barrier(len(backends))
+
+    def store(backend):
+        barrier.wait(timeout=5)
+        set_api_key(backend, f"test-{backend}", env_path)
+
+    with ThreadPoolExecutor(max_workers=len(backends)) as pool:
+        list(pool.map(store, backends))
+    assert set(env_path.read_text().splitlines()) == {
+        f"{backend.upper()}_API_KEY=test-{backend}" for backend in backends
+    }
+
+
+def test_failed_key_replacement_preserves_the_original_and_cleans_up(tmp_path, monkeypatch):
+    env_path = tmp_path / ".env"
+    env_path.write_text("OPENAI_API_KEY=original\n", encoding="utf-8")
+
+    def failed_replace(src, dst):
+        raise OSError("Cannot replace key store")
+
+    monkeypatch.setattr(os, "replace", failed_replace)
+    with pytest.raises(OSError, match="Cannot replace"):
+        set_api_key("youtube", "replacement", env_path)
+    assert env_path.read_text() == "OPENAI_API_KEY=original\n"
+    assert not [p for p in tmp_path.iterdir() if p != env_path and p.suffix != ".lock"]
+
+
+def test_set_api_key_requires_a_regular_key_store(tmp_path):
+    env_path = tmp_path / ".env"
+    saved = tmp_path / ".env.backup"
+    saved.write_text("", encoding="utf-8")
+    try:
+        env_path.symlink_to(saved.name)
+    except OSError as exc:
+        pytest.skip(f"Symlink creation unavailable: {exc}")
+    with pytest.raises(OSError, match="regular file"):
+        set_api_key("youtube", "sample", env_path)
+    assert saved.read_text() == ""
+
+
 def test_mask_key_short():
     assert mask_key("ab") == "***"
 

@@ -97,6 +97,7 @@ def _from_manifest(
     batch_dir: Path, manifest: Path, *, source_file: Path | None = None,
 ) -> list[VideoSource]:
     data = json.loads(manifest.read_text(encoding="utf-8"))
+    batch_root = batch_dir.resolve()
     out: list[VideoSource] = []
     for v in data.get("videos") or []:
         if v.get("status") != "ok":
@@ -113,7 +114,8 @@ def _from_manifest(
         # Defend against hand-crafted manifests with "../" traversal: ensure
         # the resolved path stays inside batch_dir.
         try:
-            if not path.resolve().is_relative_to(batch_dir.resolve()):
+            if not (path.resolve().is_relative_to(batch_root)
+                    and path.parent.resolve().is_relative_to(batch_root)):
                 continue
         except (OSError, ValueError):
             continue
