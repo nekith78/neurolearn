@@ -170,3 +170,17 @@ def test_parallel_batch_shares_fallback_notice(invoke, tmp_path, monkeypatch):
     assert output.count("Falling back to yt-dlp") == 1
     compact = list(tmp_path.rglob("*.comments.txt"))
     assert len(compact) == 2 and all("source=yt-dlp" in path.read_text() for path in compact)
+
+
+def test_analyze_skips_foreign_source_even_when_a_same_named_sidecar_exists(
+    invoke, tmp_path, monkeypatch,
+):
+    invoke("transcribe", "https://example.org/video", "--output-dir", tmp_path, "--preset", "eco")
+    transcript, = tmp_path.glob("*.txt")
+    transcript.with_suffix(".comments.txt").write_text("Unrelated old sample.", encoding="utf-8")
+    prompts = []
+    monkeypatch.setattr("skills.neurolearn.analyze.runner.run_analysis",
+                        lambda prompt, **kw: prompts.append(prompt) or "Done.")
+    output = invoke("analyze", transcript, "--with-comments", "--prompt", "Review", "--backend", "ollama")
+    assert "Unrelated old sample." not in prompts[0]
+    assert "Skipping comments" in output
