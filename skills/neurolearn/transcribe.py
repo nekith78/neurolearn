@@ -109,7 +109,9 @@ def cli() -> None:
     pass
 
 
+from skills.neurolearn.channel_listing import channel_list
 from skills.neurolearn.updates import check_updates_cmd, update_deps_cmd
+cli.add_command(channel_list)
 cli.add_command(check_updates_cmd)
 cli.add_command(update_deps_cmd)
 
