@@ -188,6 +188,20 @@ URLs for each provider:
 - Deepgram:   https://console.deepgram.com/
 - AssemblyAI: https://www.assemblyai.com/dashboard/signup
 
+For YouTube users, offer an optional metadata key for video statistics and
+comments. Default to **Skip** and continue to Step 7. If they opt in,
+have them select a Google Cloud project, enable **YouTube Data API v3** in
+the API Library and create an API key under **APIs & Services → Credentials**.
+Ask them to save it in a one-line file and share only its path.
+[Google Cloud setup guide](https://developers.google.com/youtube/v3/getting-started).
+
+```bash
+uv run --project "${CLAUDE_PLUGIN_ROOT}" neurolearn config set-key youtube --from-file "<PATH>"
+```
+
+After registration, run `config test youtube` and relay its result. The
+user can delete the handoff file. Continue onboarding even if the key check fails.
+
 Step 7 — Mark onboarding complete:
 
 ```bash
@@ -207,7 +221,9 @@ Confirm:
 - `config.onboarding_complete == true`
 - `ready.has_fast_audio == true` (if user picked Groq or another cloud
   audio backend)
-- `keys.<picked-backend>.configured == true` for each
+- `keys.<picked-backend>.configured == true` for each selected audio or
+  analysis provider that needs a key
+- `youtube.key_configured == true` if the user registered a YouTube key
 - `recommended_setup` is empty (or only contains nice-to-have items)
 
 Tell the user verbatim:

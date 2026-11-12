@@ -8,7 +8,7 @@ description: |
   watch + transcribe new uploads), HISTORY of past runs.
   Use this skill when the user pastes a video URL with intent to read/analyze content,
   asks to "transcribe", "get a transcript", "make text from this video", "subtitles",
-  "what's in this video";
+  "what's in this video", or to fetch audience comments on a YouTube video;
   asks to find/research videos by topic ("find videos about X", "research topic X",
   "what's new about Claude features", "research AI agents this week");
   asks to follow a channel ("subscribe to channel X", "watch @AnthropicAI",
@@ -182,6 +182,24 @@ then walk them through the file-based handoff for a fresh key.
 - The user explicitly said "skip setup, just try" — relay the gate
   message exactly so they understand the trade-off, then offer the
   whisper-local fallback.
+
+## YouTube comments and video statistics
+
+For audience discussion, use `comments <YouTube-URL>` on its own, or add
+`--with-comments` to `transcribe`, `batch`, or `analyze`. Read the compact
+`*.comments.txt` or its structured `*.comments.json` sibling. Describe the
+sample using its source, order, cap, fetched count, and any reported limits.
+The default is up to 100 top-level comments in relevance order. Use
+`--comment-count N`, `--comment-order relevance|newest|likes`,
+`--comment-full-replies`, or `--comment-markers` when requested. Likes
+order ranks the fetched sample. Markers require an extra yt-dlp lookup
+when the Data API supplies the comments.
+
+An optional YouTube Data API key enables automatic view, like and comment
+counts in `manifest.json` for YouTube transcriptions and batches. Register
+it via `config set-key youtube --from-file <path>` and test it with
+`config test youtube`. Comments fall back to yt-dlp without a usable key.
+Transcription and onboarding can proceed without the key.
 
 ## Backend choice cheat-sheet (v0.12+)
 
