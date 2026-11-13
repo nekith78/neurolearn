@@ -1,6 +1,6 @@
 {
   "name": "neurolearn",
-  "version": "0.32.0",
+  "version": "0.32.1",
   "description": "Codex adapter for NeuroLearn video transcription, research, subscriptions, frames, and reports.",
   "author": {
     "name": "Nikita Khan",
