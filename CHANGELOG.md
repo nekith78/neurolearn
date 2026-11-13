@@ -3,6 +3,29 @@
 All notable changes to neurolearn will be documented here.
 The format is loosely based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.32.1] — 2026-11-13
+
+### Fixed
+
+- `batch` with a YouTube key counts `--limit` inside `--since`/`--until`.
+  "10 videos up to 30 June" now returns the 10 newest videos in that window
+  instead of filtering the channel's 10 newest uploads.
+- `research` with a YouTube key honours a limit above 50 per language by
+  following search pages (one search call per 50 results).
+- `subscribes update` with a window that ends in the past returns the uploads
+  in that window instead of nothing, on both the API and yt-dlp paths.
+
+### Changed
+
+- YouTube Data API requests in one run share a connection, and a failed
+  connect is retried once.
+- `subscribes update` checks YouTube channels concurrently and fetches details
+  for all found videos together.
+- `batch` resolves single YouTube video links in one API request when a key
+  is configured. Links the API cannot describe still go through yt-dlp.
+- `batch --with-comments` reuses the comment total it already holds, saving
+  one request per video.
+
 ## [0.32.0] — 2026-11-13
 
 - Added the `comm-analyze-output` skill for YouTube comment analysis. It reviews the fetched sample, counts viewer comments by topic, and supports each summary with quotes and links to the original comments when available.
