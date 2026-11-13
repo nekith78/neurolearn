@@ -128,6 +128,43 @@ def _video_info_to_target(info: dict, url: str, source: Source) -> ResolvedTarge
     )
 
 
+def _single_youtube_video_id(url: str) -> str | None:
+    """The id of a single-video link; a link that also names a playlist is a playlist."""
+    if not is_url(url) or parse_qs(urlsplit(url).query).get("list"):
+        return None
+    return extract_youtube_video_id(url)
+
+
+def _youtube_single_videos(urls: list[str], fallback) -> dict[str, youtube_api.VideoDetails]:
+    """Look up every single-video link in one batched request.
+
+    Links missing from the result (no key, failed lookup, private or
+    deleted video, a stream with no duration yet) are left to the yt-dlp
+    probe.
+    """
+    ids = {url: video_id for url in urls if (video_id := _single_youtube_video_id(url))}
+    if not ids:
+        return {}
+    try:
+        details = youtube_api.fetch_video_details(ids.values())
+    except youtube_api.NotConfigured:
+        return {}  # Single links never needed a key; stay silent without one.
+    except youtube_api.YouTubeApiError as exc:
+        fallback.report(exc)
+        return {}
+    return {url: details[video_id] for url, video_id in ids.items()
+            if video_id in details and details[video_id].duration_sec}
+
+
+def _video_details_to_target(detail: youtube_api.VideoDetails, url: str, source: Source) -> ResolvedTarget:
+    return ResolvedTarget(
+        url=url, title=detail.title,
+        upload_date=detail.published_at.date() if detail.published_at else None,
+        duration_sec=detail.duration_sec, channel=detail.channel_title, source=source,
+        video_id=detail.video_id, statistics=detail.statistics,
+    )
+
+
 def _local_to_target(path_str: str) -> ResolvedTarget:
     return ResolvedTarget(
         url=path_str, title=None, upload_date=None, duration_sec=None,
@@ -241,9 +278,12 @@ def resolve(
     # A bare YouTube channel URL is probed (and later expanded) as the
     # channel's Ordinary Videos; `url` stays the user's input for reporting.
     fallback = fallback_notice_for_run()
+    single_videos = _youtube_single_videos([url for url, _ in raw], fallback)
 
     def _safe_probe(item: tuple[str, Source]) -> tuple[str, Source, tuple | Exception]:
         url, src = item
+        if url in single_videos:
+            return url, src, ("api", [_video_details_to_target(single_videos[url], url, src)])
         try:
             normalized = normalize_youtube_channel_url(url)
             try:

@@ -242,3 +242,30 @@ def test_explicit_count_of_100_continues_after_a_short_page(monkeypatch, tmp_pat
     result = CliRunner().invoke(cli, ["comments", URL, "--comment-count", "100", "--output-dir", str(tmp_path)])
     assert result.exit_code == 0, result.output
     assert sizes == [100, 99]
+
+
+def test_known_total_saves_the_details_request_and_keeps_the_sample(monkeypatch):
+    from dataclasses import asdict
+    from skills.neurolearn.comments import fetch_comments
+
+    threads = [{"snippet": {"channelId": "UCowner", "totalReplyCount": 1,
+                            "topLevelComment": _comment("A", "@creator", "UCowner", 1, "hi")},
+                "replies": {"comments": [_comment("R", "@fan", "UCfan", 0, "yo")]}}]
+    calls = []
+
+    def transport(url, params, headers, timeout):
+        calls.append(url.rsplit("/", 1)[1])
+        if url.endswith("/videos"):
+            return 200, {"items": [{"id": VIDEO_ID, "snippet": {"channelId": "UCowner"},
+                                    "statistics": {"commentCount": "312"}}]}
+        return 200, {"items": threads}
+
+    monkeypatch.setenv("YOUTUBE_API_KEY", "fake-key")
+    monkeypatch.setattr(youtube_api, "_http_get", transport)
+    looked_up = fetch_comments(VIDEO_ID)
+    assert calls == ["commentThreads", "videos"]
+    calls.clear()
+    known = fetch_comments(VIDEO_ID, total=312)
+    assert calls == ["commentThreads"]
+    assert asdict(known) == asdict(looked_up)
+    assert known.total == 312 and known.comments[0].is_channel_owner

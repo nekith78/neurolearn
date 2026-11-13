@@ -70,12 +70,19 @@ def _parse_comment(item: dict, owner_id: str | None) -> Comment:
     )
 
 
-def _api_sample(video_id: str, options: CommentOptions) -> CommentSample:
-    """Fetch threads in their source order before any local sorting."""
+def _api_sample(video_id: str, options: CommentOptions, total: int | None = None) -> CommentSample:
+    """Fetch threads in their source order before any local sorting.
+
+    A caller that already knows the video's comment total passes it and
+    saves the details request; each thread names the video's channel.
+    """
     api_order = "time" if options.order == "newest" else "relevance"
     threads = youtube_api.list_comment_threads(video_id, cap=options.cap, order=api_order)
-    details = youtube_api.fetch_video_details([video_id]).get(video_id)
-    sample = CommentSample(video_id, [], total=details.comment_count if details else None,
+    details = None
+    if total is None:
+        details = youtube_api.fetch_video_details([video_id]).get(video_id)
+        total = details.comment_count if details else None
+    sample = CommentSample(video_id, [], total=total,
                            replies_mode="full" if options.full_replies else "inline")
     try:
         for thread in threads:
@@ -252,10 +259,11 @@ def _merge_markers(sample: CommentSample, options: CommentOptions, cookies_file:
 def fetch_comments(
     video_id: str, *, options: CommentOptions = CommentOptions(),
     notice: FallbackNotice | None = None, cookies_file: str | Path | None = None,
+    total: int | None = None,
 ) -> CommentSample:
     """Prefer the API. Share a notice across videos in a batch."""
     try:
-        sample = _api_sample(video_id, options)
+        sample = _api_sample(video_id, options, total)
     except (youtube_api.CommentsDisabled, youtube_api.NotFound):
         raise
     except youtube_api.YouTubeApiError as exc:

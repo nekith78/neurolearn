@@ -713,6 +713,7 @@ class _CommentAttachments:
 
     def fetch(
         self, url: str | None, video_id: str | None, transcript: Path,
+        statistics: dict | None = None,
     ) -> tuple[Path, Path] | None:
         from skills.neurolearn import comments
 
@@ -725,6 +726,8 @@ class _CommentAttachments:
         try:
             sample = comments.fetch_comments(
                 video_id, options=self.settings, notice=self.notice, cookies_file=self.cookies_file,
+                # Statistics fetched earlier in the run already hold the total.
+                total=(statistics or {}).get("comment_count"),
             )
             return comments.write_comments(sample, transcript.parent, transcript.stem)
         except youtube_api.CommentsDisabled:
@@ -744,7 +747,7 @@ class _CommentAttachments:
                 click.echo(f"Could not verify comments for {transcript.name}.", err=True)
 
     def record(self, status: BatchVideoStatus, output_dir: Path, transcript: Path) -> None:
-        paths = self.fetch(status.url, status.video_id, transcript)
+        paths = self.fetch(status.url, status.video_id, transcript, status.statistics)
         if paths:
             text, structured = paths
             status.files["comments"] = str(text.relative_to(output_dir))
@@ -1340,7 +1343,7 @@ def _run_batch_pipeline(
         if skip_existing and target.video_id and target.video_id in existing_transcripts:
             transcript = existing_transcripts[target.video_id]
             if attachments and attachments.cached_text(transcript, require_json=True) is None:
-                attachments.fetch(target.url, target.video_id, transcript)
+                attachments.fetch(target.url, target.video_id, transcript, target.statistics)
             skipped_count += 1
             console.print(
                 f"  [dim]· skip #{i} {target.title or target.video_id} "

@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
@@ -654,18 +655,16 @@ def _select_youtube_entries(
     return shorts, len(shorts)
 
 
-def _fetch_youtube_entries(
-    ch: Channel,
-    *,
-    effective_mode: str,
-    window,
-    shorts_cap: int,
-    youtube_cookies_file: str,
-    notice: FallbackNotice,
-) -> list[_ChannelVideo]:
-    """Select a complete channel from one provider, keeping API details for batch output."""
-    in_window_pred = _make_in_window_predicate(ch, window)
+# Concurrent API upload listings in `subscribes update`. Each is one or two
+# small requests; the pool only removes the waiting between channels.
+_API_LISTING_WORKERS = 8
 
+
+def _list_youtube_api_entries(
+    ch: Channel, *, effective_mode: str, window, shorts_cap: int,
+) -> tuple[list[_ChannelVideo], int]:
+    """One channel's uploads from the API, without durations or statistics."""
+    in_window_pred = _make_in_window_predicate(ch, window)
     after_window_pred = _make_after_window_predicate(window)
 
     def api_tab(tab: _SubscriptionTab) -> list[_ChannelVideo]:
@@ -689,25 +688,78 @@ def _fetch_youtube_entries(
                 break
         return entries
 
-    def ytdlp_tab(tab: _SubscriptionTab) -> list[_ChannelVideo]:
-        cookies = youtube_cookies_file or None
-        if tab == "shorts":
-            return _fetch_shorts(ch.url, in_window_fn=in_window_pred, cap=shorts_cap,
-                                 cookies_file=cookies, after_window_fn=after_window_pred)
-        return _fetch_youtube_videos(ch, in_window_fn=in_window_pred, cookies_file=cookies,
-                                     after_window_fn=after_window_pred)
+    return _select_youtube_entries(effective_mode, api_tab)
 
+
+_ApiListing = tuple[list[_ChannelVideo], int] | youtube_api.YouTubeApiError
+
+
+def _youtube_api_listings(
+    channels: list[Channel], *, mode_for: Callable[[Channel], str], window, shorts_cap: int,
+) -> dict[str, _ApiListing]:
+    """List all channels concurrently, then fetch every found video's details together.
+
+    Returns, per channel id, the complete entries or the API error that
+    sends that channel to the yt-dlp fallback.
+    """
+    if not channels:
+        return {}
+
+    def listing(ch: Channel) -> _ApiListing:
+        try:
+            return _list_youtube_api_entries(
+                ch, effective_mode=mode_for(ch), window=window, shorts_cap=shorts_cap,
+            )
+        except youtube_api.YouTubeApiError as error:
+            return error
+
+    with ThreadPoolExecutor(max_workers=min(_API_LISTING_WORKERS, len(channels))) as pool:
+        results = dict(zip((ch.channel_id for ch in channels), pool.map(listing, channels)))
+
+    listed = {key: result for key, result in results.items() if isinstance(result, tuple)}
     try:
-        entries, short_count = _select_youtube_entries(effective_mode, api_tab)
-        details = youtube_api.fetch_video_details(entry.video_id for entry in entries)
+        details = youtube_api.fetch_video_details(
+            entry.video_id for entries, _ in listed.values() for entry in entries
+        )
+    except youtube_api.YouTubeApiError as error:
+        return {key: error for key in results}
+    for key, (entries, _) in listed.items():
         for entry in entries:
             detail = details.get(entry.video_id)
             if detail is None or detail.duration_sec is None:
-                raise youtube_api.TransientFailure("Missing duration for a subscription upload")
+                results[key] = youtube_api.TransientFailure("Missing duration for a subscription upload")
+                break
             entry.duration_sec = detail.duration_sec
             entry.statistics = detail.statistics
-    except youtube_api.YouTubeApiError as error:
-        notice.report(error)
+    return results
+
+
+def _fetch_youtube_entries(
+    ch: Channel,
+    *,
+    effective_mode: str,
+    window,
+    shorts_cap: int,
+    youtube_cookies_file: str,
+    notice: FallbackNotice,
+    api_listing: _ApiListing,
+) -> list[_ChannelVideo]:
+    """Use the channel's API listing, or select the whole channel through yt-dlp."""
+    if isinstance(api_listing, tuple):
+        entries, short_count = api_listing
+    else:
+        notice.report(api_listing)
+        in_window_pred = _make_in_window_predicate(ch, window)
+        after_window_pred = _make_after_window_predicate(window)
+
+        def ytdlp_tab(tab: _SubscriptionTab) -> list[_ChannelVideo]:
+            cookies = youtube_cookies_file or None
+            if tab == "shorts":
+                return _fetch_shorts(ch.url, in_window_fn=in_window_pred, cap=shorts_cap,
+                                     cookies_file=cookies, after_window_fn=after_window_pred)
+            return _fetch_youtube_videos(ch, in_window_fn=in_window_pred, cookies_file=cookies,
+                                         after_window_fn=after_window_pred)
+
         entries, short_count = _select_youtube_entries(effective_mode, ytdlp_tab)
 
     _maybe_warn_cap_hit(short_count, ch, shorts_cap)
@@ -783,6 +835,15 @@ def run_subscribes_update(
     state_updates: list[tuple[str, str, str]] = []
 
     notice = fallback_notice_for_run()
+
+    def youtube_mode(ch: Channel) -> str:
+        # Per-call CLI overrides win over the stored per-channel setting.
+        return cli_override_mode or ch.mode or DEFAULT_MODE
+
+    api_listings = _youtube_api_listings(
+        [c for c in channels if c.channel_id and c.platform not in ("instagram", "tiktok")],
+        mode_for=youtube_mode, window=window, shorts_cap=shorts_cap,
+    )
     for ch in channels:
         if not ch.channel_id:
             continue
@@ -813,16 +874,15 @@ def run_subscribes_update(
                 )
             else:
                 # YouTube — four-mode router (auto/videos-only/shorts-only/
-                # shorts-and-videos). The mode is resolved here so per-call
-                # CLI overrides win over the stored per-channel setting.
-                effective_mode = cli_override_mode or ch.mode or DEFAULT_MODE
+                # shorts-and-videos).
                 entries = _fetch_youtube_entries(
                     ch,
-                    effective_mode=effective_mode,
+                    effective_mode=youtube_mode(ch),
                     window=window,
                     shorts_cap=shorts_cap,
                     youtube_cookies_file=youtube_cookies_file,
                     notice=notice,
+                    api_listing=api_listings[ch.channel_id],
                 )
         except ChannelNotFoundError:
             # Username changed (or account deleted / privated). Surface a clear

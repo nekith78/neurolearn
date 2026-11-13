@@ -284,3 +284,64 @@ def test_batch_without_dates_still_requests_only_the_limit(monkeypatch, tmp_path
     rows, _ = run_batch(monkeypatch, tmp_path, "https://www.youtube.com/@creator", "--limit", "3")
     assert [r.video_id for r in rows] == ["a", "b", "c"]
     assert [c["maxResults"] for c in calls] == [3]
+
+
+def _video_item(video_id, duration="PT5M", **extra):
+    return {"id": video_id, "contentDetails": {"duration": duration},
+            "snippet": {"title": f"Title {video_id}", "channelTitle": "Creator",
+                        "publishedAt": "2026-05-01T12:00:00Z", **extra},
+            "statistics": {"viewCount": "7"}}
+
+
+def _resolve_links(monkeypatch, links, items, *, status=200, key=True):
+    from skills.neurolearn.utils import resolver
+
+    calls, probed = [], []
+    if key:
+        monkeypatch.setenv("YOUTUBE_API_KEY", "test")
+    def transport(url, params, headers, timeout):
+        calls.append((url.rsplit("/", 1)[1], params["id"].split(",")))
+        return status, {"items": items} if status == 200 else {"error": {"errors": [{"reason": "backendError"}]}}
+    monkeypatch.setattr(api, "_http_get", transport)
+    def probe(url):
+        probed.append(url)
+        return "video", {"id": resolver.extract_youtube_video_id(url), "title": "from yt-dlp", "duration": 9}
+    monkeypatch.setattr(resolver, "probe_input", probe)
+    targets, failures = resolver.resolve(links, None, resolver.ResolverFilters())
+    assert not failures
+    return targets, calls, probed
+
+
+def test_single_video_links_resolve_in_one_details_request(monkeypatch):
+    links = ["https://www.youtube.com/watch?v=aaaaaaaaaaa", "https://youtu.be/bbbbbbbbbbb",
+             "https://www.youtube.com/shorts/ccccccccccc"]
+    targets, calls, probed = _resolve_links(
+        monkeypatch, links, [_video_item(v) for v in ("aaaaaaaaaaa", "bbbbbbbbbbb", "ccccccccccc")])
+    assert calls == [("videos", ["aaaaaaaaaaa", "bbbbbbbbbbb", "ccccccccccc"])] and probed == []
+    assert [(t.url, t.title, t.duration_sec, t.channel, t.source, t.statistics["view_count"])
+            for t in targets] == [(link, f"Title {vid}", 300, "Creator", "inline", 7)
+                                  for link, vid in zip(links, ("aaaaaaaaaaa", "bbbbbbbbbbb", "ccccccccccc"))]
+    assert targets[0].upload_date.isoformat() == "2026-05-01"
+
+
+def test_links_the_api_cannot_describe_go_through_the_probe(monkeypatch):
+    links = ["https://www.youtube.com/watch?v=aaaaaaaaaaa", "https://www.youtube.com/watch?v=private0000",
+             "https://www.youtube.com/live/livenow0000"]
+    targets, calls, probed = _resolve_links(monkeypatch, links, [
+        _video_item("aaaaaaaaaaa"), _video_item("livenow0000", "P0D", liveBroadcastContent="live")])
+    assert len(calls) == 1 and probed == links[1:]
+    assert [t.title for t in targets] == ["Title aaaaaaaaaaa", "from yt-dlp", "from yt-dlp"]
+
+
+def test_single_links_without_a_key_probe_silently(monkeypatch, capsys):
+    links = ["https://www.youtube.com/watch?v=aaaaaaaaaaa"]
+    targets, calls, probed = _resolve_links(monkeypatch, links, [], key=False)
+    assert calls == [] and probed == links and targets[0].title == "from yt-dlp"
+    assert capsys.readouterr().err == ""
+
+
+def test_failed_single_link_lookup_falls_back_with_one_notice(monkeypatch, capsys):
+    links = ["https://www.youtube.com/watch?v=aaaaaaaaaaa", "https://www.youtube.com/watch?v=bbbbbbbbbbb"]
+    targets, calls, probed = _resolve_links(monkeypatch, links, [], status=500)
+    assert len(calls) == 1 and sorted(probed) == links
+    assert capsys.readouterr().err.count("Falling back to yt-dlp") == 1

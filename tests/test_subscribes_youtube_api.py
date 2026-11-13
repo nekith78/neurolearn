@@ -238,3 +238,55 @@ def test_past_window_skips_newer_uploads_and_returns_the_window(tmp_path, monkey
     if not with_key:
         # The walk still ends at the first upload older than the window.
         assert probed == ["newest00001", "inwindow001", "inwindow002", "tooold00001"]
+
+
+def _three_channel_update(tmp_path, monkeypatch, broken=None):
+    path = tmp_path / "subscribes.toml"
+    names = ("first", "second", "third")
+    save_subscribes(path, [channel(name, mode="videos-only", last_seen_video_id="old",
+                                   last_seen_published="2026-03-05T10:00:00+00:00") for name in names])
+    monkeypatch.setattr("skills.neurolearn.subscribes.cli.SUBSCRIBES_PATH", path)
+    monkeypatch.setattr(pipeline, "_append_history", lambda **kwargs: None)
+    monkeypatch.setenv("YOUTUBE_API_KEY", "test-only")
+    captured, details_requests, site = [], [], []
+    monkeypatch.setattr(pipeline, "_run_batch_pipeline",
+                        lambda *, targets, **kw: captured.extend(t.video_id for t in targets))
+
+    def transport(url, params, headers, timeout):
+        if url.endswith("/playlistItems"):
+            name = params["playlistId"][4:]
+            if name == broken:
+                return 500, {"error": {"errors": [{"reason": "backendError"}]}}
+            return 200, {"items": [upload(f"new-{name}", "2026-03-05T11:00:00Z"),
+                                   upload("old", "2026-03-05T10:00:00Z")]}
+        details_requests.append(sorted(params["id"].split(",")))
+        return 200, {"items": [{"id": vid, "contentDetails": {"duration": "PT42S"}}
+                               for vid in params["id"].split(",")]}
+
+    def list_ids(url, **kwargs):
+        site.append(url)
+        return ["site-video"]
+
+    monkeypatch.setattr(youtube_api, "_http_get", transport)
+    monkeypatch.setattr(pipeline, "_list_tab_ids", list_ids)
+    monkeypatch.setattr(pipeline, "_extract_tab_metadata", lambda vid, **kw: pipeline._ChannelVideo(
+        vid, f"https://www.youtube.com/watch?v={vid}", vid, 42,
+        datetime.fromisoformat("2026-03-05T11:00:00+00:00")))
+    result = update()
+    assert result.exit_code == 0, result.output
+    return captured, details_requests, site, result.output
+
+
+def test_all_channels_share_one_details_request_and_keep_their_order(tmp_path, monkeypatch):
+    captured, details_requests, site, _ = _three_channel_update(tmp_path, monkeypatch)
+    assert captured == ["new-first", "new-second", "new-third"]
+    assert details_requests == [["new-first", "new-second", "new-third"]]
+    assert site == []
+
+
+def test_one_channel_listing_failure_falls_back_alone(tmp_path, monkeypatch):
+    captured, details_requests, site, output = _three_channel_update(tmp_path, monkeypatch, broken="second")
+    assert captured == ["new-first", "site-video", "new-third"]
+    assert details_requests == [["new-first", "new-third"]]
+    assert site == ["https://www.youtube.com/@second"]
+    assert output.count("Falling back to yt-dlp") == 1

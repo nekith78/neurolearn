@@ -15,6 +15,7 @@ type, never from message strings.
 from __future__ import annotations
 
 import re
+import threading
 from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
 from datetime import datetime
@@ -74,6 +75,26 @@ _RATE_LIMIT_REASONS = frozenset({"rateLimitExceeded", "userRateLimitExceeded"})
 _INVALID_KEY_REASONS = frozenset({"keyInvalid", "keyExpired", "API_KEY_INVALID"})
 
 
+_client = None
+_client_lock = threading.Lock()
+
+
+def _shared_client():
+    """One HTTP client per process, so requests in a run reuse a connection.
+
+    The library closes an idle connection on its own (5 s by default) and
+    the process exit closes the rest; nothing outlives the command.
+    """
+    global _client
+    if _client is None:
+        with _client_lock:
+            if _client is None:
+                import httpx
+
+                _client = httpx.Client()
+    return _client
+
+
 def _http_get(
     url: str, params: dict[str, Any], headers: dict[str, str], timeout: float
 ) -> tuple[int, Any]:
@@ -84,8 +105,13 @@ def _http_get(
     """
     import httpx
 
+    client = _shared_client()
     try:
-        resp = httpx.get(url, params=params, headers=headers, timeout=timeout)
+        try:
+            resp = client.get(url, params=params, headers=headers, timeout=timeout)
+        except (httpx.ConnectError, httpx.ConnectTimeout):
+            # Nothing was sent, so one more attempt cannot double a request.
+            resp = client.get(url, params=params, headers=headers, timeout=timeout)
     except httpx.HTTPError as e:
         raise TransientFailure(f"{type(e).__name__}: {e}") from None
     try:
